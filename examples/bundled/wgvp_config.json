@@ -1,0 +1,6 @@
+{
+ "_doc": "bundled offline examples: a portrait phone clip (OWN01) and a two-view mirror composite of it (OWN02); detector_imgsz 960 keeps the walker detected at the far end of the corridor",
+ "params": {
+  "detector_imgsz": 960
+ }
+}

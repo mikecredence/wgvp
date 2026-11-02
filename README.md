@@ -72,10 +72,18 @@ python -m wgvp dry-run --cpu-only
 DRY RUN PASS (11/11 checks)
 ```
 
-**2. Example corpus on real footage.** Three public YouTube clips (a gym walk, a corridor shuttle-walk test with
-two standing staff, a crowded plaza) are fetched to your machine, cut, and given a fabricated sensor recording made
-from the walker's own motion, so the whole pipeline can be exercised on real video without any real IMU. See
-[examples/README.md](examples/README.md) for what each one shows and what to expect.
+**2. Real footage, offline (1 min).** `examples/bundled/` ships a 13-s phone clip of one of us walking down an
+office corridor and back, plus a synthetic two-view file made from it, each with a fabricated sensor recording built
+from the walker's own motion. No download, no real IMU:
+
+```bash
+python -m wgvp run examples/bundled --cpu-only
+python examples/verify_examples.py --data examples/bundled
+```
+
+**3. Example corpus on more footage.** Three public YouTube clips (a corridor walk test, a shuttle-walk test with
+two standing staff, a crowded plaza) are fetched to your machine, cut, and given the same kind of fabricated
+recording. [examples/README.md](examples/README.md) says what each one shows and what to expect.
 
 ```bash
 pip install yt-dlp
@@ -84,7 +92,7 @@ python -m wgvp run examples/data --cpu-only
 python examples/verify_examples.py
 ```
 
-**3. Your own data.** Point the pipeline at the top-level folder that holds the subject folders:
+**4. Your own data.** Point the pipeline at the top-level folder that holds the subject folders:
 
 ```bash
 python -m wgvp scan /path/to/data_root       # what was found, what was not, and why
@@ -95,7 +103,7 @@ or open the GUI (`python -m wgvp`): choose the data folder, **Scan**, **Dry run*
 **Open QC summary**. The GUI needs tkinter, which the python.org installers include; on Debian/Ubuntu
 `sudo apt install python3-tk`.
 
-**4. The GPU step** (GVHMR, NVIDIA GPU with 8 GB or more, CUDA 12) lives in its own Python environment:
+**5. The GPU step** (GVHMR, NVIDIA GPU with 8 GB or more, CUDA 12) lives in its own Python environment:
 [env/install_gvhmr.md](env/install_gvhmr.md). Once it exists, `python -m wgvp check-gpu --gvhmr-root <GVHMR>
 --gvhmr-python <that env's python>` lists every missing piece with its fix, and `python -m wgvp run <root>` (without
 `--cpu-only`, with `gvhmr.root` / `gvhmr.python` set in the config or passed as flags) runs the lift after the CPU
@@ -119,8 +127,11 @@ subject and the sync stage reports which recording the video actually holds, so 
 video per trial both work. Single-view videos work too (`"views": {"layout": "single"}`).
 
 The first `scan` writes `wgvp_config.json` into the data root with every matching rule (subject-folder pattern,
-task names, CSV and video name patterns, panel boxes per video, selection thresholds, GVHMR paths). Edit it and scan
-again; no code changes are needed for a different naming convention.
+task names, CSV and video name patterns, panel boxes per video, selection thresholds, GVHMR paths) and the run
+parameters. Edit it and scan again; no code changes are needed for a different naming convention. One parameter
+worth knowing: `params.detector_imgsz` (default 640) is the pose detector's input size; 960 keeps a person who
+shrinks to under a tenth of the frame height (far end of a corridor, portrait phone video) detected, at about twice
+the CPU cost. The bundled example needs it; a clinic walkway seen from its end may too.
 
 Label export for the optional cross-check, in MATLAB with the labeler session open or the `gTruth` object loaded:
 
@@ -286,7 +297,8 @@ wgvp/            the package: discovery, video_io (panels, cutting), tracking, s
                  flash, labels, reconcile, gvhmr_stage, qc, summary, session (orchestration), cli, gui, dryrun
 weights/         yolov8n-pose.pt (ultralytics, AGPL-3.0)
 sample/          the synthetic dry-run session (video + recording CSV + expected answers)
-examples/        public-footage example corpus: sources.json, fetch_examples.py, verify_examples.py
+examples/        bundled/ (our own clip + a two-view composite of it, runs offline); the fetched public-footage
+                 corpus: sources.json, fetch_examples.py, verify_examples.py; make_bundled.py
 tests/           unit tests (python -m pytest tests -q)
 tools/           make_sample.py (how the sample was rendered), make_readme_figures.py
 env/             GVHMR environment notes; docker/ container recipe (untested build)
@@ -304,7 +316,8 @@ lifting step.
 wgvp is released under the GNU Affero General Public License v3.0 ([LICENSE](LICENSE)). The 2D tracker it imports
 (`ultralytics`) and the bundled `yolov8n-pose.pt` weights are AGPL-3.0 as well. GVHMR is licensed by its authors for
 research and non-commercial use and is not redistributed here; the SMPL and SMPL-X body models require registration
-with their authors. The example corpus is not redistributed: `fetch_examples.py` downloads each public video onto
-your machine, and the sources are attributed in `examples/sources.json`.
+with their authors. The fetched example corpus is not redistributed: `fetch_examples.py` downloads each public video onto
+your machine, and the sources are attributed in `examples/sources.json`. The bundled clip in `examples/bundled/` is
+our own recording, published with the consent of the person in it, under the same licence as the code.
 
 Mike Caiola, Credence Management Solutions, LLC - mcaiola@credence-llc.com

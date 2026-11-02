@@ -37,8 +37,8 @@ DEFAULT_CONFIG = {
     "ignore_dirs": ["wgvp_output", ".git", "__pycache__", "work", "deliver"],
     "params": {
         "track_max_width": 960, "gvhmr_max_width": 1280, "max_chunk_frames": 3000, "chunk_overlap_frames": 60,
-        "margin_s": 1.0, "tol_frames": 3.0, "fps_downsample_above": 45.0, "pose_conf": 0.25,
-        "_doc": "track_max_width: each panel is downscaled to this width for the 2D tracker (keypoints reported in original pixels). max_chunk_frames: lifter input chunk size (RAM bound). tol_frames: agreement tolerance between sync sources."
+        "margin_s": 1.0, "tol_frames": 3.0, "fps_downsample_above": 45.0, "pose_conf": 0.25, "detector_imgsz": 640,
+        "_doc": "track_max_width: each panel is downscaled to this width for the 2D tracker (keypoints reported in original pixels). detector_imgsz: the pose detector's input size (longer side, pixels); 640 is the default, 960 keeps a person who shrinks to under a tenth of the frame height (far end of a corridor, portrait phone video) detected at about twice the CPU cost. max_chunk_frames: lifter input chunk size (RAM bound). tol_frames: agreement tolerance between sync sources."
     },
     "selection": {"accept_r": 0.30, "min_excess": 0.15, "lag_tol_s": 0.12, "min_margin": 0.12, "min_r_primary": 0.35, "app_attach": 0.35,
                   "_doc": "accept_r: pelvis correlation needed to accept a track fragment as the subject; min_r_primary/min_margin: confident selection; app_attach: appearance distance for attaching brief re-entries."},
