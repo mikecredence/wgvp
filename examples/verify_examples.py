@@ -21,16 +21,18 @@ HERE = Path(__file__).resolve().parent
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--data", default=str(HERE / "data")); a = ap.parse_args()
     root = Path(a.data); ok_all = True; rows = []
-    for exp_path in sorted(root.glob("EX*/expected.json")):
+    for exp_path in sorted(root.glob("*/expected.json")):
         exp = json.loads(exp_path.read_text()); sid, rid = exp["session_id"], exp["recording_id"]
         deliver = root / "wgvp_output" / sid / "deliver"
         ss_path = deliver / "session_summary.json"
         if not ss_path.exists():
             rows.append((sid, "NO RUN", "", "", "", f"missing {ss_path.relative_to(root)}")); ok_all = False; continue
-        ss = json.loads(ss_path.read_text()); ri = ss["items"].get(rid, {}); it = ss["items"].get(f"{rid}/full", {})
+        ss = json.loads(ss_path.read_text()); ri = ss["items"].get(rid, {})
+        view = exp.get("gt_view", "full")                     # single-view sessions: 'full'; two-view ones: the view the ground truth belongs to
+        it = ss["items"].get(f"{rid}/{view}", {})
         off = ri.get("offset_s"); tol = 2.0 / exp["fps"]
         off_ok = off is not None and abs(off - exp["offset_s"]) <= tol
-        st = deliver / rid / "full" / "subject_track.npz"; frac, n = 0.0, 0
+        st = deliver / rid / view / "subject_track.npz"; frac, n = 0.0, 0
         if st.exists():
             z = np.load(st); lut = {int(f): np.array(h) for f, h in zip(exp["gt_frames"], exp["gt_hip_px"])}
             errs = [np.hypot(*(kp[11:13, :2].mean(0) - lut[int(f)])) for f, kp in zip(z["frame_idx"], z["kp2d"]) if int(f) in lut and np.isfinite(kp[11:13, :2]).all()]

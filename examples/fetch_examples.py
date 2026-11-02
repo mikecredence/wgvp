@@ -77,10 +77,12 @@ def cut(src: Path, dst: Path, t0: float, t1: float, fps: int = 30, max_w: int = 
     subprocess.run(cmd, check=True)
 
 
-def track(video: Path, log):
-    """Exactly the pipeline's tracker settings, so the fragments found here are the ones the run will see."""
+def track(video: Path, log, imgsz: int | None = None):
+    """Exactly the pipeline's tracker settings (the data root's wgvp_config.json must then carry the same
+    detector_imgsz), so the fragments found here are the ones the run will see."""
     info = probe_video(video, with_hash=False); prm = DEFAULT_CONFIG["params"]
-    ts = analyze_video(video, WEIGHTS, [{"id": "full", "box": [0, 0, info["width"], info["height"]]}], max_width=prm["track_max_width"], conf=prm["pose_conf"], log=log)["full"]
+    ts = analyze_video(video, WEIGHTS, [{"id": "full", "box": [0, 0, info["width"], info["height"]]}], max_width=prm["track_max_width"], conf=prm["pose_conf"],
+                       imgsz=int(imgsz or prm["detector_imgsz"]), log=log)["full"]
     return split_fragments(ts)
 
 

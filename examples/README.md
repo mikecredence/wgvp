@@ -1,8 +1,47 @@
-# Example corpus: real footage, fabricated sensor
+# Examples: real footage, fabricated sensor
 
-The bundled dry-run sample is rendered, so it cannot show how the tracker and the selector behave on real people,
-real lighting and real clutter. This corpus does, without redistributing anyone's video and without needing a real
-inertial sensor:
+The dry-run sample is rendered, so it cannot show how the tracker and the selector behave on real people, real
+lighting and real clutter. Two things here do, without needing a real inertial sensor: a clip of our own that ships
+in the repository (`bundled/`, runs offline) and a corpus of public footage that is fetched to your machine
+(`fetch_examples.py`, nothing redistributed).
+
+## Bundled offline example (`examples/bundled/`)
+
+```bash
+python -m wgvp run examples/bundled --cpu-only          # about a minute on a laptop CPU
+python examples/verify_examples.py --data examples/bundled
+```
+
+| session | what it is | what it exercises |
+|---|---|---|
+| OWN01 | a 13-s portrait phone clip: one of us walks away down an office corridor, turns at the far end and walks back (720 x 1280, 30 fps, 3.6 MB) | a real person, real lighting, a four-fold change of apparent size, and the single-view path |
+| OWN02 | a synthetic two-view file made from OWN01: the clip cropped to its left 85 % as the left panel, the clip mirrored and cropped as the right panel, letterboxed differently, black separator (1230 x 1432, 5.2 MB) | panel detection on the tiled layout, the joint two-view selection, the two-view reconciliation. It is **not** a second camera; it is the same frames twice, so the reconciliation is bound to agree |
+
+The recording CSVs are fabricated exactly as for the fetched corpus (below): the walker's own pelvis signal plus
+noise at a displacement SNR of 2, differentiated twice, IMU t = 0 planted 0.8 s into the clip; OWN02 reuses OWN01's
+recording since the frames are the same. The person in the clip consented to its publication; it is released under
+the repository licence.
+
+Measured on 2026-11-02:
+
+| session | planted offset | found | subject frames on target | `r_fine` | `margin` | panels | status |
+|---|---|---|---|---|---|---|---|
+| OWN01 | 0.8 s | 0.819 s | 100 % of 374 | 0.85 | 0.64 | single (correct) | PASS |
+| OWN02 | 0.8 s | 0.821 s | 100 % of 374 | 0.86 / 0.82 (left / right) | 0.45 / 0.45 | left [0,0,613,1280] vs true [0,0,612,1280]; right [617,75,1230,1357] vs [618,76,1230,1356] | WARN: `flash_disagrees (+0.112 s)`; reconcile PASS, residual lag 4 ms |
+
+The data root's `wgvp_config.json` sets `params.detector_imgsz` to 960. At the default 640 the walker at the far
+end of the corridor (under a tenth of the frame height) drops out of detection for about three seconds and the
+track splits into two 5-s fragments, which the selector declines by design (see *What was tried and left out*).
+This is the one setting a lab whose along-walkway camera sees the participant far away may also need. The WARN on
+OWN02 is the optional sync-light cross-check: the clip has no light, the automatic detector proposes a brightness
+change in the footage, and it misses the cross-correlation by 0.112 s, just over the 3-frame tolerance (on OWN01
+a different candidate happened to fall inside it and reads "validated by flash"; neither means anything here).
+
+`make_bundled.py` rebuilds both sessions from the original recording.
+
+## Fetched corpus (`examples/data/`, built by `fetch_examples.py`)
+
+This corpus runs the pipeline on public footage without redistributing anyone's video:
 
 * three public YouTube clips are **downloaded onto your machine** by `fetch_examples.py` (nothing is stored in this
   repository except the video ids, the timecodes and the pixel position of the intended walker);
@@ -16,12 +55,12 @@ inertial sensor:
 * the planted offset and the walker's hip track go to `EXnn/expected.json`, and `verify_examples.py` checks a
   pipeline run against them.
 
-Because the reference is derived from the same tracker the pipeline uses, these examples show that the machinery
+Because the reference is derived from the same tracker the pipeline uses, these examples (bundled and fetched) show that the machinery
 runs end to end on real footage and picks the intended person out of everyone else in the frame. They are **not**
 an independent accuracy measurement; the unit tests, the rendered sample and the tests in
 [docs/design.md](../docs/design.md) are that.
 
-## Run it
+### Run it
 
 ```bash
 pip install yt-dlp                                   # only for the download step
@@ -35,7 +74,7 @@ If YouTube answers yt-dlp with "Sign in to confirm you're not a bot", re-run the
 `--source-dir <folder>` with the files named `<video_id>.mp4`. The pipeline writes to `examples/data/wgvp_output/`;
 open `QC_SUMMARY.html` there after the run. `examples/data/` and the download cache are git-ignored.
 
-## The three clips
+### The three clips
 
 | example | source | cut | what it exercises |
 |---|---|---|---|
@@ -46,7 +85,7 @@ open `QC_SUMMARY.html` there after the run. `examples/data/` and the download ca
 All three are listed as healthy-walking sources in the GAVD dataset. They are used here only as footage of people
 walking; nothing about the people in them is inferred or stored beyond the skeleton keypoints of the chosen walker.
 
-## What to expect
+### What to expect
 
 Measured on 2026-11-02 (Apple M-series CPU; `python examples/verify_examples.py` after the run):
 
@@ -70,7 +109,7 @@ in frame; EX02's walker spends part of the time at the far end of the corridor) 
 skeleton thumbnails hold dozens of people; they still pass the privacy check because the check accepts
 palette-limited renders, not only sparse ones.
 
-## What was tried and left out
+### What was tried and left out
 
 A fourth clip, `CX0_rJZJ5_U` (one person walking toward a gym camera and back, 13 s), was dropped: the walker fills
 the frame when closest, the tracker splits the track there into two fragments of 6.6 and 5.8 s, and the selector
@@ -80,7 +119,7 @@ noisy reference rarely gives. The pipeline's working regime is 8 s or more of co
 clinic recording gives 20-45 s. In such a case the QC says FAIL with `no subject could be chosen` and names the two
 operator tools (`pick-subject`, `set-roi`).
 
-## Adding a clip
+### Adding a clip
 
 Add an entry to `sources.json`: the video id and URL, the cut, and one or more `subject_hints` as
 `[frame_in_cut, x, y]` of the walker's hips (pick them from a frame of the cut; any point inside the person's box

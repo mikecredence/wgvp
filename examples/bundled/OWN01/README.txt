@@ -1,0 +1,1 @@
+OWN01: one person (the author) walks away down an office corridor, turns at the far end and walks back; phone video, portrait, 13 s. OWN01_selfpace.csv is a FABRICATED recording: LowerBack_FreeAcc_U = the walker's own pelvis motion from the video plus noise, differentiated twice; IMU t=0 at video 0.8 s.

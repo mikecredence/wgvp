@@ -110,7 +110,8 @@ def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: 
     vdir = work / video.stem; vdir.mkdir(parents=True, exist_ok=True)
     info = probe_video(video); dump_json(info, vdir / "probe.json")
     pan = panels_for(video, cfg, vdir, log)
-    key = {"sha256": info["sha256"], "boxes": [p["box"] for p in pan["panels"]], "weights": Path(weights).name, "width": cfg["params"]["track_max_width"]}
+    imgsz = int(cfg["params"].get("detector_imgsz", 640))
+    key = {"sha256": info["sha256"], "boxes": [p["box"] for p in pan["panels"]], "weights": Path(weights).name, "width": cfg["params"]["track_max_width"], "imgsz": imgsz}
     cache = vdir / "tracks_cache.json"
     if cache.exists() and not force and json.loads(cache.read_text()) == key and all((vdir / f"tracks_{p['id']}.npz").exists() for p in pan["panels"]):
         views = {p["id"]: TrackSet.load(vdir / f"tracks_{p['id']}.npz") for p in pan["panels"]}
@@ -121,7 +122,7 @@ def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: 
         if f"light_{p['id']}" in sconf:
             rois.setdefault(p["id"], {})["light"] = sconf[f"light_{p['id']}"]
     log(f"    tracking {info['width']}x{info['height']} {info['fps_nominal']:.2f} fps, {info['n_frames_nominal']} frames, {len(pan['panels'])} view(s) ...")
-    views = analyze_video(video, weights, pan["panels"], max_width=cfg["params"]["track_max_width"], rois=rois, log=log, device=device, conf=cfg["params"]["pose_conf"])
+    views = analyze_video(video, weights, pan["panels"], max_width=cfg["params"]["track_max_width"], rois=rois, log=log, device=device, conf=cfg["params"]["pose_conf"], imgsz=imgsz)
     for vid, ts in views.items():
         split_fragments(ts); ts.meta["video_sha256"] = info["sha256"]; ts.save(vdir / f"tracks_{vid}.npz")
     cache.write_text(json.dumps(key))

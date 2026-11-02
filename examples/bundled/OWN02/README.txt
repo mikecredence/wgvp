@@ -1,0 +1,1 @@
+OWN02: a synthetic two-view file made from OWN01 (left panel = the clip cropped to its left 85 %; right panel = the clip mirrored and cropped, letterboxed, black separator), to exercise the two-view code path offline. Not a second camera. Same fabricated recording as OWN01.
