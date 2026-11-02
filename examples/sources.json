@@ -1,0 +1,73 @@
+{
+  "_doc": "Public example corpus for wgvp. Nothing here is redistributed: fetch_examples.py downloads each source from YouTube on your machine (or takes a copy you already have), cuts the listed segment, finds the walker marked by `subject_hints` (frame index in the cut, x, y pixel of the hips) with the pipeline's own tracker and settings, and fabricates a WearGait-style recording CSV whose pelvis accelerometer is that walker's own vertical motion (plus displacement-domain noise at SNR 2, differentiated twice), so the pipeline can be run on real footage without any real IMU. `offset_s` is the video time at which the fabricated IMU recording starts; it is what the sync stage must recover. All three videos are listed as healthy-walking sources in the GAVD dataset.",
+  "examples": [
+    {
+      "name": "EX01",
+      "video_id": "n-O8dHyYIF0",
+      "url": "https://www.youtube.com/watch?v=n-O8dHyYIF0",
+      "about": "'6 Minute Walk test' instructional video: one person stands at the near end of a long, empty corridor for two seconds, then walks away from the camera for 13 s, the geometry of a gait lab's along-walkway view (the body shrinks four-fold as it recedes).",
+      "cut_s": [
+        30.0,
+        47.0
+      ],
+      "subject_hints": [
+        [
+          275,
+          581,
+          340
+        ]
+      ],
+      "offset_s": 1.0,
+      "noise_sd": 0.5,
+      "seed": 1,
+      "expect": "the easy case: a single walker, one fragment, a stand-then-walk onset for the coarse match, high confidence; the sync offset of 1.0 s recovered within a frame"
+    },
+    {
+      "name": "EX02",
+      "video_id": "FTHc-TJOQ34",
+      "url": "https://www.youtube.com/watch?v=FTHc-TJOQ34",
+      "about": "'Shuttle walk test' demonstration: one person walks away down a corridor and back while two staff members stand in the frame, one of them very close to the camera and a third of the frame tall.",
+      "cut_s": [
+        200.0,
+        250.0
+      ],
+      "subject_hints": [
+        [
+          300,
+          500,
+          211
+        ],
+        [
+          1000,
+          550,
+          213
+        ]
+      ],
+      "offset_s": 2.0,
+      "noise_sd": 0.5,
+      "seed": 2,
+      "expect": "the clinic-like case: the walker is chosen over the two standing staff, including the large one; the walker's fragments across the far turn are accepted at one lag; coverage is partial because the walker is far down the corridor part of the time"
+    },
+    {
+      "name": "EX03",
+      "video_id": "KnvYRnTA3XQ",
+      "url": "https://www.youtube.com/watch?v=KnvYRnTA3XQ",
+      "about": "Public plaza footage with hundreds of pedestrians (60 fps source, cut to 30 fps); the subject is one passer-by crossing the frame right to left over 14 s.",
+      "cut_s": [
+        70.0,
+        100.0
+      ],
+      "subject_hints": [
+        [
+          543,
+          355,
+          559
+        ]
+      ],
+      "offset_s": 1.5,
+      "noise_sd": 0.5,
+      "seed": 3,
+      "expect": "the hard case: one walker among about 300 track fragments, with a reference that has no stand/walk structure; the walker should be found, `low` rather than `high` confidence is possible"
+    }
+  ]
+}

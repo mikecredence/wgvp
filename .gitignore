@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+wgvp-env/
+
+# Pipeline outputs (never commit a run)
+wgvp_output/
+wgvp_dryrun_*/
+
+# Example corpus: videos and derived files are fetched locally, only the manifest is tracked
+examples/data/
+examples/_cache/
+
+# GVHMR checkouts / weights are never part of this repo
+weights/gvhmr_checkpoints/
+GVHMR/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

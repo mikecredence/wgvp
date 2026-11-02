@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wgvp"
+version = "0.1.0"
+description = "WearGait video-to-pose pipeline: subject selection, IMU sync and GVHMR lifting for two-view gait-lab video"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "Mike Caiola", email = "mcaiola@credence-llc.com" }]
+keywords = ["gait", "pose estimation", "SMPL", "GVHMR", "IMU", "video", "Parkinson"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+]
+# The CPU stages. Exact tested versions are in requirements.txt; these are the compatible ranges.
+dependencies = [
+    "numpy>=1.26,<3",
+    "scipy>=1.11",
+    "opencv-python-headless>=4.8",
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "ultralytics>=8.3,<9",
+    "lap>=0.5",
+    "imageio-ffmpeg>=0.4.9",
+]
+
+[project.optional-dependencies]
+# faster CSV reading, Excel annotation sheets, MATLAB v7.3 label exports
+extras = ["pandas>=2.0", "openpyxl>=3.1", "h5py>=3.10"]
+# the example-corpus fetcher
+examples = ["yt-dlp>=2025.1"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+wgvp = "wgvp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/mikecredence/wgvp"
+Issues = "https://github.com/mikecredence/wgvp/issues"
+
+[tool.setuptools]
+# The tracker weights (weights/) and the dry-run sample (sample/) live beside the package and are found relative to
+# it, so install from a clone (`pip install -e .`), not from a wheel.
+packages = ["wgvp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

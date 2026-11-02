@@ -1,0 +1,17 @@
+# CPU stages (scan, tracking, selection, sync, QC, GUI). Python 3.10-3.12 on Windows / macOS / Linux.
+#   python -m venv wgvp-env && <activate> && pip install -r requirements.txt
+# torch is the CPU build (the 2D tracker needs it); the GPU stage has its own environment (env/install_gvhmr.md).
+# The extra index serves CPU-only torch wheels on Linux (PyPI's Linux wheels pull ~2 GB of CUDA libraries).
+--extra-index-url https://download.pytorch.org/whl/cpu
+numpy==2.2.6
+scipy==1.16.3
+opencv-python-headless==4.13.0.92
+torch==2.11.0
+torchvision==0.26.0
+ultralytics==8.4.45
+lap==0.5.13
+imageio-ffmpeg==0.6.0
+# optional (faster CSV reading; Excel annotation sheets; MATLAB v7.3 label exports)
+# pandas==2.3.3
+# openpyxl==3.1.5
+# h5py==3.16.0

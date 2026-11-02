@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below, and cite GVHMR (Shen et al., SIGGRAPH Asia 2024) for the lifting step."
+type: software
+title: "wgvp: WearGait video-to-pose pipeline"
+abstract: "Subject selection, IMU synchronisation and GVHMR lifting for two-view gait-laboratory video. Finds the two tiled camera views, identifies the consented participant among everyone in the room by cross-correlating each person's pelvis motion with the pelvis accelerometer, synchronises the video to the recording timeline, lifts the participant to SMPL-X body parameters per view, and reconciles the views. Only pose-level derivatives leave the site."
+authors:
+  - family-names: Caiola
+    given-names: Mike
+    email: mcaiola@credence-llc.com
+    affiliation: Credence Management Solutions, LLC
+version: 0.1.0
+date-released: 2026-11-02
+repository-code: "https://github.com/mikecredence/wgvp"
+license: AGPL-3.0-or-later
+keywords:
+  - gait analysis
+  - pose estimation
+  - SMPL
+  - GVHMR
+  - inertial measurement unit
+  - video synchronisation
