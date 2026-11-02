@@ -1,3 +1,4 @@
 # Exact versions the CPU stages were tested with (macOS arm64, Python 3.12; and the gvhmr env on the T4 box, Python 3.10):
 #   local: numpy 2.2.6, scipy 1.16.3, opencv-python-headless 4.13.0, torch 2.11.0, ultralytics 8.4.45, imageio-ffmpeg 0.6.0
 #   box  : numpy 2.2.6, scipy 1.15.3, opencv-python 4.13.0.92, torch 2.5.1+cu121, ultralytics 8.3.80, ffmpeg 6.1.1 (system)
+#   CI   : the same pins on ubuntu / windows / macos, Python 3.10 (scipy 1.15.3, the last release for 3.10) and 3.12 (scipy 1.16.3)
