@@ -79,6 +79,16 @@
    "frac_legs_over_20": 0.15797317436661698,
    "coverage": 0.9615357320275353
   },
+  "segment rule, cross-faded (run-time visibility)": {
+   "n_frames": 671,
+   "legs": 13.67797914732039,
+   "arms": 16.77566621747467,
+   "spine": 8.243986453136426,
+   "all": 12.50835532593784,
+   "legs_p90": 21.780708023811723,
+   "frac_legs_over_20": 0.15201192250372578,
+   "coverage": 0.9615357320275353
+  },
   "oracle pick": {
    "n_frames": 671,
    "legs": 12.23305695517621,
@@ -98,7 +108,55 @@
   "visibility-weighted": 11.593069076538086,
   "segment rule (truth visibility)": 10.40166187286377,
   "segment rule (run-time visibility)": 10.170526504516602,
+  "segment rule, cross-faded (run-time visibility)": 10.261404037475586,
   "oracle pick": 5.666021823883057
+ },
+ "continuity": {
+  "left": {
+   "p99_deg": 8.038936962398738,
+   "frac_over_20": 0.0004975124378109452,
+   "n": 14070
+  },
+  "right": {
+   "p99_deg": 9.511157404797837,
+   "frac_over_20": 0.0009950248756218905,
+   "n": 14070
+  },
+  "mean": {
+   "p99_deg": 6.4548408797594705,
+   "frac_over_20": 0.00021321961620469082,
+   "n": 14070
+  },
+  "confidence-weighted": {
+   "p99_deg": 20.617035522287363,
+   "frac_over_20": 0.010305614783226724,
+   "n": 14070
+  },
+  "visibility-weighted": {
+   "p99_deg": 17.582275702130385,
+   "frac_over_20": 0.00788912579957356,
+   "n": 14070
+  },
+  "segment rule (truth visibility)": {
+   "p99_deg": 8.658611321066477,
+   "frac_over_20": 0.0034222602473360816,
+   "n": 12857
+  },
+  "segment rule (run-time visibility)": {
+   "p99_deg": 16.57790776350105,
+   "frac_over_20": 0.007349120332566254,
+   "n": 13471
+  },
+  "segment rule, cross-faded (run-time visibility)": {
+   "p99_deg": 6.987184593969466,
+   "frac_over_20": 0.0007423353871279044,
+   "n": 13471
+  },
+  "oracle pick": {
+   "p99_deg": 18.58249377264443,
+   "frac_over_20": 0.008742004264392323,
+   "n": 14070
+  }
  },
  "root_orientation_median_deg": {
   "left": 15.039449317834462,
@@ -262,6 +320,16 @@
     "frac_legs_over_20": 0.2037037037037037,
     "coverage": 0.15873015873015872
    },
+   "segment rule, cross-faded (run-time visibility)": {
+    "n_frames": 9,
+    "legs": 23.427013489417895,
+    "arms": NaN,
+    "spine": NaN,
+    "all": 11.251557002387601,
+    "legs_p90": 55.786845897283634,
+    "frac_legs_over_20": 0.2037037037037037,
+    "coverage": 0.15873015873015872
+   },
    "oracle pick": {
     "n_frames": 9,
     "legs": 12.31922625674153,
@@ -322,6 +390,16 @@
     "all": 12.309395360740833,
     "legs_p90": 20.442924838329887,
     "frac_legs_over_20": 0.10722610722610723,
+    "coverage": 1.0
+   },
+   "segment rule, cross-faded (run-time visibility)": {
+    "n_frames": 143,
+    "legs": 12.659501303552794,
+    "arms": 14.123229253912518,
+    "spine": 9.146272073349541,
+    "all": 12.339317222650664,
+    "legs_p90": 20.442924838329887,
+    "frac_legs_over_20": 0.10839160839160839,
     "coverage": 1.0
    },
    "oracle pick": {
@@ -386,6 +464,16 @@
     "frac_legs_over_20": 0.24305555555555555,
     "coverage": 0.7466931216931217
    },
+   "segment rule, cross-faded (run-time visibility)": {
+    "n_frames": 72,
+    "legs": 15.893054510363372,
+    "arms": 15.900115724603339,
+    "spine": 8.535650225274361,
+    "all": 12.62621109148651,
+    "legs_p90": 30.42879636980438,
+    "frac_legs_over_20": 0.24074074074074073,
+    "coverage": 0.7466931216931217
+   },
    "oracle pick": {
     "n_frames": 72,
     "legs": 13.92799329466494,
@@ -448,6 +536,16 @@
     "frac_legs_over_20": 0.16622458001768348,
     "coverage": 1.0
    },
+   "segment rule, cross-faded (run-time visibility)": {
+    "n_frames": 377,
+    "legs": 13.821828144520854,
+    "arms": 17.57205720559378,
+    "spine": 7.438990223458071,
+    "all": 12.110447310923357,
+    "legs_p90": 21.516751811118183,
+    "frac_legs_over_20": 0.15826702033598586,
+    "coverage": 1.0
+   },
    "oracle pick": {
     "n_frames": 377,
     "legs": 12.282278184181227,
@@ -508,6 +606,16 @@
     "all": 13.782860075991245,
     "legs_p90": 20.283889507119824,
     "frac_legs_over_20": 0.12380952380952381,
+    "coverage": 1.0
+   },
+   "segment rule, cross-faded (run-time visibility)": {
+    "n_frames": 70,
+    "legs": 13.188293993371126,
+    "arms": 17.86000529150946,
+    "spine": 11.49894571866869,
+    "all": 14.29668699677433,
+    "legs_p90": 20.226824983376268,
+    "frac_legs_over_20": 0.10952380952380952,
     "coverage": 1.0
    },
    "oracle pick": {
@@ -662,6 +770,29 @@
    "R_Wrist": NaN
   },
   "segment rule (run-time visibility)": {
+   "L_Hip": NaN,
+   "R_Hip": NaN,
+   "Spine1": NaN,
+   "L_Knee": NaN,
+   "R_Knee": NaN,
+   "Spine2": NaN,
+   "L_Ankle": NaN,
+   "R_Ankle": NaN,
+   "Spine3": NaN,
+   "L_Foot": NaN,
+   "R_Foot": NaN,
+   "Neck": NaN,
+   "L_Collar": NaN,
+   "R_Collar": NaN,
+   "Head": NaN,
+   "L_Shoulder": NaN,
+   "R_Shoulder": NaN,
+   "L_Elbow": NaN,
+   "R_Elbow": NaN,
+   "L_Wrist": NaN,
+   "R_Wrist": NaN
+  },
+  "segment rule, cross-faded (run-time visibility)": {
    "L_Hip": NaN,
    "R_Hip": NaN,
    "Spine1": NaN,

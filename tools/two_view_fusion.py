@@ -55,6 +55,32 @@ def usable_joints_rt(kp2d: np.ndarray, view_box, visible: np.ndarray, min_conf: 
     return np.stack([ins[:, JOINT_KP[j]].all(1) for j in range(21)], 1) & np.asarray(visible, bool)[:, None]
 
 
+def ramp_inside(mask: np.ndarray, k: int) -> np.ndarray:
+    """(T, J) bool -> (T, J) float weights that rise linearly from 0 to 1 over the first k frames of every run of
+    True and fall over the last k, and are exactly 0 where the mask is False. Used to cross-fade between views at
+    the edges of their usable segments; where only one view is usable the weights renormalise to that view and the
+    ramp has no effect."""
+    m = np.asarray(mask, bool); T, J = m.shape; w = np.zeros((T, J), float)
+    for j in range(J):
+        edges = np.flatnonzero(np.diff(np.r_[0, m[:, j].astype(int), 0]))
+        for a, b in zip(edges[::2], edges[1::2]):
+            n = b - a; i = np.arange(n)
+            w[a:b, j] = np.minimum(1.0, np.minimum((i + 1) / k, (n - i) / k))
+    return w
+
+
+def step_stats(aa: np.ndarray) -> dict:
+    """Frame-to-frame continuity of an estimate (T, 21, 3): largest per-joint rotation step between consecutive
+    frames where both are emitted; p99 and the share of steps over 20 deg."""
+    ok = np.isfinite(aa).all(2)                                          # (T, 21)
+    both = ok[1:] & ok[:-1]
+    if not both.any():
+        return {"p99_deg": float("nan"), "frac_over_20": float("nan"), "n": 0}
+    a0 = aa[:-1][both]; a1 = aa[1:][both]
+    d = np.degrees((R.from_rotvec(a0).inv() * R.from_rotvec(a1)).magnitude())
+    return {"p99_deg": float(np.percentile(d, 99)), "frac_over_20": float((d > 20).mean()), "n": int(len(d))}
+
+
 def geodesic(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """a, b: (..., 3) axis-angle -> degrees; NaN rotations (no output) give NaN."""
     sh = a.shape[:-1]; a2 = a.reshape(-1, 3); ok = np.isfinite(a2).all(1); out = np.full(len(a2), np.nan)
@@ -137,14 +163,17 @@ def main(argv=None):
     fused = {"mean": chordal_mean([est[A], est[B]], np.ones((2, len(frames), 21))),
              "confidence-weighted": chordal_mean([est[A], est[B]], np.stack([w_conf[A], w_conf[B]])),
              "visibility-weighted": chordal_mean([est[A], est[B]], np.stack([w_vis[A], w_vis[B]]))}
-    def segment_rule(wa, wb):
-        """Per joint and frame: the view(s) whose flag is set, averaged when both; NaN (no output) when neither."""
-        out = chordal_mean([est[A], est[B]], np.stack([wa.astype(float), wb.astype(float)]))
+    def segment_rule(wa, wb, ramp_frames: int = 0):
+        """Per joint and frame: the view(s) whose flag is set, averaged when both; NaN (no output) when neither.
+        With ramp_frames > 0 the weights cross-fade over that many frames at the edges of each usable segment."""
+        fa, fb = (ramp_inside(wa, ramp_frames), ramp_inside(wb, ramp_frames)) if ramp_frames else (wa.astype(float), wb.astype(float))
+        out = chordal_mean([est[A], est[B]], np.stack([fa, fb]))
         none = ~(wa | wb); out[none] = np.nan
         return out
     hard = {v: (w_vis[v] >= 1.0) for v in views}                                             # truth-based usable flags
     fused["segment rule (truth visibility)"] = segment_rule(hard[A], hard[B])
     fused["segment rule (run-time visibility)"] = segment_rule(in_frame_rt[A], in_frame_rt[B])
+    fused["segment rule, cross-faded (run-time visibility)"] = segment_rule(in_frame_rt[A], in_frame_rt[B], ramp_frames=15)
     pick = np.where((err[A] <= err[B])[:, :, None], est[A], est[B]); fused["oracle pick"] = pick
     err.update({k: geodesic(v_, gt_body) for k, v_ in fused.items()})
     yaw = {v: fit_yaw(root[v], gt_root, visible[v]) for v in views}
@@ -159,8 +188,9 @@ def main(argv=None):
             return {"n_frames": int(m.sum()), "legs": float(np.nanmedian(legs)), "arms": float(np.nanmedian(em[:, ARMS])), "spine": float(np.nanmedian(em[:, SPINE])), "all": float(np.nanmedian(em)),
                     "legs_p90": float(np.nanpercentile(legs, 90)), "frac_legs_over_20": float(np.nanmean(legs > 20)) if np.isfinite(legs).any() else float("nan"),
                     "coverage": float(np.isfinite(em).mean())}
+    steps = {k: step_stats(x) for k, x in list(est.items()) + list(fused.items())}
     res = {"n_frames": int(len(frames)), "views": views, "yaw_offset_deg": yaw,
-           "overall": {k: row(e) for k, e in err.items()}, "knee_flexion_rmse_deg": knee_rmse,
+           "overall": {k: row(e) for k, e in err.items()}, "knee_flexion_rmse_deg": knee_rmse, "continuity": steps,
            "root_orientation_median_deg": {v: float(np.median(root_err[v][visible[v]])) for v in views},
            "by_visibility": {v: {c: row(err[v], classes[v] == c) for c in sorted(set(classes[v]))} for v in views},
            "fused_by_along_visibility": {c: {k: row(err[k], classes[A] == c) for k in fused} for c in sorted(set(classes[A]))},
@@ -168,10 +198,12 @@ def main(argv=None):
     (out / "two_view_fusion.json").write_text(json.dumps(res, indent=1))
     # ---- markdown
     L = [f"# Two compromised views, one pose: HC901\n", f"{len(frames)} frames with the truth and both views lifted. Errors are geodesic angles (deg) between GVHMR's joint rotation and the rendered truth; medians over frames.\n",
-         "| estimate | output coverage | legs | legs p90 | legs > 20 deg | arms | spine | all 21 | knee-flexion RMSE |", "|---|---|---|---|---|---|---|---|---|"]
+         "| estimate | output coverage | legs | legs p90 | legs > 20 deg | arms | spine | all 21 | knee-flexion RMSE | frame step p99 | steps > 20 deg |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for k in list(views) + list(fused):
-        r = res["overall"][k]; L.append(f"| {k} | {r['coverage']:.0%} | {r['legs']:.1f} | {r['legs_p90']:.1f} | {r['frac_legs_over_20']:.0%} | {r['arms']:.1f} | {r['spine']:.1f} | {r['all']:.1f} | {knee_rmse[k]:.1f} |")
-    L.append("\nErrors of the segment rules are over the joints they emit; coverage is the share of (frame, joint) cells with an output. Both views and the other fusions emit every cell.")
+        r = res["overall"][k]; st = steps[k]
+        L.append(f"| {k} | {r['coverage']:.0%} | {r['legs']:.1f} | {r['legs_p90']:.1f} | {r['frac_legs_over_20']:.0%} | {r['arms']:.1f} | {r['spine']:.1f} | {r['all']:.1f} | {knee_rmse[k]:.1f} | {st['p99_deg']:.1f} | {st['frac_over_20']:.2%} |")
+    L.append("\nErrors of the segment rules are over the joints they emit; coverage is the share of (frame, joint) cells with an output. Both views and the other fusions emit every cell. "
+             "Continuity: the largest per-joint rotation step between consecutive emitted frames, its 99th percentile and the share of steps over 20 deg.")
     L.append(f"\nRoot orientation after a constant heading alignment of {yaw[A]:+.0f} deg ({A}) and {yaw[B]:+.0f} deg ({B}): median error {res['root_orientation_median_deg'][A]:.1f} / {res['root_orientation_median_deg'][B]:.1f} deg.\n")
     for v in views:
         L += [f"\n## {v} view by what the camera saw (truth)\n", "| frames | n | legs | arms | spine | all |", "|---|---|---|---|---|---|"]
@@ -188,13 +220,13 @@ def main(argv=None):
         import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
         fig, ax = plt.subplots(2, 1, figsize=(12, 8.5), gridspec_kw={"height_ratios": [1, 1.2]})
         x = np.arange(21); wdt = 0.16
-        names = list(views) + ["mean", "visibility-weighted", "segment rule (run-time visibility)", "oracle pick"]; wdt = 0.8 / len(names)
+        names = list(views) + ["mean", "segment rule (run-time visibility)", "segment rule, cross-faded (run-time visibility)", "oracle pick"]; wdt = 0.8 / len(names)
         for i, k in enumerate(names):
             ax[0].bar(x + (i - len(names) / 2 + 0.5) * wdt, np.nanmedian(err[k], 0), wdt, label=k)
         ax[0].set_xticks(x); ax[0].set_xticklabels(SMPLX_BODY_JOINTS, rotation=60, ha="right", fontsize=8); ax[0].set_ylabel("median error vs truth (deg)"); ax[0].legend(fontsize=8, ncol=5)
         ax[0].set_title("A. Per-joint error of each view and of the fused estimates", loc="left", fontsize=10.5)
         t = gt["imu_t_s"][sel_gt]
-        for k, c in ((A, "tab:blue"), (B, "tab:orange"), ("segment rule (run-time visibility)", "tab:green")):
+        for k, c in ((A, "tab:blue"), (B, "tab:orange"), ("segment rule, cross-faded (run-time visibility)", "tab:green")):
             with np.errstate(all="ignore"):
                 ax[1].plot(t, np.nanmedian(err[k][:, LEGS], 1), color=c, lw=1.0 if k in views else 1.6, label=f"{k}: median leg-joint error" + ("" if k in views else " (gaps = no usable view)"))
         cl = classes[A]
