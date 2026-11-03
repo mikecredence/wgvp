@@ -29,7 +29,7 @@ def test_assemble_quality_fields(tmp_path):
     f0 = np.arange(100); b0 = np.tile([200.0, 50.0, 300.0, 400.0], (100, 1)); b0[40:60, 1] = 0.0
     v0 = np.ones(100, bool); v0[70:80] = False
     p0 = np.cumsum(rng.normal(0, 0.01, (100, 63)), axis=0)               # smooth pose, small steps
-    p0[90] += 1.0                                                         # one deliberate jump (> 30 deg on some joint)
+    p0[90:] += 1.0                                                        # one deliberate, persistent jump at frame 90 (> 30 deg on every joint)
     # chunk 1: after a 3-s absence, frames 190-249, a different pose: the step across the boundary must be NaN, not a jump
     f1 = np.arange(190, 250); b1 = np.tile([150.0, 60.0, 260.0, 470.0], (60, 1)); b1[-5:, 3] = 480.0    # feet at the bottom edge at the end
     v1 = np.ones(60, bool); p1 = np.full((60, 63), 0.8) + np.cumsum(rng.normal(0, 0.01, (60, 63)), axis=0)
