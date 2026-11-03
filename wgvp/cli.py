@@ -30,6 +30,7 @@ def main(argv=None):
     p.add_argument("--points", help="non-interactive: 'x,y;x,y;...' in original pixels")
     p = sub.add_parser("pick-subject", help="operator fallback: click the subject's skeleton (or give --track-id)"); p.add_argument("root"); p.add_argument("--session", required=True); p.add_argument("--recording", required=True); p.add_argument("--camera", required=True)
     p.add_argument("--frame", type=int); p.add_argument("--track-id", type=int); p.add_argument("--png", help="also write the skeleton frame to this PNG")
+    p.add_argument("--pick", nargs="+", metavar="FRAME:X,Y", help="headless, machine-independent pick: one or more points on the subject (full-frame pixels), e.g. 986:303,89 1371:323,85")
     p = sub.add_parser("make-sample", help="(analysis side) regenerate the bundled dry-run sample"); p.add_argument("--out", default=None)
     a = ap.parse_args(argv)
 
@@ -96,7 +97,8 @@ def main(argv=None):
         from .roi_tool import pick_subject
         if tracks is None:
             print(f"no tracks yet for {a.camera}: run the pipeline once (CPU) first"); return 1
-        print(pick_subject(tracks, cdir, a.camera, a.recording, a.frame, a.track_id, Path(a.png) if a.png else None)); return 0
+        pts = [(int(q.split(":")[0]), float(q.split(":")[1].split(",")[0]), float(q.split(":")[1].split(",")[1])) for q in (a.pick or [])]
+        print(pick_subject(tracks, cdir, a.camera, a.recording, a.frame, a.track_id, Path(a.png) if a.png else None, points=pts or None)); return 0
     if a.cmd == "make-sample":
         from tools.make_sample import main as mk
         return mk(a.out)

@@ -100,11 +100,19 @@ def set_roi(video: Path, config_dir: Path, camera_id: str, kind: str, frame: int
 
 
 def pick_subject(tracks: TrackSet, config_dir: Path, camera_id: str, recording_id: str, frame: int | None = None, track_id: int | None = None,
-                 png_out: Path | None = None) -> Path:
-    """Skeleton-only pick. With --track-id no window is opened (headless servers). Otherwise a tkinter window shows
-    every skeleton with its id; the click nearest a skeleton selects it."""
+                 png_out: Path | None = None, points: list | None = None) -> Path:
+    """Skeleton-only pick. With --track-id or --pick frame:x,y no window is opened (headless servers); points are
+    resolved against the tracking at run time, so they stay valid when the video is tracked again elsewhere.
+    Otherwise a tkinter window shows every skeleton with its id; the click nearest a skeleton selects it, and the
+    click itself is stored beside the id for the same reason."""
     config_dir.mkdir(parents=True, exist_ok=True)
     out = config_dir / f"pick_{camera_id}_{recording_id}.json"
+    if points:
+        from .selection import track_at_point
+        resolved = [track_at_point(tracks, f, x, y) for f, x, y in points]
+        dump_json({"points": [{"frame": int(f), "x": float(x), "y": float(y)} for f, x, y in points], "track_ids_at_pick": [t for t in resolved if t is not None],
+                   "camera_id": camera_id, "recording_id": recording_id}, out)
+        return out
     if frame is None:   # frame with the most tracks visible
         counts = np.bincount(tracks.det_frame, minlength=len(tracks.frame_idx))
         frame = int(tracks.frame_idx[int(np.argmax(counts))])
@@ -126,5 +134,8 @@ def pick_subject(tracks: TrackSet, config_dir: Path, camera_id: str, recording_i
         if best is None:
             raise SystemExit("no skeleton at that frame")
         track_id = best
-    dump_json({"track_ids": [int(track_id)], "frame": int(frame), "camera_id": camera_id, "recording_id": recording_id}, out)
+    rec = {"track_ids": [int(track_id)], "frame": int(frame), "camera_id": camera_id, "recording_id": recording_id}
+    if "x" in dir() and "y" in dir():
+        rec["points"] = [{"frame": int(frame), "x": float(x), "y": float(y)}]
+    dump_json(rec, out)
     return out

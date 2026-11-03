@@ -233,3 +233,33 @@ def test_skeleton_only_accepts_dense_renders_and_rejects_photos(tmp_path):
     cv2.imwrite(str(tmp_path / "photo.png"), photo); assert not is_skeleton_only(tmp_path / "photo.png")
     dark_photo = (photo * 0.3).astype(np.uint8)          # a dim photograph is still a photograph
     cv2.imwrite(str(tmp_path / "dark.png"), dark_photo); assert not is_skeleton_only(tmp_path / "dark.png")
+
+
+
+def test_pelvis_signal_survives_a_cut_head():
+    """A walker filmed from the end of the walkway: as the walker approaches, the head and shoulders leave the frame
+    and the box top sticks to the frame edge, so box height no longer tracks body size. With the thigh as scale
+    reference the pelvis signal stays the one a full view would give."""
+    from wgvp.tracking import hip_vertical_signal
+    rng = np.random.default_rng(1); fps = 30.0; T = 300; t = np.arange(T) / fps
+    scale = 100.0 * (1 + 3.0 * t / t[-1])                         # apparent size grows 4x as the walker approaches
+    bob = 0.03 * np.sin(2 * np.pi * 1.9 * t)                      # pelvis vertical motion, 3 % of body scale
+    cy = 120.0; hip_y = cy + 0.25 * scale - bob * scale + rng.normal(0, 0.5, T)
+    def track(shoulders_visible, truncated_box):
+        kp = np.zeros((T, 17, 3), np.float32)
+        kp[:, 11, :] = np.c_[200 - 0.1 * scale, hip_y, np.ones(T)]; kp[:, 12, :] = np.c_[200 + 0.1 * scale, hip_y, np.ones(T)]
+        kp[:, 13, :] = np.c_[200 - 0.1 * scale, hip_y + 0.44 * scale, np.ones(T)]; kp[:, 14, :] = np.c_[200 + 0.1 * scale, hip_y + 0.44 * scale, np.ones(T)]
+        kp[:, 5, :] = np.c_[200 - 0.15 * scale, hip_y - 0.5 * scale, np.ones(T) * shoulders_visible]; kp[:, 6, :] = np.c_[200 + 0.15 * scale, hip_y - 0.5 * scale, np.ones(T) * shoulders_visible]
+        top = hip_y - 0.9 * scale
+        if truncated_box:
+            top = np.maximum(top, 0.0)                              # the frame edge (row 0) cuts the box for most of the approach
+        box = np.c_[200 - 0.2 * scale, top, 200 + 0.2 * scale, hip_y + 0.9 * scale]
+        return {"kp": kp, "box": box, "pts_ms": t * 1000.0}
+    assert (np.maximum(hip_y - 0.9 * scale, 0.0) == 0.0).mean() > 0.5          # the scenario really truncates
+    _, full = hip_vertical_signal(track(1.0, False))                # reference: shoulders seen, box whole
+    _, cut = hip_vertical_signal(track(0.0, True))                  # shoulders gone, box truncated: thigh must take over
+    ok = np.isfinite(full) & np.isfinite(cut)
+    assert ok.sum() > 250
+    from wgvp.signals import bandpass
+    r = np.corrcoef(bandpass(full[ok], fps), bandpass(cut[ok], fps))[0, 1]      # the gait-band oscillation must survive
+    assert r > 0.95, r

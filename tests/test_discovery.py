@@ -37,3 +37,20 @@ def test_config_roundtrip(tmp_path):
     cfg["tasks"] = {"tug": {"csv_tokens": ["tug"], "dir_names": ["TUG"], "video_tokens": ["TUG"]}}; p.write_text(json.dumps(cfg))
     c = load_config(tmp_path)
     assert "tug" in c["tasks"] and c["views"]["layout"] == DEFAULT_CONFIG["views"]["layout"]
+
+
+def test_pick_by_point_resolves_against_current_tracking():
+    """An operator pick given as frame + point finds the fragment under it whatever its id is in this run."""
+    import numpy as np
+    from wgvp.selection import pick_selection
+    from wgvp.tracking import TrackSet
+    F = 100; frames = np.arange(F)
+    det_frame = np.concatenate([frames, frames]); det_tid = np.concatenate([np.full(F, 7), np.full(F, 9)])
+    boxes = np.concatenate([np.tile([100, 50, 200, 400], (F, 1)), np.tile([400, 60, 480, 380], (F, 1))]).astype(float)
+    ts = TrackSet(video="v", view_id="full", box=[0, 0, 640, 480], width=640, height=480, fps_nominal=30.0, frame_idx=frames, pts_ms=frames / 30.0 * 1000,
+                  det_frame=det_frame, det_tid=det_tid, det_box=boxes, det_conf=np.ones(2 * F), det_kp=np.zeros((2 * F, 17, 3)), det_app=np.zeros((2 * F, 48)), det_vis=np.full(2 * F, 2, np.int8), grid=np.zeros((F, 18, 32), np.uint8))
+    r = pick_selection({"points": [{"frame": 50, "x": 150, "y": 200}]}, ts); assert r["ok"] and r["track_ids"] == [7]
+    r = pick_selection({"points": [{"frame": 50, "x": 150, "y": 200}, {"frame": 80, "x": 440, "y": 100}]}, ts); assert r["track_ids"] == [7, 9]
+    r = pick_selection({"points": [{"frame": 50, "x": 300, "y": 200}]}, ts); assert not r["ok"] and "no point resolved" in r["reason"]
+    r = pick_selection({"track_ids": [123]}, ts); assert not r["ok"]
+    r = pick_selection({"track_ids": [9], "points": [{"frame": 50, "x": 150, "y": 200}]}, ts); assert r["track_ids"] == [7, 9]

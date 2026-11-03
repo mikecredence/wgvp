@@ -355,15 +355,39 @@ def roi_selection(ts: TrackSet, walkway: dict | None, params: dict | None = None
     out.update(ok=True, track_ids=[best]); return out
 
 
+def track_at_point(ts: TrackSet, frame: int, x: float, y: float, tol_frames: int = 5, pad: float = 10.0) -> int | None:
+    """The fragment whose box contains (x, y) at `frame` (or within tol_frames of it); nearest box centre on ties."""
+    best = None
+    for df, tid, box in zip(ts.det_frame, ts.det_tid, ts.det_box):
+        f = int(ts.frame_idx[df])
+        if abs(f - int(frame)) > tol_frames or not (box[0] - pad <= x <= box[2] + pad and box[1] - pad <= y <= box[3] + pad):
+            continue
+        d = abs(f - int(frame)) * 50 + np.hypot((box[0] + box[2]) / 2 - x, (box[1] + box[3]) / 2 - y)
+        if best is None or d < best[0]:
+            best = (d, int(tid))
+    return None if best is None else best[1]
+
+
 def pick_selection(pick: dict | None, ts: TrackSet) -> dict:
+    """An operator pick names the subject either by tracker fragment ids (valid for one run's tracking only) or by
+    one or more (frame, x, y) points on the subject, resolved against the current tracking, so a pick file can be
+    made on one machine and used on another (or shipped with a data set)."""
     out = {"method": "operator_pick", "ok": False, "track_ids": [], "reason": ""}
     if not pick:
         out["reason"] = "no operator pick (optional; `wgvp pick-subject`)"; return out
-    tids = [int(t) for t in pick.get("track_ids", [])]; known = set(int(t) for t in ts.track_ids())
-    bad = [t for t in tids if t not in known]
-    if bad or not tids:
-        out["reason"] = f"picked track ids {bad or tids} do not exist in this run's tracking (re-run pick-subject)"; return out
-    out.update(ok=True, track_ids=tids, picked_at_frame=pick.get("frame")); return out
+    known = set(int(t) for t in ts.track_ids())
+    tids = [int(t) for t in pick.get("track_ids", []) if int(t) in known]
+    unresolved = []
+    for pt in pick.get("points", []):
+        t = track_at_point(ts, pt["frame"], pt["x"], pt["y"])
+        (tids.append(t) if t is not None and t not in tids else None) if t is not None else unresolved.append(pt)
+    bad = [int(t) for t in pick.get("track_ids", []) if int(t) not in known]
+    if not tids:
+        out["reason"] = (f"picked track ids {bad} do not exist in this run's tracking and no point resolved to a tracked person (re-run pick-subject)" if bad or unresolved
+                         else "empty pick"); return out
+    if unresolved:
+        out["reason"] = f"{len(unresolved)} pick point(s) matched no tracked person: {unresolved}"
+    out.update(ok=True, track_ids=sorted(tids), picked_at_frame=pick.get("frame"), points=pick.get("points", [])); return out
 
 
 def decide_view(primary_view: dict | None, primary_conf: str, roi: dict, pick: dict) -> dict:

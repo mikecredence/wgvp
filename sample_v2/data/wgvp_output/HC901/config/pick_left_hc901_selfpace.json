@@ -1,0 +1,17 @@
+{
+ "points": [
+  {
+   "frame": 986,
+   "x": 303,
+   "y": 89
+  },
+  {
+   "frame": 1371,
+   "x": 323,
+   "y": 85
+  }
+ ],
+ "camera_id": "left",
+ "recording_id": "hc901_selfpace",
+ "note": "Operator pick shipped with the sample: in HC901's along view the camera is 0.5 m from the walkway end, and close to it the walker's forward-speed oscillation moves the hip row more than the vertical bob does, so the automatic pelvis match cannot confirm this view (it is confirmed and synchronised from the side view). The two points sit on the walker's hips during the walk away and the walk back."
+}
