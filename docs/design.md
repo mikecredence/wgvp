@@ -159,6 +159,23 @@ the IMU timeline (47.8 s overlap): median geodesic disagreement 8.1 deg over the
 knee-signal residual lag -73 ms (2.2 frames; tolerance 3 frames, so `reconcile.json` reads PASS). `betas` differ
 between views (the along view sees truncated bodies), as expected from a per-frame shape estimate.
 
+#### Re-run after the chunk-planner fix (2026-11-03, same T4)
+
+Dry run with the GPU stage: **PASS 14/14** (789 s). Side view lifted as two chunks (885 + 504 frames) with nothing
+lifted over the 3.3-s exit (IMU 29.5-31.8 s); 88 bridged frames remain (the 1-s exit and brief losses), 146 frames
+flagged edge-truncated; along view 959 edge-truncated frames; no frame with a joint-rotation step over 30 deg in
+either view. Two-view leg disagreement 8.4 deg median overall; 15.9 deg (p90 27.2) on the side view's bridged
+frames of a true exit, 6.5 deg on the along view's bridged frames (the subject was in frame, the tracker had lost
+it); 10.5 deg in the first second after the re-entry, 12.2 deg in seconds 1-3. Reconcile PASS, `betas` constant
+within chunks, privacy check clean (37 files). The same run also showed that the CPU stages must run in the pinned
+environment: run for convenience inside the GVHMR conda environment (ultralytics 8.3.80 on the GPU instead of the
+pinned 8.4.45 on CPU), the tracker fragmented the along view's subject into 14 pieces instead of 1 on HC900 (still
+all accepted) and, on the harder HC901 side view, into 8 pieces covering 54 % of the recording instead of 3
+covering 92 %, after which the joint selection locked onto a wrong lag (7.22 s versus 3.00 planted) with r 0.76 and
+margin 0.59. The light cross-check flagged it (`flash_disagrees -0.79 s`, WARN). The supported workflow is the
+documented one: CPU stages in the pinned environment, then `wgvp gvhmr` alone on the GPU machine
+(`tools/remote_gpu_stage.sh`).
+
 ### 2.6 Two findings that changed the design during testing
 
 * **Pelvis signal.** The first version divided the hip row by the per-frame torso length. In the along-walkway view
@@ -178,6 +195,51 @@ between views (the along view sees truncated bodies), as expected from a per-fra
   0.10-0.18 x window 0.08-0.12 s: accuracy for 8-s-plus subjects constant, precision 0.71-1.00, absent rejected
   0.86-0.98). With raw r the crowd test chained short spurious fragments at wrong lags with "high" confidence
   (accuracy 13 %, absent cases rejected 36 %).
+
+### 2.7 Second synthetic session: two compromised views (HC901)
+
+`sample_v2/` renders the same walk from an along view 0.5 m beyond the near end of the mat at 0.6 m height (whole
+body only at the far end; head and shoulders gone mid-way; legs only when close: hips in frame 40 % of the time)
+and a side view 6 m back at 1 m height aimed at hip height (head in frame 23 %, shoulders 89 %, walker in frame
+96 %). The seated operator sits beside the far end, outside the side view. The walker's ground-truth SMPL pose,
+root trajectory, 3D joints and per-view in-frame flags are saved in `HC901_gt.npz`.
+
+CPU stages: panels exact; sync 2.976 s versus 3.000 planted, validated by the light; side view selected
+automatically (r 0.62, margin 0.45, 100 % of 1341 frames on the true hips); along view NOT selected automatically
+(its two genuine fragments reach r 0.33 and 0.42 at the shared lag against a chance level of 0.55) because, close
+to a camera at the end of the walkway, the per-step oscillation of the walker's forward speed moves the hip row
+more than the vertical bob does, with a different phase; the scale reference was ruled out as the cause (a
+truncated box keeps the gait-band content, see the regression test). The along view is taken from an operator
+pick by frame and point, shipped with the sample; with it, 86 % of the picked frames are on the true hips (the
+rest have the hips at the frame edge) and both views are lifted.
+
+GPU stage on the T4 (`tools/remote_gpu_stage.sh`, 2026-11-03): along view 720 frames lifted in one chunk (625
+visible, 95 bridged, 628 edge-truncated, no jumps); side view 1409 frames in two chunks split at its exit (1341
+visible, 68 bridged, 494 edge-truncated, 4 frames with a joint step over 30 deg: two inside the bridged exit, two
+at the very end of the recording, all flagged). Reconciliation: 2D pelvis signals agree at a 36-ms residual lag;
+the knee-flexion check first reported +0.53 s, one step period, an alias of the periodic knee signal that a +-1 s
+search window admits when the views are noisy; the window is now +-0.3 s as for the pelvis check, and the residual
+reads -75 ms (PASS). Leg-joint disagreement between the views 14.7 deg median, against 8.0 deg on HC900 whose
+views see the whole body.
+
+`tools/two_view_fusion.py` against the truth, 671 common frames (geodesic error per joint, medians over frames):
+
+| estimate | legs | legs p90 | legs > 20 deg | arms | spine | all 21 | knee-flexion RMSE |
+|---|---|---|---|---|---|---|---|
+| along view | 17.1 | 37.2 | 39 % | 26.4 | 14.9 | 18.4 | 19.2 |
+| side view | 13.9 | 22.2 | 17 % | 16.4 | 8.1 | 12.4 | 12.6 |
+| mean | 14.1 | 23.6 | 21 % | 19.9 | 11.3 | 14.4 | 11.3 |
+| confidence-weighted (ViTPose) | 13.9 | 23.1 | 19 % | 18.6 | 9.8 | 13.6 | 11.1 |
+| visibility-weighted | 13.9 | 22.5 | 18 % | 17.2 | 9.4 | 12.9 | 11.6 |
+| oracle pick | 12.2 | 19.6 | 9 % | 14.9 | 7.2 | 11.3 | 5.7 |
+
+By what the along camera saw (leg / all-joint error of that view): whole body 13.3 / 14.9 (n = 70), head cut
+14.4 / 14.4 (143), shoulders cut 18.6 / 20.5 (377), hips cut 31.1 / 30.7 (72), feet cut 36.0 / 31.8 (9). By what
+the side camera saw: whole body 13.7 / 12.5 (328), head cut 13.6 / 11.7 (242), feet cut 16.7 / 15.2 (81). Root
+orientation after a constant heading per view (+91 deg along, -2 deg side, the two cameras being 90 deg apart):
+15.0 / 9.5 deg median. Reading: truncation at the head is free; truncation below the shoulders is not; a plain
+two-view fusion is bounded by the better view, visibility weighting recovers a little of the oracle's margin, and
+the per-joint selector that would recover the rest is the open question.
 
 ## 3. What has not been tested on real clinic recordings
 
