@@ -234,14 +234,20 @@ views see the whole body.
 | segment rule, truth visibility (92 % of cells emitted) | 13.7 | 21.9 | 16 % | 16.9 | 8.1 | 12.5 | 10.4 |
 | segment rule, run-time visibility (96 % emitted) | 13.7 | 21.9 | 16 % | 17.4 | 8.3 | 12.5 | 10.2 |
 | segment rule, cross-faded (96 % emitted) | 13.7 | 21.8 | 15 % | 16.8 | 8.2 | 12.5 | 10.3 |
+| segment rule, cross-faded + smoothed 5 frames | 13.7 | 21.8 | 16 % | 16.6 | 8.2 | 12.4 | 10.4 |
+| segment rule, cross-faded + smoothed 9 frames | 13.8 | 22.1 | 17 % | 16.6 | 8.2 | 12.5 | 10.9 |
 | oracle pick | 12.2 | 19.6 | 9 % | 14.9 | 7.2 | 11.3 | 5.7 |
 
 Continuity (largest per-joint rotation step between consecutive emitted frames; p99 / share over 20 deg): along
 view 8.0 / 0.05 %, side view 9.5 / 0.10 %, plain mean 6.5 / 0.02 %, confidence-weighted 20.6 / 1.03 %,
-visibility-weighted 17.6 / 0.79 %, segment rule 16.6 / 0.73 %, segment rule cross-faded 7.0 / 0.07 %, oracle pick
-18.6 / 0.87 %. Any rule that switches views per joint introduces steps of the size of the views' disagreement
-unless the switch is faded; the cross-fade (weights ramped linearly over the first and last 15 frames of each
-usable segment, zero outside it) removes them at no cost in error.
+visibility-weighted 17.6 / 0.79 %, segment rule 16.6 / 0.73 %, segment rule cross-faded 7.0 / 0.07 %, cross-faded
+and smoothed over 5 frames 5.4 / 0.03 %, over 9 frames 4.0 / 0.00 %, oracle pick 18.6 / 0.87 %. Any rule that
+switches views per joint introduces steps of the size of the views' disagreement unless the switch is faded; the
+cross-fade (weights ramped linearly over the first and last 15 frames of each usable segment, zero outside it)
+removes them at no cost in error. The lifter's own jitter inside a segment is a separate matter: a quaternion
+moving average within runs of emitted frames (gaps are boundaries, never averaged across) halves the remaining
+steps at 5 frames with the error unchanged, while 9 frames starts to attenuate the stride peaks (knee-flexion RMSE
+10.4 to 10.9); 5 is the demo's default.
 
 The segment rule emits a joint only from the view(s) in which the ViTPose keypoints that joint moves are confident
 and inside the panel (margin 8 px), averaged when both views qualify, nothing when neither; its errors are over the
