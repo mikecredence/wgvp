@@ -35,7 +35,7 @@ from scipy.spatial.transform import Rotation as R
 
 PKG = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PKG))
-from tools.two_view_fusion import LEGS, chordal_mean, fit_yaw, geodesic, ramp_inside, usable_joints_rt   # noqa: E402
+from tools.two_view_fusion import LEGS, chordal_mean, fit_yaw, geodesic, ramp_inside, smooth_rotations, usable_joints_rt   # noqa: E402
 from wgvp.tracking import FACE_KP, SKELETON                                                             # noqa: E402
 
 COL = {"ok": [150, 160, 200], "missing": [220, 70, 70], "truth": [170, 170, 170]}
@@ -53,6 +53,9 @@ def main():
     ap.add_argument("--body-models", default=str(Path.home() / "data/WearGait/body_models")); ap.add_argument("--out", default=str(PKG / "docs/figures/two_view_demo.mp4"))
     ap.add_argument("--gif", default=None); ap.add_argument("--gif-span", default="28,42"); ap.add_argument("--step", type=int, default=1)
     ap.add_argument("--t0", type=float, default=None); ap.add_argument("--t1", type=float, default=None)
+    ap.add_argument("--smooth", type=int, default=5, help="rotation moving-average window (frames) on the merge; 0 = off")
+    ap.add_argument("--readout", choices=["both", "charts", "strips"], default="both", help="bottom readout: knee-flexion charts, a filmstrip of small renders every --strip-step seconds, or both")
+    ap.add_argument("--strip-step", type=float, default=2.0)
     a = ap.parse_args()
     deliver = Path(a.root) / "wgvp_output" / a.session / "deliver" / a.recording
     views = sorted(p.name for p in deliver.iterdir() if (p / "smpl_global.npz").exists()); A, B = views
@@ -77,6 +80,28 @@ def main():
     none = ~(usable[A] | usable[B]); fill = chordal_mean([est[A], est[B]], np.stack([lifted[A][:, None].repeat(21, 1).astype(float), lifted[B][:, None].repeat(21, 1).astype(float)]))
     merged_out = merged.copy(); merged_out[none] = np.nan                      # the output: nothing where no view saw the joint
     merged_draw = np.where(none[:, :, None], fill, merged)                       # for drawing only: unseen parts filled, shown red
+    if a.smooth and a.smooth > 1:                                                # per-frame jitter of the lifter: short moving average, gaps respected
+        merged_out = smooth_rotations(merged_out, a.smooth)
+        anyl = (lifted[A] | lifted[B])[:, None].repeat(21, 1)
+        md = merged_draw.copy(); md[~anyl] = np.nan; merged_draw = np.nan_to_num(smooth_rotations(md, a.smooth))
+    # ---- the reconstruction's root, dense: per view after its heading offset, the view with more usable joints when
+    # the two disagree by more than 60 deg, else their visibility-weighted mean; then the same smoothing
+    root_al = {v: np.full((n_video, 3), np.nan) for v in views}
+    for v in views:
+        ok = lifted[v]; root_al[v][ok] = (R.from_euler("y", yaw[v], degrees=True) * R.from_rotvec(root[v][ok])).as_rotvec()
+    root_fused = np.full((n_video, 3), np.nan)
+    for f in range(n_video):
+        rs = [(root_al[v][f], float(usable[v][f].sum()) + 1e-3) for v in views if lifted[v][f]]
+        if len(rs) == 1:
+            root_fused[f] = rs[0][0]
+        elif len(rs) == 2:
+            (ra, wa), (rb, wb) = rs
+            if np.degrees((R.from_rotvec(ra).inv() * R.from_rotvec(rb)).magnitude()) > 60:
+                root_fused[f] = ra if wa >= wb else rb
+            else:
+                q = R.from_rotvec(np.stack([ra, rb])).as_quat(); q[1] *= np.sign(q[0] @ q[1]); root_fused[f] = R.from_quat((wa * q[0] + wb * q[1]) / (wa + wb)).as_rotvec()
+    if a.smooth and a.smooth > 1:
+        root_fused = smooth_rotations(root_fused[:, None, :], a.smooth)[:, 0, :]
     # ---- truth series
     truth_body = np.full((n_video, 21, 3), np.nan)
     for f, i in gi.items():
@@ -103,6 +128,19 @@ def main():
     exp = json.loads((Path(a.gt).parent / "expected.json").read_text()) if (Path(a.gt).parent / "expected.json").exists() else {}
     x0m, x1m = exp.get("scene", {}).get("walk_extent_m", [-2.45, 2.45]); zm = float(np.median(gt["transl"][:, 2])) if "transl" in gt.files else 0.0
     cams = {v: gt[f"{v}_cam_pose"] for v in views if f"{v}_cam_pose" in gt.files}
+    xm_ = 0.5 * (x0m + x1m)
+    lay = exp.get("scene", {}).get("layout") or {"operator_seat_xyz": [xm_ + 2.4, 0.0, zm - 1.2], "operator_yaw_deg": 25.0, "desk_center_xyz": [xm_ + 2.4, 0.74, zm - 1.95], "desk_extents_xyz": [1.8, 0.05, 0.7],
+                                                 "bystander_xyz": [x1m + 2.2, 0.0, zm + 1.2]}
+    # the other people in the room, as static bodies (the operator seated at the desk, the bystander standing)
+    seat = np.zeros(63, np.float32); seat[[0, 3]] = -1.45; seat[[9, 12]] = 1.5          # L/R hip flexion, L/R knee flexion (SMPL-X body joints 1,2 / 4,5)
+    with torch.no_grad():
+        o = bm(global_orient=torch.tensor(R.from_euler("y", lay["operator_yaw_deg"] + 180.0, degrees=True).as_rotvec(), dtype=torch.float32)[None], body_pose=torch.tensor(seat)[None], betas=torch.zeros(1, 10),
+               transl=torch.tensor(np.array(lay["operator_seat_xyz"]) + [0.0, 0.45, 0.0], dtype=torch.float32)[None])
+        V_op = o.vertices[0].numpy(); V_op[:, 1] -= V_op[:, 1].min()                   # feet on the floor
+        o = bm(global_orient=torch.tensor(R.from_euler("y", 180.0, degrees=True).as_rotvec(), dtype=torch.float32)[None], body_pose=torch.zeros(1, 63), betas=torch.zeros(1, 10),
+               transl=torch.tensor(np.array(lay["bystander_xyz"]) + [0.0, 1.0, 0.0], dtype=torch.float32)[None])
+        V_by = o.vertices[0].numpy(); V_by[:, 1] -= V_by[:, 1].min()
+    desk = trimesh.creation.box(extents=lay["desk_extents_xyz"]); desk.apply_translation(lay["desk_center_xyz"]); desk.visual = trimesh.visual.ColorVisuals(mesh=desk, face_colors=np.tile([150, 120, 90, 255], (len(desk.faces), 1)))
     def quad(pts, rgba):
         m = trimesh.Trimesh(np.asarray(pts, np.float32), np.array([[0, 1, 2], [0, 2, 3]]), process=False); m.visual = trimesh.visual.ColorVisuals(mesh=m, face_colors=np.tile(rgba, (2, 1)))
         return pyrender.Mesh.from_trimesh(m, smooth=False)
@@ -134,11 +172,12 @@ def main():
         add_floor_and_mat(sc, 0.0, 0.5 * (x0m + x1m), 0.5 * (x1m - x0m), zm)
         if V_world is not None:
             sc.add(body_mesh(V_world, np.tile(COL["truth"], (len(V_world), 1))))
+        sc.add(body_mesh(V_op, np.tile([120, 120, 160], (len(V_op), 1)))); sc.add(body_mesh(V_by, np.tile([150, 175, 150], (len(V_by), 1)))); sc.add(pyrender.Mesh.from_trimesh(desk, smooth=False))
         for v, cm in cams.items():
             box = trimesh.creation.box(extents=(0.25, 0.25, 0.25)); box.apply_translation(cm[:3, 3]); box.visual = trimesh.visual.ColorVisuals(mesh=box, face_colors=np.tile([60, 110, 230, 255] if v == A else [240, 150, 40, 255], (len(box.faces), 1)))
             sc.add(pyrender.Mesh.from_trimesh(box, smooth=False))
-        cx = 0.5 * (x0m + x1m); eye = [cx, 12.0, zm - 2.6]
-        sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(50)), pose=look_at(eye, [cx, 0.0, zm - 2.4], up=(0, 0, -1))); lights(sc); return finish(aerial_r, sc)
+        cx = 0.5 * (x0m + x1m) + 0.6; eye = [cx, 13.0, zm - 2.4]
+        sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(52)), pose=look_at(eye, [cx, 0.0, zm - 2.2], up=(0, 0, -1))); lights(sc); return finish(aerial_r, sc)
     def verts_world(root_aa, body_aa, transl):
         with torch.no_grad():
             o = bm(global_orient=torch.tensor(root_aa, dtype=torch.float32)[None], body_pose=torch.tensor(body_aa.reshape(63), dtype=torch.float32)[None], betas=torch.zeros(1, 10), transl=torch.tensor(transl, dtype=torch.float32)[None])
@@ -146,7 +185,7 @@ def main():
     # ---- layout
     PH = 320; vbox = {v: [int(x) for x in K[v]["view_box"]] for v in views}
     pw = {v: int(round(PH * (vbox[v][2] - vbox[v][0]) / (vbox[v][3] - vbox[v][1]))) for v in views}
-    W = max(pw[A] + pw[B] + 30 + 20, 2 * RW + 80 + AW); TLH = 330; H = 20 + PH + 30 + RH + 20 + TLH
+    W = max(pw[A] + pw[B] + 30 + 20, 2 * RW + 80 + AW); TLH = 330
     def label(img, txt, xy, col=(255, 255, 255), scale=0.55, th=1, bg=(0, 0, 0)):
         (tw, tht), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, scale, th); x, y = xy
         cv2.rectangle(img, (x - 3, y - tht - 5), (x + tw + 3, y + 4), bg, -1); cv2.putText(img, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, col, th, cv2.LINE_AA)
@@ -175,6 +214,35 @@ def main():
     tmpdir = Path(tempfile.mkdtemp()); fig.savefig(tmpdir / "timeline.png", dpi=dpi, facecolor=fig.get_facecolor()); plt.close(fig)
     timeline = cv2.imread(str(tmpdir / "timeline.png")); timeline = cv2.resize(timeline, (W, TLH))
     def cursor_x(t): return int(L_ * W + (t - t0) / max(t1 - t0, 1e-6) * (R_ - L_) * W)
+    # ---- the filmstrip: at every --strip-step seconds a small render of what each view outputs, the merge, the truth
+    ticks = np.arange(t0 + 0.5 * a.strip_step, t1, a.strip_step); n_tick = len(ticks); TW = min(56, int((R_ - L_) * W / max(n_tick, 1))); TH = int(TW * 5 / 3); SH = 4 * (TH + 4) + 18
+    thumb_r = pyrender.OffscreenRenderer(2 * TW, 2 * TH)
+    def thumb(V, colours):
+        sc = pyrender.Scene(bg_color=(0.16, 0.16, 0.16, 1.0), ambient_light=(0.5, 0.5, 0.5)); sc.add(body_mesh(V, colours))
+        c = np.array([0.0, V[:, 1].mean(), 0.0]); az = np.deg2rad(40); eye = c + 3.0 * np.array([np.sin(az), 0.2, np.cos(az)])
+        sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(42)), pose=look_at(eye, c)); lights(sc)
+        col, _ = thumb_r.render(sc, flags=pyrender.RenderFlags.SKIP_CULL_FACES); return cv2.resize(col[:, :, ::-1], (TW, TH), interpolation=cv2.INTER_AREA)
+    strip = np.full((SH, W, 3), 28, np.uint8); rows = [("along view", A), ("side view", B), ("merge", None), ("truth", "truth")]
+    for r_i, (name, key) in enumerate(rows):
+        y = 14 + r_i * (TH + 4); cv2.putText(strip, name, (4, y + TH // 2 + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (210, 210, 210), 1, cv2.LINE_AA)
+        for k_i, tk in enumerate(ticks):
+            f = int(np.argmin(np.abs(t_all - tk))); x = int(L_ * W) + k_i * TW; img = None
+            if key == "truth":
+                if f in gi:
+                    img = thumb(verts(gt["pose_aa"][gi[f], :3], gt["pose_aa"][gi[f], 3:66]), np.tile(COL["truth"], (10475, 1)))
+            elif key is None:
+                if (lifted[A][f] or lifted[B][f]) and not none[f].all():
+                    V_ = verts(root_fused[f], merged_draw[f]); cl = np.tile(COL["ok"], (len(V_), 1)); cl[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]; img = thumb(V_, cl)
+            elif lifted[key][f] and vis[key][f]:
+                V_ = verts(root_al[key][f], np.nan_to_num(body[key][f])); cl = np.tile(COL["ok"], (len(V_), 1)); cl[np.isin(dom, np.flatnonzero(~usable[key][f]) + 1)] = COL["missing"]; img = thumb(V_, cl)
+            if img is not None:
+                strip[y:y + TH, x:x + TW] = img
+            else:
+                cv2.rectangle(strip, (x, y), (x + TW - 1, y + TH - 1), (40, 40, 40), -1); cv2.putText(strip, "-", (x + TW // 2 - 4, y + TH // 2 + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (90, 90, 90), 1)
+    cv2.putText(strip, f"every {a.strip_step:g} s: what each view outputs (red = joints it cannot see), the merge, the truth", (int(L_ * W), 10), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1, cv2.LINE_AA)
+    thumb_r.delete()
+    show_charts, show_strip = a.readout in ("both", "charts"), a.readout in ("both", "strips")
+    H = 20 + PH + 30 + RH + 20 + (TLH if show_charts else 0) + (SH + 10 if show_strip else 0)
     # ---- frames
     import av
     container = av.open(a.out, mode="w"); stream = container.add_stream("libx264", rate=int(round(fps / a.step))); stream.width, stream.height = W, H; stream.pix_fmt = "yuv420p"; stream.options = {"crf": "22"}
@@ -200,7 +268,7 @@ def main():
             col = (40, 200, 40) if legs_ok else ((30, 170, 240) if lifted[v][f] else (60, 60, 220))
             cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
             name = "along view" if v == A else "side view"
-            status = ("subject not in view" if not lifted[v][f] else ("not detected (bridged, not used)" if not vis[v][f] else f"{n_us}/21 joints usable" + ("" if legs_ok else "; legs at edge")))
+            status = ("subject not in view" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 joints usable" + ("" if legs_ok else "; legs at edge")))
             label(canvas, f"{name}: {status}", (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
         yb = 20 + PH + 30; gi_f = gi.get(f)                                       # middle: truth and reconstruction
         if gi_f is not None:
@@ -212,16 +280,7 @@ def main():
         elif none[f].all():
             label(canvas, "no usable joint in either view", (xr + 8, yb + RH // 2), col=(60, 60, 220))
         else:
-            roots, rws = [], []
-            for v in views:
-                if lifted[v][f]:
-                    roots.append((R.from_euler("y", yaw[v], degrees=True) * R.from_rotvec(root[v][f])).as_rotvec()); rws.append(float(usable[v][f].sum()) + 1e-3)
-            if len(roots) == 1:
-                rt = roots[0]
-            elif np.degrees((R.from_rotvec(roots[0]).inv() * R.from_rotvec(roots[1])).magnitude()) > 60:
-                rt = roots[int(np.argmax(rws))]
-            else:
-                q = R.from_rotvec(np.stack(roots)).as_quat(); q[1] *= np.sign(q[0] @ q[1]); rt = R.from_quat((rws[0] * q[0] + rws[1] * q[1]) / (rws[0] + rws[1])).as_rotvec()
+            rt = root_fused[f]
             Vr = verts(rt, merged_draw[f]); colours = np.tile(COL["ok"], (len(Vr), 1)); colours[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]
             canvas[yb:yb + RH, xr:xr + RW] = render(Vr, colours)
             if gi_f is not None:
@@ -238,7 +297,7 @@ def main():
         xt = xr + RW + 20
         Vw = verts_world(gt["pose_aa"][gi_f, :3], gt["pose_aa"][gi_f, 3:66], gt["transl"][gi_f]) if gi_f is not None else None
         canvas[yb:yb + AH, xt:xt + AW] = render_aerial(Vw)
-        label(canvas, "aerial truth: mat, walker, along cam (blue), side cam (orange)", (xt + 6, yb + AH - 8), scale=0.42)
+        label(canvas, "aerial truth  (blue = along camera, orange = side camera)", (xt + 6, yb + AH - 8), scale=0.42)
         lines = [f"IMU t = {t:6.2f} s   (video frame {f})", "3D reconstruction from two partial views:", "a joint is output only from the view(s) that",
                  "see it, cross-faded over 0.5 s at segment edges;", "nothing where neither view sees it.",
                  f"legs usable so far: along {leg_ok[A][win & (tt <= t)].mean():.0%}  side {leg_ok[B][win & (tt <= t)].mean():.0%}  either {(leg_ok[A] | leg_ok[B])[win & (tt <= t)].mean():.0%}"]
@@ -246,8 +305,13 @@ def main():
             lines += [f"median leg error so far: {np.nanmedian(err_hist):.1f} deg"]
         for k_, ln in enumerate(lines):
             cv2.putText(canvas, ln, (xt, yb + AH + 26 + 22 * k_), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (230, 230, 230), 1, cv2.LINE_AA)
-        yt = yb + RH + 20; canvas[yt:yt + TLH] = timeline                        # bottom: the readout timelines + cursor
-        cx = cursor_x(t); cv2.line(canvas, (cx, yt + 8), (cx, yt + TLH - 24), (255, 255, 255), 2)
+        yt = yb + RH + 20; cx = cursor_x(t)                                       # bottom: the readout(s) + cursor
+        if show_strip:
+            canvas[yt:yt + SH] = strip
+            k_cur = int(np.clip((t - t0) // a.strip_step, 0, max(n_tick - 1, 0))); x_c = int(L_ * W) + k_cur * TW
+            cv2.rectangle(canvas, (x_c - 1, yt + 13), (x_c + TW, yt + SH - 3), (255, 255, 255), 2); yt += SH + 10
+        if show_charts:
+            canvas[yt:yt + TLH] = timeline; cv2.line(canvas, (cx, yt + 8), (cx, yt + TLH - 24), (255, 255, 255), 2)
         for pkt in stream.encode(av.VideoFrame.from_ndarray(canvas[:, :, ::-1].copy(), format="rgb24")):
             container.mux(pkt)
         if a.gif and g0 <= t <= g1 and n % 3 == 0:

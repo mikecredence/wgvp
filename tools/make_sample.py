@@ -243,7 +243,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
             for tag, v, j in bodies:
                 tm = trimesh.Trimesh(v, faces, process=False); tm.visual = trimesh.visual.ColorVisuals(mesh=tm, vertex_colors=np.tile(colors[tag] + [255], (len(v), 1)))
                 nodes[cid].append(sc.add(pyrender.Mesh.from_trimesh(tm, smooth=True)))
-            color, _ = renderer[cid].render(sc)
+            color, _ = renderer[cid].render(sc, flags=pyrender.RenderFlags.SKIP_CULL_FACES)   # the floor, tiles and mat are single-sided quads seen from above
             img = color[..., ::-1].copy()      # BGR for cv2-style tiling? we write RGB below; keep RGB order consistent
             img = color.copy()
             fx, fy, cx, cy = intr[cid]
@@ -294,6 +294,10 @@ def main(out_dir: str | None = None, variant: str = "v1"):
                 "views": {cid: {"gt_frames": gt[cid]["frames"], "gt_hip_px": gt[cid]["hip"], "n_visible": len(gt[cid]["frames"]),
                                 "vis_counts": {str(k): int(sum(1 for v in gt[cid]["vis"] if v == k)) for k in (0, 1, 2)}, "decoy_hip_px": gt[cid]["decoy"]} for cid in cams},
                 "scene": {"subject": "hc100_selfpace IK (public WearGait); pelvis vertical motion = double-integrated LowerBack_FreeAcc_U of the same recording", "decoy": ("hc102_selfpace +1.5 m, +0.8 s (its own IMU vertical motion)" if has_decoy else None), "operator": "seated near side camera", "bystander": "hc101 standing loop",
+                          "layout": {"mat_x": [float(x0 - 0.8), float(x1 + 0.8)], "mat_z": [float(zm - 0.5), float(zm + 0.5)], "operator_seat_xyz": [float(v) for v in seat_pos], "operator_yaw_deg": 25.0,
+                                     "desk_center_xyz": [float(seat_pos[0]), 0.74, float(seat_pos[2] - 0.75)], "desk_extents_xyz": [1.8, 0.05, 0.7],
+                                     "bystander_xyz": [float(tr_b[0, 0]), 0.0, float(tr_b[0, 2])], "walls": [{"x": float(x1 + 4.0), "z": [float(zm - 8), float(zm + 8)]}, {"z": float(zm + 4.0), "x": [float(x0 - 8), float(x1 + 8)]}],
+                                     "cameras": {cid: {"eye": [float(v) for v in c["eye"]], "target": [float(v) for v in c["target"]], "yfov_deg": float(c["yfov"])} for cid, c in cams.items()}},
                           "walk_extent_m": [x0, x1]}}
     (out / "expected.json").write_text(json.dumps(expected))
     for cid in cams:

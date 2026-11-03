@@ -48,3 +48,23 @@ def test_fusion_beats_single_views_where_one_is_damaged(tmp_path):
     assert dmg["oracle pick"]["all"] <= dmg["confidence-weighted"]["all"] + 0.5
     assert abs(res["yaw_offset_deg"]["left"] - 35) <= 1.5 and abs(res["yaw_offset_deg"]["right"] + 50) <= 1.5   # heading offsets recovered
     assert (tmp_path / "out" / "two_view_fusion.md").exists() and json.loads((tmp_path / "out" / "two_view_fusion.json").read_text())["n_frames"] == T
+
+
+def test_smooth_rotations_reduces_jitter_and_respects_gaps():
+    """The merge smoother: a short moving average in rotation space that damps frame-to-frame jitter, keeps the
+    underlying motion, and treats NaN gaps as hard boundaries (no averaging across them, no filling)."""
+    from tools.two_view_fusion import smooth_rotations, step_stats
+    rng = np.random.default_rng(0); T = 300; t = np.arange(T) / 30.0
+    clean = np.zeros((T, 2, 3)); clean[:, 0, 0] = 0.6 * np.sin(2 * np.pi * 0.6 * t)          # a stride-rate swing
+    noisy = clean + rng.normal(0, 0.08, clean.shape)                                           # ~4.6 deg lifter jitter per axis (GVHMR's p99 step is ~15 deg)
+    noisy[120:150] = np.nan                                                                     # a gap in the output
+    noisy[150, 0, 0] += 1.0                                                                     # a genuine different pose after the gap
+    sm = smooth_rotations(noisy, 5)
+    assert np.isnan(sm[120:150]).all() and np.isfinite(sm[:120]).all() and np.isfinite(sm[150:]).all()   # gaps stay gaps, nothing else lost
+    resid = lambda x: np.degrees(np.nanstd(x[:120, 0, 0] - clean[:120, 0, 0]))                            # jitter around the true motion
+    assert resid(sm) < 0.6 * resid(noisy)                                                                   # damped by at least 40 %
+    assert step_stats(sm)["p99_deg"] < step_stats(noisy)["p99_deg"]                                        # and steadier frame to frame
+    err = lambda x: np.degrees(np.nanmean(np.abs(x[:120, 0, 0] - clean[:120, 0, 0])))
+    assert err(sm) < err(noisy)                                                                             # closer to the clean motion, not just smoother
+    # the frame right after the gap must not be pulled toward the frames before it
+    assert abs(sm[150, 0, 0] - noisy[150:155, 0, 0].mean()) < abs(sm[150, 0, 0] - noisy[115:120, 0, 0].mean())

@@ -69,6 +69,30 @@ def ramp_inside(mask: np.ndarray, k: int) -> np.ndarray:
     return w
 
 
+def smooth_rotations(aa: np.ndarray, window: int) -> np.ndarray:
+    """Moving average of rotations over time, (T, J, 3) axis-angle -> same, computed as the normalised mean of unit
+    quaternions (hemisphere-aligned to the window's centre) over `window` frames, within runs of emitted frames
+    only: NaN gaps stay gaps and are not averaged across. window <= 1 returns the input."""
+    if window <= 1:
+        return aa
+    T, J = aa.shape[:2]; out = np.full_like(aa, np.nan); h = window // 2
+    for j in range(J):
+        ok = np.isfinite(aa[:, j]).all(1)
+        if not ok.any():
+            continue
+        q = np.full((T, 4), np.nan); q[ok] = R.from_rotvec(aa[ok, j]).as_quat()
+        for t in np.flatnonzero(ok):
+            a, b = max(0, t - h), min(T, t + h + 1)
+            seg = q[a:b]; m = np.isfinite(seg).all(1)
+            # stay inside this run of emitted frames
+            idx = np.arange(a, b)[m]; left = idx[idx <= t]; right = idx[idx >= t]
+            left = left[np.r_[True, np.diff(left) == 1][::-1].cumprod()[::-1].astype(bool)] if len(left) else left
+            right = right[np.r_[True, np.diff(right) == 1].cumprod().astype(bool)] if len(right) else right
+            use = np.union1d(left, right); qs = q[use]; qs = qs * np.sign(qs @ q[t] + 1e-12)[:, None]
+            out[t, j] = R.from_quat(qs.mean(0) / np.linalg.norm(qs.mean(0))).as_rotvec()
+    return out
+
+
 def step_stats(aa: np.ndarray) -> dict:
     """Frame-to-frame continuity of an estimate (T, 21, 3): largest per-joint rotation step between consecutive
     frames where both are emitted; p99 and the share of steps over 20 deg."""
@@ -174,6 +198,8 @@ def main(argv=None):
     fused["segment rule (truth visibility)"] = segment_rule(hard[A], hard[B])
     fused["segment rule (run-time visibility)"] = segment_rule(in_frame_rt[A], in_frame_rt[B])
     fused["segment rule, cross-faded (run-time visibility)"] = segment_rule(in_frame_rt[A], in_frame_rt[B], ramp_frames=15)
+    fused["segment rule, cross-faded + smoothed 5 fr"] = smooth_rotations(fused["segment rule, cross-faded (run-time visibility)"], 5)
+    fused["segment rule, cross-faded + smoothed 9 fr"] = smooth_rotations(fused["segment rule, cross-faded (run-time visibility)"], 9)
     pick = np.where((err[A] <= err[B])[:, :, None], est[A], est[B]); fused["oracle pick"] = pick
     err.update({k: geodesic(v_, gt_body) for k, v_ in fused.items()})
     yaw = {v: fit_yaw(root[v], gt_root, visible[v]) for v in views}

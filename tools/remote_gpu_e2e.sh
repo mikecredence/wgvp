@@ -11,7 +11,9 @@
 #   1. check-gpu
 #   2. the dry run on sample/ (HC900) with the GPU stage: validates panels, selection, sync, chunking at exits,
 #      GVHMR, reconciliation against the sample's known answers
-#   3. the pipeline on sample_v2/data (HC901, two compromised views) with the GPU stage, for tools/two_view_fusion.py
+#   3. unless WGVP_E2E_SKIP_V2=1: the pipeline on sample_v2/data (HC901) with the GPU stage. Prefer running HC901's CPU
+#      stages locally in the pinned environment and only its GPU stage on the box (tools/remote_gpu_stage.sh): the
+#      GVHMR environment's tracker version differs from the pinned one and fragments HC901's hard side view.
 #   bash tools/remote_gpu_e2e.sh <local output dir>
 set -eu
 OUT="${1:?local output dir}"; mkdir -p "$OUT"
@@ -36,7 +38,7 @@ $SSH "$ACT; python -c 'import lap' 2>/dev/null && echo 'lap present' || { echo '
 # everything nohup'd under setsid so an ssh drop cannot kill it; a marker file says when it is finished
 $SSH "cd $B && (setsid nohup bash -c '$ACT; python -m wgvp check-gpu --gvhmr-root $GROOT > $B/check_gpu.txt 2>&1;
   python -m wgvp dry-run --out $B/dryrun --gvhmr-root $GROOT --gvhmr-python \$(which python) > $B/dryrun.log 2>&1;
-  mkdir -p $B/v2 && cp -r sample_v2/data/. $B/v2/ && python -m wgvp run $B/v2 --gvhmr-root $GROOT --gvhmr-python \$(which python) > $B/v2.log 2>&1;
+  if [ -z \"${WGVP_E2E_SKIP_V2:-}\" ]; then mkdir -p $B/v2 && cp -r sample_v2/data/. $B/v2/ && python -m wgvp run $B/v2 --gvhmr-root $GROOT --gvhmr-python \$(which python) > $B/v2.log 2>&1; fi;
   echo done > $B/all.done' > $B/nohup.log 2>&1 < /dev/null &)"
 echo "launched at $(date); waiting ..."
 T0=$(date +%s)
