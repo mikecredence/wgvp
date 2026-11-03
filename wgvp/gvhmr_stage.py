@@ -150,9 +150,24 @@ def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) 
     lut = {int(f): i for i, f in enumerate(fidx)}
     sel = [lut[int(f)] for f in frames]
     deliver_dir.mkdir(parents=True, exist_ok=True)
+    chunk_ids = np.array([c for c, _ in src], np.int16)
+    # per-frame quality fields: the subject box touching an edge of the view (head or feet cut, half out of frame) and
+    # the largest joint-rotation step from the previous lifted frame (NaN at a chunk start: a new GVHMR run begins there)
+    boxes = {m["chunk_id"]: np.load(rec_cam_work / m["bbox"]) for m in metas}
+    crop0 = meta0.get("crop") or [0, 0, 0, 0]; sc0 = float(meta0["cut_scale"]); Wc, Hc = (crop0[2] - crop0[0]) * sc0, (crop0[3] - crop0[1]) * sc0
+    bl = np.stack([boxes[c][k] for c, k in src])
+    edge = (bl[:, 0] <= 1.0) | (bl[:, 1] <= 1.0) | (bl[:, 2] >= Wc - 1.0) | (bl[:, 3] >= Hc - 1.0)
+    bp = gather("global_body_pose").reshape(len(frames), -1, 3)
+    step = np.full(len(frames), np.nan, np.float32)
+    if len(frames) > 1:
+        from scipy.spatial.transform import Rotation as R
+        d = (R.from_rotvec(bp[:-1].reshape(-1, 3)).inv() * R.from_rotvec(bp[1:].reshape(-1, 3))).magnitude().reshape(len(frames) - 1, -1)
+        step[1:] = np.degrees(d.max(1)); step[1:][chunk_ids[1:] != chunk_ids[:-1]] = np.nan
     common = dict(frame_idx=frames.astype(np.int64), pts_ms=pts[sel].astype(np.float64), imu_t_s=imu_t[sel].astype(np.float64),
-                  visible=vis[sel].astype(bool), chunk_id=np.array([c for c, _ in src], np.int16),
-                  fps_source=float(meta0["fps_source"]), gvhmr_fps_assumed=30.0, frame_step=int(meta0["frame_step"]))
+                  visible=vis[sel].astype(bool), chunk_id=chunk_ids, edge_truncated=edge.astype(bool), pose_step_deg=step,
+                  fps_source=float(meta0["fps_source"]), gvhmr_fps_assumed=30.0, frame_step=int(meta0["frame_step"]),
+                  fields_doc="visible: the subject was detected in this frame (False = bridged gap, pose not to be trusted); edge_truncated: the subject box touches a view edge; "
+                             "pose_step_deg: largest per-joint rotation step from the previous frame (NaN at a chunk start); chunk_id: separate GVHMR runs, split at long absences")
     for fr in ("global", "incam"):
         np.savez_compressed(deliver_dir / f"smpl_{fr}.npz", global_orient=gather(f"{fr}_global_orient"), body_pose=gather(f"{fr}_body_pose"),
                             betas=gather(f"{fr}_betas"), transl=gather(f"{fr}_transl"), frame=fr,
@@ -166,7 +181,10 @@ def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) 
     np.savez_compressed(deliver_dir / "kp2d_vitpose.npz", kp2d=kp, bbox_xyxy=bb, static_conf_logits=gather("static_conf_logits"),
                         K_fullimg_cut=poses[meta0["chunk_id"]]["K_fullimg"], cut_scale=sc, view_box=np.array(crop),
                         keypoint_order="COCO-17 (x, y full-frame px, conf); face points NaN unless --keep-face-keypoints; K_fullimg_cut is for the cut frame", **common)
-    gm = {"n_frames": int(len(frames)), "chunks": [{k: m[k] for k in ("chunk_id", "n_frames", "status") if k in m} | {"gvhmr_run": m.get("gvhmr_run")} for m in metas],
+    jumps = frames[np.nan_to_num(step, nan=0.0) > 30.0]
+    gm = {"n_frames": int(len(frames)), "n_visible": int(vis[sel].sum()), "n_bridged": int((~vis[sel]).sum()), "n_edge_truncated": int(edge.sum()),
+          "n_pose_jumps_over_30deg": int(len(jumps)), "pose_jump_frames": jumps[:200].tolist(), "pose_step_deg_p99": (None if not np.isfinite(step).any() else float(np.nanpercentile(step, 99))),
+          "chunks": [{k: m[k] for k in ("chunk_id", "n_frames", "status") if k in m} | {"gvhmr_run": m.get("gvhmr_run")} for m in metas],
           "frame_step": int(meta0["frame_step"]), "cut_scale": float(meta0["cut_scale"]), "view_box": meta0.get("crop"), "fps_source": float(meta0["fps_source"]),
           "gvhmr": {"static_camera": True, "checkpoint": "gvhmr_siga24_release.ckpt", "render": False},
           "files": ["smpl_global.npz", "smpl_incam.npz", "kp2d_vitpose.npz"]}

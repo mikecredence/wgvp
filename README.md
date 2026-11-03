@@ -173,7 +173,7 @@ can see it happened.
 |---|---|---|
 | The tracker swaps identities when two people cross or pass close | Tracker ids are split into **fragments** at box jumps, time gaps and persistent appearance changes; fragments are judged one by one and re-joined only when they agree on the shared lag | `n_fragments`, `subject_tracks` (the accepted fragment ids) |
 | An identity switch inside one fragment (the subject and a co-walker crossing) | A **lag-consistency mask**: the fragment's pelvis signal is correlated with the IMU in 10-s windows at the shared lag; windows below r = 0.25 are dropped | `consistency` in `selection_joint.json` (kept fraction per fragment) |
-| The subject leaves a view and someone else is in frame | Exits are recorded as **gaps**; nothing is attached while the subject is out, and a scorable fragment that contradicts the lag is never attached by appearance | `n_gaps`, `present_frac`, `gaps_imu_time_s`; the dry run asserts "no bystander attached" |
+| The subject leaves a view and someone else is in frame | Exits are recorded as **gaps**; nothing is attached while the subject is out, and a scorable fragment that contradicts the lag is never attached by appearance. Absences over 2 s end the lifter chunk; shorter ones are bridged and flagged `visible = False` | `n_gaps`, `present_frac`, `gaps_imu_time_s`; the dry run asserts "no bystander attached"; `chunk_id` / `visible` per frame |
 | Brief re-entries too short to score | Attached by torso-colour appearance only when clearly closer to the subject than to any concurrent person | `attached_by_appearance` |
 | Two detection boxes on one person (partial bodies in the along-walkway view) | Recognised by box overlap and not counted as a rival | role `duplicate_of_subject` in the fragment table |
 | Someone walking in step with the subject (a clinician alongside) | The pelvis match is sub-frame; a person 0.8 s behind correlates 0.03-0.17 at the shared lag. This is the one configuration where the margin gets thin | `margin`, `lag_ambiguity` (> 0.85 means another lag was almost as well supported) |
@@ -205,6 +205,33 @@ body models are downloaded by you under their own licences (registration require
 in this repository or the Docker image). `docker/` holds a CUDA 12.1 recipe pinned to the versions we ran; its build
 is untested because our GPU box had no disk left for it.
 
+## Partial bodies, exits and re-entries
+
+A gait-lab camera at the end of the walkway cuts the head off when the participant is close, and a side camera
+loses the participant at both ends of the walkway. A lifter run naively on such footage either crumples the body
+or jumps to whoever else is in frame. What the pipeline does, and what the synthetic session measured on a T4:
+
+* **Who gets lifted.** GVHMR is driven with the subject's own box track, so an exit never becomes a jump to a
+  bystander; the measured per-frame joint-rotation step in the lifted output is 2 deg median, 25 deg maximum,
+  with constant body shape through both side-view exits.
+* **Exits longer than `absence_split_s` (2 s)** end the lifter chunk; a new chunk starts at the re-entry
+  (`chunk_id` changes, and `transl` is only continuous within a chunk, since the world frame is re-anchored by each
+  GVHMR run). Nothing is lifted in between. Shorter gaps (a brief occlusion, a lost detection) are bridged with
+  interpolated boxes so GVHMR keeps its temporal context, and those frames are flagged `visible = False`: on the
+  sample, poses in bridged frames disagree with the other view by 13-21 deg instead of the usual 8 deg, so they are
+  to be dropped, not trusted.
+* **Head or feet cut off** is handled by GVHMR itself: on the 909 along-view frames with the head out of frame, the
+  leg joints agree with the side view at a median 7.4 deg (p90 9.9 deg), knee flexion 6-47 deg, no collapse. The
+  cost is a per-view body-shape bias (`betas` differ between a truncating and a non-truncating view), which is why
+  shape should be taken from the view that sees the whole body. Such frames carry `edge_truncated = True`.
+* **Per-frame quality, so nobody has to infer it:** `visible`, `edge_truncated`, `pose_step_deg` (largest joint
+  step from the previous frame) and `chunk_id` in every SMPL NPZ; `pose_agreement_<a>_<b>.npz` beside
+  `reconcile.json` with the per-joint disagreement between the two views on every IMU frame; and a QC flag when any
+  frame moves a joint by more than 30 deg in one frame.
+
+These numbers come from rendered bodies. GVHMR on real clothed, truncated people is on the list of things only the
+first real run can show.
+
 ## Outputs
 
 `<data root>/wgvp_output/`
@@ -216,9 +243,11 @@ QC_SUMMARY.html, qc_summary.csv, qc_summary.json, manifest.json        cross-ses
    <recording>/sync.json              offset (video time / frame of IMU t=0), confidence, every cross-check and its agreement
    <recording>/selection_joint.json   the joint two-view subject selection (per-fragment scores, appearance attachments)
    <recording>/reconcile.json         agreement between the two views on the IMU timeline (2D and, after GVHMR, SMPL joints)
+   <recording>/pose_agreement_<a>_<b>.npz   after GVHMR: per-frame, per-joint disagreement between the two views (t_imu_s, geodesic_deg (T,21), legs_median_deg)
    <recording>/qc.json                walk-bout coverage per view, flags
    <recording>/<view>/subject_track.npz   frame_idx, pts_ms, bbox_xyxy, kp2d (COCO-17, face points blanked), visibility, source fragment id
-   <recording>/<view>/smpl_global.npz     GVHMR SMPL-X parameters per frame, gravity-aligned world frame: global_orient (T,3), body_pose (T,63), betas (T,10), transl (T,3), frame_idx, pts_ms, imu_t_s, visible
+   <recording>/<view>/smpl_global.npz     GVHMR SMPL-X parameters per frame, gravity-aligned world frame: global_orient (T,3), body_pose (T,63), betas (T,10), transl (T,3), frame_idx, pts_ms, imu_t_s,
+                                          visible, edge_truncated, pose_step_deg, chunk_id (per-frame quality fields, see "Partial bodies, exits and re-entries")
    <recording>/<view>/smpl_incam.npz      the same in the camera frame
    <recording>/<view>/kp2d_vitpose.npz    GVHMR's ViTPose 2D keypoints and boxes, camera intrinsics K
    <recording>/<view>/gvhmr_meta.json, selection.json, qc.json
@@ -240,7 +269,7 @@ The QC summary has one row per recording and view. What good looks like:
 | `walk_bouts_ok` | annotated Walk bouts covered (>= 80 %) by at least one view / total; a recording needs at least one |
 | `sync_source`, `offset_s`, `offset_frame` | pelvis cross-correlation; `(validated by flash,labels,sheet)` lists the agreeing cross-checks; `*_minus_xcorr_s` are the differences |
 | `reconcile_status`, `residual_lag_s`, `legs_median_deg` | the two views after the sync: residual lag about 0 (tolerance 3 frames); median leg-joint disagreement after GVHMR |
-| `gvhmr_frames` | frames lifted in this view |
+| `gvhmr_frames` | frames lifted in this view; `session_summary.json` adds bridged, edge-truncated and jump counts per view |
 | `status` | PASS / WARN (chosen but unconfirmed, or a cross-check disagrees) / FAIL (nothing chosen, no sync, lifter failed), with the reason in `flags` |
 
 Every stage writes its record; failures are explicit messages that say what to do (`pick-subject`, `set-roi`,
