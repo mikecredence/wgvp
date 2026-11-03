@@ -53,7 +53,9 @@ def pose_agreement(tA: np.ndarray, poseA: np.ndarray, tB: np.ndarray, poseB: np.
     for name, j in (("L_Knee", 3), ("R_Knee", 4), ("L_Hip", 0), ("R_Hip", 1), ("L_Elbow", 17), ("R_Elbow", 18)):
         a, b = magA[:, j], magB[:, j]
         corr[name] = float(np.corrcoef(a, b)[0, 1]) if a.std() > 1e-6 and b.std() > 1e-6 else None
-    knee = signal_agreement(grid, magA[:, 3] + magA[:, 4], grid, magB[:, 3] + magB[:, 4], fs=fs, label="knee_flexion_sum")
+    # the knee-flexion sum repeats every step (~0.5 s), so the residual-lag search stays well inside one step period,
+    # as for the 2D pelvis signals; a wider window picks the alias one step away whenever the views are noisy
+    knee = signal_agreement(grid, magA[:, 3] + magA[:, 4], grid, magB[:, 3] + magB[:, 4], fs=fs, max_lag_s=0.3, label="knee_flexion_sum")
     legs = [0, 1, 3, 4, 6, 7]
     return {"ok": True, "overlap_s": float(t1 - t0), "n_samples": int(len(grid)), "per_joint_geodesic": per_joint,
             "legs_median_deg": float(np.median(geo[:, legs])), "all_median_deg": float(np.median(geo)),

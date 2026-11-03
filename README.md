@@ -216,10 +216,13 @@ or jumps to whoever else is in frame. What the pipeline does, and what the synth
   with constant body shape through both side-view exits.
 * **Exits longer than `absence_split_s` (2 s)** end the lifter chunk; a new chunk starts at the re-entry
   (`chunk_id` changes, and `transl` is only continuous within a chunk, since the world frame is re-anchored by each
-  GVHMR run). Nothing is lifted in between. Shorter gaps (a brief occlusion, a lost detection) are bridged with
-  interpolated boxes so GVHMR keeps its temporal context, and those frames are flagged `visible = False`: on the
-  sample, poses in bridged frames disagree with the other view by 13-21 deg instead of the usual 8 deg, so they are
-  to be dropped, not trusted.
+  GVHMR run). Nothing is lifted in between: on the sample's side view the 3.3-s exit becomes a gap in the output
+  (two chunks of 885 and 504 frames), and GVHMR's first second after the re-entry disagrees with the other view by
+  10.5 deg against 8.2 deg in steady state, a mild warm-up and no jump. Shorter gaps (a brief occlusion, a lost
+  detection) are bridged with interpolated boxes so GVHMR keeps its temporal context, and those frames are flagged
+  `visible = False`. The flag matters: bridged frames of a true 1-s exit disagree with the other view by 15.9 deg
+  median (p90 27), whereas bridged frames where the tracker merely lost a person who was still in frame agree at
+  6.5 deg. Drop them, or weigh them by that flag.
 * **Head or feet cut off** is handled by GVHMR itself: on the 909 along-view frames with the head out of frame, the
   leg joints agree with the side view at a median 7.4 deg (p90 9.9 deg), knee flexion 6-47 deg, no collapse. The
   cost is a per-view body-shape bias (`betas` differ between a truncating and a non-truncating view), which is why
@@ -231,6 +234,50 @@ or jumps to whoever else is in frame. What the pipeline does, and what the synth
 
 These numbers come from rendered bodies. GVHMR on real clothed, truncated people is on the list of things only the
 first real run can show.
+
+### Two compromised views, one pose
+
+The real session layout is harsher than the dry-run sample: the along-walkway camera sits at the end of the mat,
+so the participant fills and overflows the frame when close, and the side camera's framing cuts the head. To ask
+whether two such views still give back one correct 3D pose, `sample_v2/` renders the same walk from an along view
+that keeps only the legs when the walker is near (hips out of frame 60 % of the time) and a side view aimed at
+hip height (head above the frame in 77 % of frames), and saves the walker's true SMPL pose and 3D joints beside
+it. `tools/two_view_fusion.py` then measures, against that truth, each view's GVHMR error per joint and by what
+the camera could see, and the error of three fused estimates (plain rotation mean, ViTPose-confidence-weighted
+mean, and an oracle per-joint pick as the upper bound). The rotations GVHMR returns are camera-independent apart
+from a constant heading offset between the two cameras' world frames, which the script fits and removes.
+
+Two things this sample taught before any GPU was involved. First, with the camera 0.5 m from the end of the mat,
+the automatic pelvis match cannot confirm the along view: close to the camera, the walker's forward-speed
+oscillation moves the hip row more than the vertical bob does, a step-periodic signal with the wrong phase. The
+side view confirms and synchronises the recording on its own (offset 2.976 s versus 3.000 planted, 100 % of
+frames on the true hips), and the along view is taken from an operator pick, which is why picks can now be
+given as a frame and a point and shipped with a data set (HC901 carries one). Second, the pose signal survives a
+cut head: a truncated box's height follows the frame edge, but the gait-band content of the pelvis signal does not
+depend on it.
+
+Lifted on the T4 (CPU stages locally in the pinned environment, `wgvp gvhmr` alone on the box; 671 frames with
+the truth and both views), the answer is measured rather than argued
+([docs/two_view_fusion/two_view_fusion.md](docs/two_view_fusion/two_view_fusion.md)):
+
+| estimate against the rendered truth | leg joints, median | legs > 20 deg | all 21 joints | knee-flexion RMSE |
+|---|---|---|---|---|
+| along view alone (hips out of frame 60 % of the time) | 17.1 deg | 39 % | 18.4 deg | 19.2 deg |
+| side view alone (head cut 77 % of the time) | 13.9 deg | 17 % | 12.4 deg | 12.6 deg |
+| fused, plain rotation mean | 14.1 deg | 21 % | 14.4 deg | 11.3 deg |
+| fused, weighted by per-joint visibility | 13.9 deg | 18 % | 12.9 deg | 11.6 deg |
+| fused, oracle per-joint pick (needs the truth) | 12.2 deg | 9 % | 11.3 deg | 5.7 deg |
+
+![two-view fusion](docs/two_view_fusion/two_view_fusion.png)
+
+What this says. A cut head costs nothing: the side view's head-cut frames are as accurate as its whole-body
+frames (13.6 versus 13.7 deg). The along view is as good as the side view while the hips are in frame (13-14 deg),
+loses ground when the shoulders go (18.6 deg) and is poor once only the legs remain (31 deg). Two views do give one
+pose, but a fusion that does not know which view is right per joint and per frame cannot beat the better view by
+much: the plain mean sits between the two, visibility weighting matches the better view on the legs and improves
+the knee-flexion RMSE (12.6 to 11.6 deg) but not the arms, and the oracle shows what a good per-joint selector would
+be worth (leg outliers 17 % to 9 %, knee-flexion RMSE 12.6 to 5.7 deg). ViTPose confidence is not that selector. The selector is the open
+problem this sample now lets anyone work on offline, with the truth beside the data.
 
 ## Outputs
 
@@ -286,7 +333,8 @@ python -m wgvp summary <root>          rebuild the QC summary
 python -m wgvp dry-run [--cpu-only] [--out DIR]
 python -m wgvp check-gpu --gvhmr-root <GVHMR> --gvhmr-python <python>
 python -m wgvp set-roi <root> --session <id> --camera <view> --kind walkway|light
-python -m wgvp pick-subject <root> --session <id> --recording <id> --camera <view>
+python -m wgvp pick-subject <root> --session <id> --recording <id> --camera <view> [--pick FRAME:X,Y ...]
+                                       (a pick by frame and point is resolved against the tracking at run time and can ship with the data)
 ```
 
 Videos are tracked once and cached by file hash; re-running after a config change is fast.
@@ -326,6 +374,8 @@ wgvp/            the package: discovery, video_io (panels, cutting), tracking, s
                  flash, labels, reconcile, gvhmr_stage, qc, summary, session (orchestration), cli, gui, dryrun
 weights/         yolov8n-pose.pt (ultralytics, AGPL-3.0)
 sample/          the synthetic dry-run session (video + recording CSV + expected answers)
+sample_v2/       a second synthetic session with two deliberately compromised views and the walker's ground-truth
+                 3D pose, for the two-view reconstruction experiment (tools/two_view_fusion.py)
 examples/        bundled/ (our own clip + a two-view composite of it, runs offline); the fetched public-footage
                  corpus: sources.json, fetch_examples.py, verify_examples.py; make_bundled.py
 tests/           unit tests (python -m pytest tests -q)
