@@ -231,15 +231,25 @@ views see the whole body.
 | mean | 14.1 | 23.6 | 21 % | 19.9 | 11.3 | 14.4 | 11.3 |
 | confidence-weighted (ViTPose) | 13.9 | 23.1 | 19 % | 18.6 | 9.8 | 13.6 | 11.1 |
 | visibility-weighted | 13.9 | 22.5 | 18 % | 17.2 | 9.4 | 12.9 | 11.6 |
+| segment rule, truth visibility (92 % of cells emitted) | 13.7 | 21.9 | 16 % | 16.9 | 8.1 | 12.5 | 10.4 |
+| segment rule, run-time visibility (96 % emitted) | 13.7 | 21.9 | 16 % | 17.4 | 8.3 | 12.5 | 10.2 |
 | oracle pick | 12.2 | 19.6 | 9 % | 14.9 | 7.2 | 11.3 | 5.7 |
+
+The segment rule emits a joint only from the view(s) in which the ViTPose keypoints that joint moves are confident
+and inside the panel (margin 8 px), averaged when both views qualify, nothing when neither; its errors are over the
+cells it emits. On the along view's legs-only frames it emits 75 % of the cells at 15.9 deg where the plain mean
+gives 18.5; on head-cut frames it is the plain mean (both views qualify). Its root is taken from the view with more
+usable joints when the two views' roots disagree by more than 60 deg: the along view's root flips front-to-back in
+7.5 % of its frames, all in legs-only stretches.
 
 By what the along camera saw (leg / all-joint error of that view): whole body 13.3 / 14.9 (n = 70), head cut
 14.4 / 14.4 (143), shoulders cut 18.6 / 20.5 (377), hips cut 31.1 / 30.7 (72), feet cut 36.0 / 31.8 (9). By what
 the side camera saw: whole body 13.7 / 12.5 (328), head cut 13.6 / 11.7 (242), feet cut 16.7 / 15.2 (81). Root
 orientation after a constant heading per view (+91 deg along, -2 deg side, the two cameras being 90 deg apart):
 15.0 / 9.5 deg median. Reading: truncation at the head is free; truncation below the shoulders is not; a plain
-two-view fusion is bounded by the better view, visibility weighting recovers a little of the oracle's margin, and
-the per-joint selector that would recover the rest is the open question.
+two-view fusion is bounded by the better view; cutting each view into the segments where it sees a joint and
+emitting nothing elsewhere beats the better view on the legs and the knee-flexion RMSE with a run-time test alone;
+the per-joint selector that would recover the oracle's remaining margin is the open question.
 
 ## 3. What has not been tested on real clinic recordings
 
