@@ -57,7 +57,8 @@ def pose_agreement(tA: np.ndarray, poseA: np.ndarray, tB: np.ndarray, poseB: np.
     legs = [0, 1, 3, 4, 6, 7]
     return {"ok": True, "overlap_s": float(t1 - t0), "n_samples": int(len(grid)), "per_joint_geodesic": per_joint,
             "legs_median_deg": float(np.median(geo[:, legs])), "all_median_deg": float(np.median(geo)),
-            "flexion_corr": corr, "knee_residual_lag": knee}
+            "flexion_corr": corr, "knee_residual_lag": knee,
+            "per_frame": {"t_imu_s": grid.astype(np.float32), "geodesic_deg": geo.astype(np.float32), "legs_median_deg": np.median(geo[:, legs], axis=1).astype(np.float32)}}
 
 
 def reconcile_recording(cams: dict, tol_frames: float = 3.0) -> dict:

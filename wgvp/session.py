@@ -27,7 +27,7 @@ from .flash import detect_flash_auto, detect_flash_roi
 from .imu_ref import load_recording, summarize_imu_ref
 from .labels import read_walk_intervals, walk_label_offset
 from .qc import dump_json, privacy_check, tee_logger, write_thumbnails
-from .reconcile import reconcile_recording
+from .reconcile import reconcile_recording, SMPLX_BODY_JOINTS
 from .selection import decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
 from .sync import combine_sync
 from .tracking import TrackSet, analyze_video, hip_vertical_signal, split_fragments
@@ -150,16 +150,20 @@ def plan_chunks(ts: TrackSet, subj: dict, offset_s: float, imu: dict, params: di
     pos = pos[::step]
     if len(pos) < 30:
         return []
-    # split at long absences (no subject for > 2 s) so the lifter never runs on frames without the subject
+    # split at long absences (no subject for > absence_split_s) so the lifter never runs across an exit: a new
+    # chunk starts at the first frame the subject is seen again. Shorter gaps (brief occlusion, a lost detection)
+    # are bridged with interpolated boxes and flagged visible=False in the output.
+    split_s = float(params.get("absence_split_s", 2.0))
     segs, cur = [], [pos[0]]
-    for a, b in zip(pos[:-1], pos[1:]):
-        gap_no_subject = not present[a:b + 1].any()
-        if (t[b] - t[cur[-1]] > 2.0 and not present[cur[-1]:b + 1].any()):
-            if len(cur) >= 30:
-                segs.append(np.array(cur))
-            cur = [b]
-        else:
-            cur.append(b)
+    last_seen = pos[0] if present[pos[0]] else None
+    for b in pos[1:]:
+        if present[b]:
+            if last_seen is not None and t[b] - t[last_seen] > split_s:
+                if len(cur) >= 30:
+                    segs.append(np.array(cur))
+                cur = []
+            last_seen = b
+        cur.append(b)
     if len(cur) >= 30:
         segs.append(np.array(cur))
     N = params["max_chunk_frames"]; ov = params["chunk_overlap_frames"]
@@ -384,6 +388,8 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
         summ["items"][rid] = rec_item
         dump_json(rec_item, d_rec / "qc.json")
         rc = reconcile_recording(cam_results[rid], tol_frames=params["tol_frames"])
+        for pair in rc["pairs"].values():
+            (pair.get("pose") or {}).pop("per_frame", None)
         dump_json(rc, d_rec / "reconcile.json")
         summ["items"][f"{rid}/reconcile"] = {"status": rc["status"], "flags": rc["flags"], "pairs": _pairs_brief(rc)}
         log(f"  [{rid}] reconcile: {rc['status']} {rc['flags']}")
@@ -434,9 +440,16 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> d
         g = d / "smpl_global.npz"
         if g.exists():
             z = np.load(g); entry["pose"] = (z["imu_t_s"], z["body_pose"])
-            item["gvhmr"] = {"n_frames": int(len(z["frame_idx"])), "finite": bool(np.isfinite(z["body_pose"]).all()), "visible_frames": int(z["visible"].sum())}
+            step = z["pose_step_deg"] if "pose_step_deg" in z.files else np.zeros(0)
+            n_jump = int((np.nan_to_num(step, nan=0.0) > 30.0).sum())
+            item["gvhmr"] = {"n_frames": int(len(z["frame_idx"])), "finite": bool(np.isfinite(z["body_pose"]).all()), "visible_frames": int(z["visible"].sum()),
+                             "bridged_frames": int((~z["visible"]).sum()), "edge_truncated_frames": (int(z["edge_truncated"].sum()) if "edge_truncated" in z.files else None),
+                             "pose_jumps_over_30deg": n_jump, "n_chunks": int(len(np.unique(z["chunk_id"]))) if "chunk_id" in z.files else None}
             if not item["gvhmr"]["finite"]:
                 item["flags"].append("non-finite SMPL parameters"); item["status"] = "FAIL"
+            if n_jump:
+                item["flags"].append(f"{n_jump} GVHMR frame(s) with a joint-rotation jump over 30 deg/frame (frames in gvhmr_meta.json; check them before use)")
+                item["status"] = _status_merge(item["status"], "WARN")
         else:
             chunks = sorted((sdir / "work" / vid / rid / "chunks").glob("chunk_*.json"))
             if chunks:
@@ -447,6 +460,13 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> d
         cams.setdefault(rid, {})[vid] = entry
     for rid in cams:
         rc = reconcile_recording(cams[rid], tol_frames=cfg["params"]["tol_frames"])
+        for pk, pair in rc["pairs"].items():
+            pf = (pair.get("pose") or {}).pop("per_frame", None)      # per-frame two-view disagreement: an NPZ beside reconcile.json
+            if pf is not None:
+                a, b = pk.split("|")
+                np.savez_compressed(deliver / rid / f"pose_agreement_{a}_{b}.npz", joints=np.array(SMPLX_BODY_JOINTS), **pf,
+                                    note="per-joint geodesic disagreement (deg) between the two views' SMPL-X body poses on the IMU timeline; drop frames whose legs_median_deg is far above the recording's median")
+                pair["pose"]["per_frame_file"] = f"pose_agreement_{a}_{b}.npz"
         dump_json(rc, deliver / rid / "reconcile.json")
         summ["items"][f"{rid}/reconcile"] = {"status": rc["status"], "flags": rc["flags"], "pairs": _pairs_brief(rc)}
     summ["status"] = _status_merge(*[v["status"] for v in summ["items"].values() if v["status"] != "N/A"], *[v["status"] for v in summ["videos"].values()])

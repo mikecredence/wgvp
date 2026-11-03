@@ -48,16 +48,21 @@ Per video (CPU, one decode pass, cached by file hash):
    list in IMU time, and for every annotated Walk bout the covered fraction; a recording needs at least one view
    covering a bout (>= 80 %), and the QC says which view covered which bout.
 6. **Lifter inputs.** Per view, the subject's frames inside the recording window are cut from the panel (cropped,
-   <= 1280 px wide, 30 fps - every second frame above 45 fps), split at long absences and into <= 3000-frame chunks
-   at IMU "Standing" moments, with the subject's own bounding-box track (interpolated across short gaps, GVHMR-style
-   smoothing) written as GVHMR's `preprocess/bbx.pt`, so the lifter follows the subject and not the longest track.
+   <= 1280 px wide, 30 fps - every second frame above 45 fps), split at absences longer than `absence_split_s`
+   (2 s; a new chunk starts at the re-entry, nothing is lifted in between) and into <= 3000-frame chunks at IMU
+   "Standing" moments, with the subject's own bounding-box track (interpolated across shorter gaps, which are
+   flagged `visible = False` in the output) written as GVHMR's `preprocess/bbx.pt`, so the lifter follows the
+   subject and not the longest track.
 7. **GPU stage** (`wgvp.gvhmr_stage`, runs in the GVHMR environment): GVHMR demo per chunk, static camera, no QC
    renders (`GVHMR_RENDER=0`); `hmr4d_results.pt` converted to `smpl_global.npz` (gravity-aligned world frame) and
    `smpl_incam.npz` (camera frame) with `frame_idx`, `pts_ms`, `imu_t_s`, `visible`; ViTPose 2D keypoints mapped
-   back to full-frame pixels; GVHMR's input copies and overlays deleted. Chunks are merged at the overlap midpoint.
+   back to full-frame pixels; GVHMR's input copies and overlays deleted. Chunks are merged at the overlap midpoint;
+   every frame carries `visible`, `edge_truncated` (the subject box touches a view edge), `pose_step_deg` (largest
+   joint-rotation step from the previous frame) and `chunk_id`.
 8. **Reconciliation between the views** on the IMU timeline: correlation and residual lag of the 2D pelvis signals
    (always) and, after GVHMR, per-joint geodesic disagreement of the SMPL-X body pose, knee/hip flexion correlations
-   and the knee-signal residual lag (tolerance 3 frames).
+   and the knee-signal residual lag (tolerance 3 frames); the per-frame disagreement is written to
+   `pose_agreement_<a>_<b>.npz`.
 9. **QC and privacy.** Every stage writes JSON; skeleton-only thumbnails (black background, green = subject) at the
    sync frame and along the video; `QC_SUMMARY.html` + `qc_summary.csv` across sessions with the panel previews
    (edge maps); `privacy_check.json` asserts no video/image file, no image-like array, only sparse skeleton PNGs in
