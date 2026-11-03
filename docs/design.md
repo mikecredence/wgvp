@@ -118,6 +118,13 @@ CPU; 50 s on a Tesla T4):
 * the two views place IMU t = 0 within 5 ms of each other;
 * privacy check: 27 delivered files, no problems.
 
+On the sample as re-rendered with the floor and mat visible (2026-11-03) the same CPU dry run passes 11/11 in
+89 s: offset 3.008 s (8 ms), light agrees within 8 ms; along view 99 % of 1452 frames on the true hip (median
+18 px), r 0.77, margin 0.63; side view 100 % of 1303 frames (median 11 px), r 0.72; exits as gaps, 4/4 bouts
+covered. One difference worth knowing: the runner-up lag is no longer the co-walker's but an alias one step
+period away (3.57 s, 87 % of the winner's support), which the light cross-check settles; a session without a
+light leans on the joint support alone there.
+
 ### 2.4 Selection and sync on real multi-person footage (simulated IMU)
 
 Two 30-s excerpts of a public plaza video (crowd; 404 and 272 track fragments) and two single-person phone clips
@@ -176,6 +183,23 @@ margin 0.59. The light cross-check flagged it (`flash_disagrees -0.79 s`, WARN).
 documented one: CPU stages in the pinned environment, then `wgvp gvhmr` alone on the GPU machine
 (`tools/remote_gpu_stage.sh`).
 
+#### Re-rendered sample (floor and mat visible), 2026-11-03, same T4
+
+The first renders of both synthetic sessions had single-sided floor, tile and mat quads that pyrender culled, so
+the walker stood on the background colour; fixed with `SKIP_CULL_FACES` and both sessions re-rendered. Dry run
+with the GPU stage on the re-rendered HC900: **PASS 14/14** (823 s). Along view 1457 frames in one chunk (1367
+visible, 90 bridged, 966 edge-truncated; joint step 1.9 deg median, 14.1 maximum, none over 30); side view 1352
+frames in three chunks (885 / 340 / 127) at its two exits (IMU 28.6-32.0 and 42.3-44.4 s), 1293 visible, 59
+bridged, 100 edge-truncated, two frames over 30 deg (39.0 at most: frame 1385, bridged, and 1494, 1.8 s before the
+end), both flagged. Two-view leg disagreement 5.9 deg median (hips 4.1 / 8.3, knees 5.4 / 7.2, ankles 3.9 / 5.8),
+8.1 deg over all 21 joints, knee-flexion residual lag -46 ms, pelvis -3 ms, reconcile PASS. Bridged frames: the
+side view's 56 true-exit frames disagree at 16.5 deg (p90 37.9), its 3 in-frame losses at 9.2, the along view's 90
+in-frame losses at 5.0 against 5.3 on visible frames. Re-entries: first second 10.4 and 12.9 deg, seconds 1-3
+11.0 and 9.7, steady state 5.3. The along view's 777 visible head-out frames agree at 4.4 deg (p90 5.7) against 9.5
+on its other visible frames (the walker far from the camera). Every agreement number improved on the first render
+(legs 8.4 to 5.9 deg): GVHMR's camera and gravity estimates lean on a visible ground, so the floorless numbers
+above were the pessimistic ones. The README figures are made from this run.
+
 ### 2.6 Two findings that changed the design during testing
 
 * **Pelvis signal.** The first version divided the hip row by the per-frame torso length. In the along-walkway view
@@ -204,66 +228,100 @@ and a side view 6 m back at 1 m height aimed at hip height (head in frame 23 %, 
 96 %). The seated operator sits beside the far end, outside the side view. The walker's ground-truth SMPL pose,
 root trajectory, 3D joints and per-view in-frame flags are saved in `HC901_gt.npz`.
 
-CPU stages: panels exact; sync 2.976 s versus 3.000 planted, validated by the light; side view selected
-automatically (r 0.62, margin 0.45, 100 % of 1341 frames on the true hips); along view NOT selected automatically
-(its two genuine fragments reach r 0.33 and 0.42 at the shared lag against a chance level of 0.55) because, close
-to a camera at the end of the walkway, the per-step oscillation of the walker's forward speed moves the hip row
-more than the vertical bob does, with a different phase; the scale reference was ruled out as the cause (a
-truncated box keeps the gait-band content, see the regression test). The along view is taken from an operator
-pick by frame and point, shipped with the sample; with it, 86 % of the picked frames are on the true hips (the
-rest have the hips at the frame edge) and both views are lifted.
+CPU stages (pinned environment, after the re-render with the floor and mat visible): panels exact; sync 2.995 s
+versus 3.000 planted, validated by the light (flash minus cross-correlation 5 ms); side view selected
+automatically (r 0.58, margin 0.40, confidence high, 100 % of its 1341 frames on the true hips); along view NOT
+selected automatically (its genuine fragments score r 0.2 at the shared lag; of its 12 fragments 5 can be scored
+at all, the rest rarely show the hips) because, close to a camera at the end of the walkway, the per-step
+oscillation of the walker's forward speed moves the hip row more than the vertical bob does, with a different
+phase; the scale reference was ruled out as the cause (a truncated box keeps the gait-band content, see the
+regression test). The along view is taken from an operator pick by frame and point, shipped with the sample; the
+picked tracks follow the true ankles in 93-94 % of their frames (the hips are out of this view most of the time)
+and both views are lifted. The recording's QC reads WARN for exactly this reason (a view chosen by pick, not
+confirmed by an independent method).
 
-GPU stage on the T4 (`tools/remote_gpu_stage.sh`, 2026-11-03): along view 720 frames lifted in one chunk (625
-visible, 95 bridged, 628 edge-truncated, no jumps); side view 1409 frames in two chunks split at its exit (1341
-visible, 68 bridged, 494 edge-truncated, 4 frames with a joint step over 30 deg: two inside the bridged exit, two
-at the very end of the recording, all flagged). Reconciliation: 2D pelvis signals agree at a 36-ms residual lag;
-the knee-flexion check first reported +0.53 s, one step period, an alias of the periodic knee signal that a +-1 s
-search window admits when the views are noisy; the window is now +-0.3 s as for the pelvis check, and the residual
-reads -75 ms (PASS). Leg-joint disagreement between the views 14.7 deg median, against 8.0 deg on HC900 whose
-views see the whole body.
+GPU stage on the T4 (`tools/remote_gpu_stage.sh`, 2026-11-03, 13 min including the instance start): along view
+1438 frames lifted in two chunks (1378 visible, 60 bridged, 1303 edge-truncated, one flagged step over 30 deg at a
+bridged frame 90, the moment the sync light comes on); side view 1410 frames in two chunks split at its exit (1341
+visible, 69 bridged, 584 edge-truncated, no flagged step). Reconciliation PASS: 2D pelvis signals agree at a 37-ms
+residual lag, knee flexion at -39 ms (the knee check first reported +0.53 s on an earlier lift, one step period,
+an alias that a +-1 s search window admits when the views are noisy; the window is now +-0.3 s as for the pelvis
+check). Leg-joint disagreement between the views 13.2 deg median (knees 7-13, ankles 12, hips 57-59: the along
+view's hips compensate for its root, below), against 5.9 deg on HC900 whose views see the whole body.
 
-`tools/two_view_fusion.py` against the truth, 671 common frames (geodesic error per joint, medians over frames):
+`tools/two_view_fusion.py` against the truth, 1395 common frames (geodesic error per joint, medians over frames):
 
 | estimate | legs | legs p90 | legs > 20 deg | arms | spine | all 21 | knee-flexion RMSE |
 |---|---|---|---|---|---|---|---|
-| along view | 17.1 | 37.2 | 39 % | 26.4 | 14.9 | 18.4 | 19.2 |
-| side view | 13.9 | 22.2 | 17 % | 16.4 | 8.1 | 12.4 | 12.6 |
-| mean | 14.1 | 23.6 | 21 % | 19.9 | 11.3 | 14.4 | 11.3 |
-| confidence-weighted (ViTPose) | 13.9 | 23.1 | 19 % | 18.6 | 9.8 | 13.6 | 11.1 |
-| visibility-weighted | 13.9 | 22.5 | 18 % | 17.2 | 9.4 | 12.9 | 11.6 |
-| segment rule, truth visibility (92 % of cells emitted) | 13.7 | 21.9 | 16 % | 16.9 | 8.1 | 12.5 | 10.4 |
-| segment rule, run-time visibility (96 % emitted) | 13.7 | 21.9 | 16 % | 17.4 | 8.3 | 12.5 | 10.2 |
-| segment rule, cross-faded (96 % emitted) | 13.7 | 21.8 | 15 % | 16.8 | 8.2 | 12.5 | 10.3 |
-| segment rule, cross-faded + smoothed 5 frames | 13.7 | 21.8 | 16 % | 16.6 | 8.2 | 12.4 | 10.4 |
-| segment rule, cross-faded + smoothed 9 frames | 13.8 | 22.1 | 17 % | 16.6 | 8.2 | 12.5 | 10.9 |
-| oracle pick | 12.2 | 19.6 | 9 % | 14.9 | 7.2 | 11.3 | 5.7 |
+| along view | 14.9 | 56.3 | 34 % | 39.1 | 20.0 | 21.7 | 14.8 |
+| side view | 10.3 | 20.3 | 11 % | 16.1 | 10.1 | 11.5 | 8.2 |
+| mean | 12.7 | 25.7 | 27 % | 22.7 | 14.3 | 16.2 | 8.6 |
+| confidence-weighted (ViTPose) | 12.7 | 25.0 | 26 % | 19.4 | 12.7 | 14.3 | 8.8 |
+| visibility-weighted | 9.6 | 19.6 | 9 % | 16.5 | 11.1 | 11.9 | 10.3 |
+| segment rule, truth visibility (91 % of cells emitted) | 10.1 | 19.4 | 9 % | 16.5 | 8.4 | 11.1 | 10.2 |
+| segment rule, run-time visibility (98 % emitted) | 10.1 | 19.3 | 9 % | 21.0 | 11.2 | 13.1 | 8.6 |
+| segment rule, cross-faded (98 % emitted) | 10.1 | 19.4 | 9 % | 20.4 | 10.7 | 12.7 | 9.9 |
+| segment rule, cross-faded + smoothed 5 frames | 10.1 | 19.4 | 9 % | 20.3 | 10.7 | 12.7 | 9.9 |
+| segment rule, cross-faded + smoothed 9 frames | 10.3 | 19.7 | 9 % | 20.3 | 10.7 | 12.7 | 10.1 |
+| segment rule, cross-faded, x each view's root share, smoothed 5 frames (the demo) | 10.0 | 19.3 | 8 % | 15.7 | 10.3 | 11.4 | 7.4 |
+| oracle pick | 9.4 | 17.5 | 5 % | 15.2 | 9.2 | 10.7 | 5.1 |
 
 Continuity (largest per-joint rotation step between consecutive emitted frames; p99 / share over 20 deg): along
-view 8.0 / 0.05 %, side view 9.5 / 0.10 %, plain mean 6.5 / 0.02 %, confidence-weighted 20.6 / 1.03 %,
-visibility-weighted 17.6 / 0.79 %, segment rule 16.6 / 0.73 %, segment rule cross-faded 7.0 / 0.07 %, cross-faded
-and smoothed over 5 frames 5.4 / 0.03 %, over 9 frames 4.0 / 0.00 %, oracle pick 18.6 / 0.87 %. Any rule that
-switches views per joint introduces steps of the size of the views' disagreement unless the switch is faded; the
-cross-fade (weights ramped linearly over the first and last 15 frames of each usable segment, zero outside it)
-removes them at no cost in error. The lifter's own jitter inside a segment is a separate matter: a quaternion
-moving average within runs of emitted frames (gaps are boundaries, never averaged across) halves the remaining
-steps at 5 frames with the error unchanged, while 9 frames starts to attenuate the stride peaks (knee-flexion RMSE
-10.4 to 10.9); 5 is the demo's default.
+view 6.0 / 0.05 %, side view 7.2 / 0.02 %, plain mean 5.0 / 0.02 %, confidence-weighted 7.1 / 0.12 %,
+visibility-weighted 6.7 / 0.19 %, segment rule 16.8 / 0.79 %, segment rule cross-faded 5.5 / 0.03 %, cross-faded
+and smoothed over 5 frames 4.1 / 0.00 %, over 9 frames 3.0 / 0.00 %, with the root share 4.8 / 0.00 %, oracle
+pick 13.0 / 0.45 %. Any rule that switches views per joint introduces steps of the size of the views' disagreement
+unless the switch is faded; the cross-fade (weights ramped linearly over the first and last 15 frames of each
+usable segment, zero outside it) removes them at no cost in error. The lifter's own jitter inside a segment is a
+separate matter: a quaternion moving average within runs of emitted frames (gaps are boundaries, never averaged
+across) takes the remaining steps down further at 5 frames with the error unchanged, while 9 frames starts to
+attenuate the stride peaks (knee-flexion RMSE 9.9 to 10.1); 5 is the demo's default.
 
 The segment rule emits a joint only from the view(s) in which the ViTPose keypoints that joint moves are confident
 and inside the panel (margin 8 px), averaged when both views qualify, nothing when neither; its errors are over the
-cells it emits. On the along view's legs-only frames it emits 75 % of the cells at 15.9 deg where the plain mean
-gives 18.5; on head-cut frames it is the plain mean (both views qualify). Its root is taken from the view with more
-usable joints when the two views' roots disagree by more than 60 deg: the along view's root flips front-to-back in
-7.5 % of its frames, all in legs-only stretches.
+cells it emits. On the frames where the along camera has the hips out (798 of 1395, the standing start included)
+it emits 98 % of the cells at 8.2 deg on the legs where the plain mean gives 11.6; on head-cut frames it is the
+plain mean (both views qualify). Up to the cross-fade and the smoother it does not beat the better view on the
+knee-flexion RMSE (9.9 against the side view's 8.2): wherever both views qualify for a leg joint, the along view's
+poorer estimate is averaged in at equal weight.
 
-By what the along camera saw (leg / all-joint error of that view): whole body 13.3 / 14.9 (n = 70), head cut
-14.4 / 14.4 (143), shoulders cut 18.6 / 20.5 (377), hips cut 31.1 / 30.7 (72), feet cut 36.0 / 31.8 (9). By what
-the side camera saw: whole body 13.7 / 12.5 (328), head cut 13.6 / 11.7 (242), feet cut 16.7 / 15.2 (81). Root
-orientation after a constant heading per view (+91 deg along, -2 deg side, the two cameras being 90 deg apart):
-15.0 / 9.5 deg median. Reading: truncation at the head is free; truncation below the shoulders is not; a plain
-two-view fusion is bounded by the better view; cutting each view into the segments where it sees a joint and
-emitting nothing elsewhere beats the better view on the legs and the knee-flexion RMSE with a run-time test alone;
-the per-joint selector that would recover the oracle's remaining margin is the open question.
+The root (`fuse_root`). The along view's root pitches forward whenever the body is cut: signed median pitch
+error +17 deg with the shoulders out of frame (n = 377), +50 deg with the hips out (798), against -5 / -3 deg for
+the side view and -7 / -6 deg for both views on whole-body frames; its hip joints compensate (hip error 22.4 deg
+against the side view's 15.3 on the shoulders-cut frames, 56.2 against 8.4 on the hips-cut frames), so that the
+legs still land on the image while the pelvis is wrong in the world. The first demo took the root from the view
+with more usable joints when the two disagreed by more than 60 deg and otherwise averaged them by usable count;
+the along view's count toggling between 0 and 15 at IMU 24.7-25.2 s (measured on the previous lift of this sample)
+moved the reconstruction's pitch by up to 17 deg each time, the rocking visible in that cut; frame-step statistics
+missed it, because each swing takes 10-20 frames. The root is now the quaternion mean of the views' roots weighted
+by presence (ramped over 15 frames at the edges of each lifted run) x (usable fraction, averaged over 15 frames)^2,
+with the weights sharpened towards the heavier view (exponent rising from 0 at 30 deg of disagreement to 8 at
+60 deg); each term is continuous. Fused root error 6.6 deg median against 49.6 (along) and 7.3 (side); frame step
+p99 5.4 against 47.4 and 7.3; the along view's mean share 0.14. The view's share also scales its weights for every
+body joint, on the argument that a lifter whose root is in the wrong gravity frame solved the whole body in it:
+that row of the table lowers the knee-flexion RMSE from 9.9 to 7.4 deg (side view alone 8.2), the arm error from
+20.3 to 15.7, the all-joint error from 12.7 to 11.4 and leg outliers from 9 % to 8 %, at a frame step p99 of
+4.8 deg; it is the first fusion row below the better view in every column. Variants that did not move anything
+measurable on the previous lift: a debounce dropping usable runs shorter than 5 or 10 frames before the ramps
+(identical to three decimals).
+
+What an export keeps (`export_mask`): frames in which every leg joint is output, in runs of at least 15 frames,
+with only the joints some view saw; 94 % of the IMU span on HC901 (1371 of 1458 frames; the along view alone has
+the legs for 37 % of it, the side view for 91 %; the run rule drops 5 frames). The demo draws it beside the
+reconstruction with the unseen parts cut out of the mesh and the empty mat on dropped frames.
+
+By what the along camera saw (leg / all-joint error of that view): whole body 14.2 / 15.7 (n = 70), head cut
+14.3 / 14.8 (143), shoulders cut 17.1 / 20.0 (377), hips cut 14.4 / 33.9 (798), feet cut 43.2 / 31.9 (7). By what
+the side camera saw: whole body 14.3 / 12.6 (328), head cut 8.5 / 10.7 (956), shoulders cut 11.9 / 13.2 (24),
+feet cut 17.6 / 14.9 (84). Root orientation after a constant heading per view (+89 deg along, +5 deg side, the two
+cameras being 90 deg apart): 49.6 / 7.3 deg median. Reading: truncation at the head is free; a view that keeps
+only the legs still gets the legs (14 deg) but invents the rest of the body (34 deg) and pitches the root (+50
+deg); a plain two-view fusion is bounded by the better view; cutting each view into the segments where it sees a
+joint, emitting nothing elsewhere, fading the hand-overs and weighting each view by its share of the root beats
+the better view in every column with run-time tests alone; the per-joint selector that would recover the oracle's
+remaining margin (legs 9.4, knee-flexion RMSE 5.1) is the open question. Compared with the first lift of this
+sample (rendered without a visible floor), every single-view number improved, the side view's leg error from 13.9
+to 10.3 deg: GVHMR's camera and gravity estimates lean on the ground.
 
 ## 3. What has not been tested on real clinic recordings
 

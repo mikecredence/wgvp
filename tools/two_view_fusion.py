@@ -15,6 +15,10 @@ ground truth: head out of frame, shoulders out, hips out). Fusion rules, evaluat
   visibility-weighted per-joint weights 1 / 0 by whether the joint and the segment it moves are inside the view's
                       frame (here from the rendered truth's in-frame flags; in deployment the same test comes from
                       the 2D keypoints against the panel edges), averaged where both views see the joint
+  segment rule        a joint only from the view(s) whose keypoints for it are confident and inside the panel,
+                      averaged when both, nothing when neither; cross-faded over 15 frames at segment edges;
+                      optionally each view's weights scaled by its share of the fused root (fuse_root) and the
+                      result smoothed over 5 frames (smooth_rotations): this last variant is what the demo shows
   oracle pick         per joint, the view with the smaller error (an upper bound: needs the truth)
 
 Root orientation is compared after removing the constant heading offset between each GVHMR world frame and the
@@ -270,6 +274,12 @@ def main(argv=None):
     err.update({k: geodesic(v_, gt_body) for k, v_ in fused.items()})
     root_err = {v: geodesic(root_al[v], gt_root) for v in views}; root_err["fused"] = geodesic(root_f, gt_root)
     root_step = {k: step_stats(x[:, None, :]) for k, x in (list(root_al.items()) + [("fused", root_f)])}
+    # root error decomposed (yaw / pitch / roll about the truth's axes) and the hip joints' error, both by what the
+    # along camera saw: a lifter that pitches the root wrong has hips that compensate for it
+    root_rpy = {k: (R.from_rotvec(gt_root).inv() * R.from_rotvec(x)).as_euler("YXZ", degrees=True) for k, x in (list(root_al.items()) + [("fused", root_f)])}
+    root_by_class = {c: {k: {"yaw": float(np.median(e[classes[A] == c, 0])), "pitch": float(np.median(e[classes[A] == c, 1])), "roll": float(np.median(e[classes[A] == c, 2]))}
+                         for k, e in root_rpy.items()} for c in sorted(set(classes[A]))}
+    hips_by_class = {c: {k: float(np.nanmedian(err[k][classes[A] == c][:, :2])) for k in list(views) + ["segment rule, cross-faded + smoothed 5 fr", "segment rule, cross-faded x root share + smoothed 5 fr"]} for c in sorted(set(classes[A]))}
     # ---- knee flexion, the gait-relevant scalar
     def knee(aa): return np.degrees(np.linalg.norm(aa[:, [3, 4]], axis=2))
     kg = knee(gt_body); knee_rmse = {k: float(np.sqrt(np.nanmean((knee(x) - kg) ** 2))) for k, x in list(est.items()) + list(fused.items())}
@@ -285,6 +295,7 @@ def main(argv=None):
            "overall": {k: row(e) for k, e in err.items()}, "knee_flexion_rmse_deg": knee_rmse, "continuity": steps,
            "root_orientation_median_deg": {**{v: float(np.median(root_err[v][visible[v]])) for v in views}, "fused": float(np.median(root_err["fused"]))},
            "root_step_p99_deg": {k: v_["p99_deg"] for k, v_ in root_step.items()}, "root_share_mean": {v: float(share[i].mean()) for i, v in enumerate(views)},
+           "root_error_signed_by_along_visibility": root_by_class, "hip_error_by_along_visibility": hips_by_class,
            "by_visibility": {v: {c: row(err[v], classes[v] == c) for c in sorted(set(classes[v]))} for v in views},
            "fused_by_along_visibility": {c: {k: row(err[k], classes[A] == c) for k in fused} for c in sorted(set(classes[A]))},
            "per_joint_median": {k: dict(zip(SMPLX_BODY_JOINTS, np.median(e, 0).round(2).tolist())) for k, e in err.items()}}
@@ -301,6 +312,12 @@ def main(argv=None):
     L.append(f"\nRoot orientation after a constant heading alignment of {yaw[A]:+.0f} deg ({A}) and {yaw[B]:+.0f} deg ({B}): median error {rm[A]:.1f} / {rm[B]:.1f} deg "
              f"(frame step p99 {rs[A]:.1f} / {rs[B]:.1f}); the fused root (weighted by each view's ramped presence and the square of its usable fraction, sharpened towards the heavier view when the two disagree) "
              f"{rm['fused']:.1f} deg (step p99 {rs['fused']:.1f}); mean share of the {A} view {res['root_share_mean'][A]:.2f}.\n")
+    L += ["\nRoot error decomposed (signed medians about the truth's axes, yaw / pitch / roll) and the hip joints' error, by what the along camera saw:\n",
+          "| along camera saw | n | " + " | ".join(f"root {k}" for k in root_rpy) + f" | hips {A} | hips {B} | hips merge (no share) | hips merge (root share) |", "|---|---|" + "---|" * (len(root_rpy) + 4)]
+    for c in root_by_class:
+        n_c = int((classes[A] == c).sum()); hb = hips_by_class[c]
+        L.append(f"| {c} | {n_c} | " + " | ".join(f"{root_by_class[c][k]['yaw']:+.0f} / {root_by_class[c][k]['pitch']:+.0f} / {root_by_class[c][k]['roll']:+.0f}" for k in root_rpy)
+                 + f" | {hb[A]:.1f} | {hb[B]:.1f} | {hb['segment rule, cross-faded + smoothed 5 fr']:.1f} | {hb['segment rule, cross-faded x root share + smoothed 5 fr']:.1f} |")
     for v in views:
         L += [f"\n## {v} view by what the camera saw (truth)\n", "| frames | n | legs | arms | spine | all |", "|---|---|---|---|---|---|"]
         for c, r in res["by_visibility"][v].items():
@@ -316,13 +333,13 @@ def main(argv=None):
         import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
         fig, ax = plt.subplots(2, 1, figsize=(12, 8.5), gridspec_kw={"height_ratios": [1, 1.2]})
         x = np.arange(21); wdt = 0.16
-        names = list(views) + ["mean", "segment rule (run-time visibility)", "segment rule, cross-faded (run-time visibility)", "oracle pick"]; wdt = 0.8 / len(names)
+        names = list(views) + ["mean", "segment rule (run-time visibility)", "segment rule, cross-faded x root share + smoothed 5 fr", "oracle pick"]; wdt = 0.8 / len(names)
         for i, k in enumerate(names):
             ax[0].bar(x + (i - len(names) / 2 + 0.5) * wdt, np.nanmedian(err[k], 0), wdt, label=k)
         ax[0].set_xticks(x); ax[0].set_xticklabels(SMPLX_BODY_JOINTS, rotation=60, ha="right", fontsize=8); ax[0].set_ylabel("median error vs truth (deg)"); ax[0].legend(fontsize=8, ncol=5)
         ax[0].set_title("A. Per-joint error of each view and of the fused estimates", loc="left", fontsize=10.5)
         t = gt["imu_t_s"][sel_gt]
-        for k, c in ((A, "tab:blue"), (B, "tab:orange"), ("segment rule, cross-faded (run-time visibility)", "tab:green")):
+        for k, c in ((A, "tab:blue"), (B, "tab:orange"), ("segment rule, cross-faded x root share + smoothed 5 fr", "tab:green")):
             with np.errstate(all="ignore"):
                 ax[1].plot(t, np.nanmedian(err[k][:, LEGS], 1), color=c, lw=1.0 if k in views else 1.6, label=f"{k}: median leg-joint error" + ("" if k in views else " (gaps = no usable view)"))
         cl = classes[A]

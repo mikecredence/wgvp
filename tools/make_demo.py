@@ -319,7 +319,7 @@ def main():
             col = (40, 200, 40) if legs_ok else ((30, 170, 240) if lifted[v][f] else (60, 60, 220))
             cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
             name = "along view" if v == A else "side view"
-            status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 joints usable" + ("" if legs_ok else "; legs at edge")))
+            status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge")))
             label(canvas, f"{name}: {status}", (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
         yb = 20 + PH + 30; gi_f = gi.get(f)                                       # middle: truth and reconstruction
         if gi_f is not None:
