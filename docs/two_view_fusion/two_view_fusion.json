@@ -16,7 +16,8 @@
    "spine": 14.898963230365261,
    "all": 18.43206521945985,
    "legs_p90": 37.22986433419735,
-   "frac_legs_over_20": 0.3887232985593641
+   "frac_legs_over_20": 0.3887232985593641,
+   "coverage": 1.0
   },
   "right": {
    "n_frames": 671,
@@ -25,7 +26,8 @@
    "spine": 8.075545626122047,
    "all": 12.399026180602375,
    "legs_p90": 22.18784859183659,
-   "frac_legs_over_20": 0.1706408345752608
+   "frac_legs_over_20": 0.1706408345752608,
+   "coverage": 1.0
   },
   "mean": {
    "n_frames": 671,
@@ -34,7 +36,8 @@
    "spine": 11.2575032769193,
    "all": 14.358809256750959,
    "legs_p90": 23.605655651472325,
-   "frac_legs_over_20": 0.20591157476403377
+   "frac_legs_over_20": 0.20591157476403377,
+   "coverage": 1.0
   },
   "confidence-weighted": {
    "n_frames": 671,
@@ -43,7 +46,8 @@
    "spine": 9.816373612192839,
    "all": 13.567170223262957,
    "legs_p90": 23.081296640287576,
-   "frac_legs_over_20": 0.18678589170392448
+   "frac_legs_over_20": 0.18678589170392448,
+   "coverage": 1.0
   },
   "visibility-weighted": {
    "n_frames": 671,
@@ -52,7 +56,28 @@
    "spine": 9.375252015077068,
    "all": 12.908873092064084,
    "legs_p90": 22.547404865971984,
-   "frac_legs_over_20": 0.18231495280675608
+   "frac_legs_over_20": 0.18231495280675608,
+   "coverage": 1.0
+  },
+  "segment rule (truth visibility)": {
+   "n_frames": 671,
+   "legs": 13.701615659482883,
+   "arms": 16.87727004631467,
+   "spine": 8.112269901168197,
+   "all": 12.525522575850825,
+   "legs_p90": 21.925913511995695,
+   "frac_legs_over_20": 0.15797317436661698,
+   "coverage": 0.9203037399758711
+  },
+  "segment rule (run-time visibility)": {
+   "n_frames": 671,
+   "legs": 13.742815851013184,
+   "arms": 17.352206299136952,
+   "spine": 8.289619948920349,
+   "all": 12.542439197615835,
+   "legs_p90": 21.9173316828459,
+   "frac_legs_over_20": 0.15797317436661698,
+   "coverage": 0.9615357320275353
   },
   "oracle pick": {
    "n_frames": 671,
@@ -61,7 +86,8 @@
    "spine": 7.164143045271175,
    "all": 11.330200659193538,
    "legs_p90": 19.648026067513086,
-   "frac_legs_over_20": 0.09215101838052658
+   "frac_legs_over_20": 0.09215101838052658,
+   "coverage": 1.0
   }
  },
  "knee_flexion_rmse_deg": {
@@ -70,6 +96,8 @@
   "mean": 11.299637794494629,
   "confidence-weighted": 11.05799674987793,
   "visibility-weighted": 11.593069076538086,
+  "segment rule (truth visibility)": 10.40166187286377,
+  "segment rule (run-time visibility)": 10.170526504516602,
   "oracle pick": 5.666021823883057
  },
  "root_orientation_median_deg": {
@@ -85,7 +113,8 @@
     "spine": 21.539601918231845,
     "all": 31.756396817838315,
     "legs_p90": 63.796739436756276,
-    "frac_legs_over_20": 0.7407407407407407
+    "frac_legs_over_20": 0.7407407407407407,
+    "coverage": 1.0
    },
    "head cut": {
     "n_frames": 143,
@@ -94,7 +123,8 @@
     "spine": 12.64369112489085,
     "all": 14.436760452742572,
     "legs_p90": 23.107846770639714,
-    "frac_legs_over_20": 0.1864801864801865
+    "frac_legs_over_20": 0.1864801864801865,
+    "coverage": 1.0
    },
    "hips cut (legs only)": {
     "n_frames": 72,
@@ -103,7 +133,8 @@
     "spine": 21.350993202235976,
     "all": 30.66182135676091,
     "legs_p90": 69.7186755945519,
-    "frac_legs_over_20": 0.7222222222222222
+    "frac_legs_over_20": 0.7222222222222222,
+    "coverage": 1.0
    },
    "shoulders cut": {
     "n_frames": 377,
@@ -112,7 +143,8 @@
     "spine": 15.793886025822221,
     "all": 20.48224178490607,
     "legs_p90": 36.28565091399285,
-    "frac_legs_over_20": 0.44606542882404954
+    "frac_legs_over_20": 0.44606542882404954,
+    "coverage": 1.0
    },
    "whole body": {
     "n_frames": 70,
@@ -121,7 +153,8 @@
     "spine": 11.879759230859056,
     "all": 14.854735841493167,
     "legs_p90": 20.186928415786287,
-    "frac_legs_over_20": 0.10476190476190476
+    "frac_legs_over_20": 0.10476190476190476,
+    "coverage": 1.0
    }
   },
   "right": {
@@ -132,7 +165,8 @@
     "spine": 9.527793626732661,
     "all": 15.248020503507446,
     "legs_p90": 38.19053044293018,
-    "frac_legs_over_20": 0.360082304526749
+    "frac_legs_over_20": 0.360082304526749,
+    "coverage": 1.0
    },
    "head cut": {
     "n_frames": 242,
@@ -141,7 +175,8 @@
     "spine": 6.934809421509584,
     "all": 11.688960882571852,
     "legs_p90": 20.32663201169219,
-    "frac_legs_over_20": 0.11501377410468319
+    "frac_legs_over_20": 0.11501377410468319,
+    "coverage": 1.0
    },
    "out of view": {
     "n_frames": 15,
@@ -150,7 +185,8 @@
     "spine": 7.2786959626986345,
     "all": 13.005610307405854,
     "legs_p90": 18.05839129802681,
-    "frac_legs_over_20": 0.044444444444444446
+    "frac_legs_over_20": 0.044444444444444446,
+    "coverage": 1.0
    },
    "shoulders cut": {
     "n_frames": 5,
@@ -159,7 +195,8 @@
     "spine": 6.291350040851082,
     "all": 10.522548288912374,
     "legs_p90": 25.371779378936157,
-    "frac_legs_over_20": 0.3333333333333333
+    "frac_legs_over_20": 0.3333333333333333,
+    "coverage": 1.0
    },
    "whole body": {
     "n_frames": 328,
@@ -168,7 +205,8 @@
     "spine": 8.70174133977197,
     "all": 12.475050542473856,
     "legs_p90": 21.91435280268955,
-    "frac_legs_over_20": 0.1681910569105691
+    "frac_legs_over_20": 0.1681910569105691,
+    "coverage": 1.0
    }
   }
  },
@@ -181,7 +219,8 @@
     "spine": 12.11278246993813,
     "all": 20.972040337113942,
     "legs_p90": 36.7618528630168,
-    "frac_legs_over_20": 0.42592592592592593
+    "frac_legs_over_20": 0.42592592592592593,
+    "coverage": 1.0
    },
    "confidence-weighted": {
     "n_frames": 9,
@@ -190,7 +229,8 @@
     "spine": 21.070153965152496,
     "all": 28.59270560808897,
     "legs_p90": 58.37434456356133,
-    "frac_legs_over_20": 0.6296296296296297
+    "frac_legs_over_20": 0.6296296296296297,
+    "coverage": 1.0
    },
    "visibility-weighted": {
     "n_frames": 9,
@@ -199,7 +239,28 @@
     "spine": 21.070153965152496,
     "all": 28.59270560808897,
     "legs_p90": 58.37434456356133,
-    "frac_legs_over_20": 0.6296296296296297
+    "frac_legs_over_20": 0.6296296296296297,
+    "coverage": 1.0
+   },
+   "segment rule (truth visibility)": {
+    "n_frames": 9,
+    "legs": 13.648534672347235,
+    "arms": NaN,
+    "spine": NaN,
+    "all": 9.371318031782726,
+    "legs_p90": 23.4534567579027,
+    "frac_legs_over_20": 0.05555555555555555,
+    "coverage": 0.09523809523809523
+   },
+   "segment rule (run-time visibility)": {
+    "n_frames": 9,
+    "legs": 23.427013489417895,
+    "arms": NaN,
+    "spine": NaN,
+    "all": 11.251557002387601,
+    "legs_p90": 55.786845897283634,
+    "frac_legs_over_20": 0.2037037037037037,
+    "coverage": 0.15873015873015872
    },
    "oracle pick": {
     "n_frames": 9,
@@ -208,7 +269,8 @@
     "spine": 8.212841575989483,
     "all": 13.699416330345262,
     "legs_p90": 21.4357659258633,
-    "frac_legs_over_20": 0.16666666666666666
+    "frac_legs_over_20": 0.16666666666666666,
+    "coverage": 1.0
    }
   },
   "head cut": {
@@ -219,7 +281,8 @@
     "spine": 9.715140938523222,
     "all": 12.394124237047805,
     "legs_p90": 20.442924838329887,
-    "frac_legs_over_20": 0.10722610722610723
+    "frac_legs_over_20": 0.10722610722610723,
+    "coverage": 1.0
    },
    "confidence-weighted": {
     "n_frames": 143,
@@ -228,7 +291,8 @@
     "spine": 10.048252005066415,
     "all": 12.475500544607662,
     "legs_p90": 20.489708290776253,
-    "frac_legs_over_20": 0.10606060606060606
+    "frac_legs_over_20": 0.10606060606060606,
+    "coverage": 1.0
    },
    "visibility-weighted": {
     "n_frames": 143,
@@ -237,7 +301,28 @@
     "spine": 9.281343558320993,
     "all": 12.339317222650664,
     "legs_p90": 20.442924838329887,
-    "frac_legs_over_20": 0.10722610722610723
+    "frac_legs_over_20": 0.10722610722610723,
+    "coverage": 1.0
+   },
+   "segment rule (truth visibility)": {
+    "n_frames": 143,
+    "legs": 12.672942910334257,
+    "arms": 14.257129920578958,
+    "spine": 9.094439917412563,
+    "all": 12.283248414620424,
+    "legs_p90": 20.442924838329887,
+    "frac_legs_over_20": 0.10722610722610723,
+    "coverage": 0.988011988011988
+   },
+   "segment rule (run-time visibility)": {
+    "n_frames": 143,
+    "legs": 12.672942910334257,
+    "arms": 13.936491957053416,
+    "spine": 9.279887507016502,
+    "all": 12.309395360740833,
+    "legs_p90": 20.442924838329887,
+    "frac_legs_over_20": 0.10722610722610723,
+    "coverage": 1.0
    },
    "oracle pick": {
     "n_frames": 143,
@@ -246,7 +331,8 @@
     "spine": 8.017122708860885,
     "all": 11.176878213558023,
     "legs_p90": 19.004656045617352,
-    "frac_legs_over_20": 0.08508158508158509
+    "frac_legs_over_20": 0.08508158508158509,
+    "coverage": 1.0
    }
   },
   "hips cut (legs only)": {
@@ -257,7 +343,8 @@
     "spine": 12.8853586594157,
     "all": 19.267758619086838,
     "legs_p90": 36.313391009507114,
-    "frac_legs_over_20": 0.42824074074074076
+    "frac_legs_over_20": 0.42824074074074076,
+    "coverage": 1.0
    },
    "confidence-weighted": {
     "n_frames": 72,
@@ -266,7 +353,8 @@
     "spine": 11.986679076004688,
     "all": 16.15654034719359,
     "legs_p90": 37.76696998318136,
-    "frac_legs_over_20": 0.4212962962962963
+    "frac_legs_over_20": 0.4212962962962963,
+    "coverage": 1.0
    },
    "visibility-weighted": {
     "n_frames": 72,
@@ -275,7 +363,28 @@
     "spine": 11.426915409075523,
     "all": 14.000191404128646,
     "legs_p90": 41.1107663946171,
-    "frac_legs_over_20": 0.3726851851851852
+    "frac_legs_over_20": 0.3726851851851852,
+    "coverage": 1.0
+   },
+   "segment rule (truth visibility)": {
+    "n_frames": 72,
+    "legs": 15.628476754506682,
+    "arms": 13.037324348226974,
+    "spine": 5.704935081951239,
+    "all": 11.653235054966611,
+    "legs_p90": 30.592823825373053,
+    "frac_legs_over_20": 0.21064814814814814,
+    "coverage": 0.6441798941798942
+   },
+   "segment rule (run-time visibility)": {
+    "n_frames": 72,
+    "legs": 15.893054510363372,
+    "arms": 17.663374347872903,
+    "spine": 8.714487700744337,
+    "all": 12.970186765293938,
+    "legs_p90": 31.262391440315167,
+    "frac_legs_over_20": 0.24305555555555555,
+    "coverage": 0.7466931216931217
    },
    "oracle pick": {
     "n_frames": 72,
@@ -284,7 +393,8 @@
     "spine": 8.238380435555449,
     "all": 12.210067616901949,
     "legs_p90": 22.29041008581304,
-    "frac_legs_over_20": 0.1597222222222222
+    "frac_legs_over_20": 0.1597222222222222,
+    "coverage": 1.0
    }
   },
   "shoulders cut": {
@@ -295,7 +405,8 @@
     "spine": 11.204363273546338,
     "all": 15.176343438106407,
     "legs_p90": 22.330251646808968,
-    "frac_legs_over_20": 0.1861184792219275
+    "frac_legs_over_20": 0.1861184792219275,
+    "coverage": 1.0
    },
    "confidence-weighted": {
     "n_frames": 377,
@@ -304,7 +415,8 @@
     "spine": 8.908602969569213,
     "all": 13.701365652767524,
     "legs_p90": 22.27988377592096,
-    "frac_legs_over_20": 0.17595048629531387
+    "frac_legs_over_20": 0.17595048629531387,
+    "coverage": 1.0
    },
    "visibility-weighted": {
     "n_frames": 377,
@@ -313,7 +425,28 @@
     "spine": 8.542939074223673,
     "all": 12.622135227194418,
     "legs_p90": 21.949076701176978,
-    "frac_legs_over_20": 0.17462422634836428
+    "frac_legs_over_20": 0.17462422634836428,
+    "coverage": 1.0
+   },
+   "segment rule (truth visibility)": {
+    "n_frames": 377,
+    "legs": 13.980487374283035,
+    "arms": 17.892336213105683,
+    "spine": 7.343738786243355,
+    "all": 12.403695100024821,
+    "legs_p90": 21.949076701176978,
+    "frac_legs_over_20": 0.17462422634836428,
+    "coverage": 0.9522546419098143
+   },
+   "segment rule (run-time visibility)": {
+    "n_frames": 377,
+    "legs": 13.960867919930783,
+    "arms": 18.23512650703463,
+    "spine": 7.523489551703954,
+    "all": 12.29823115771119,
+    "legs_p90": 21.68908951817742,
+    "frac_legs_over_20": 0.16622458001768348,
+    "coverage": 1.0
    },
    "oracle pick": {
     "n_frames": 377,
@@ -322,7 +455,8 @@
     "spine": 6.838706687651064,
     "all": 10.998442991842232,
     "legs_p90": 19.64126624063346,
-    "frac_legs_over_20": 0.08885941644562334
+    "frac_legs_over_20": 0.08885941644562334,
+    "coverage": 1.0
    }
   },
   "whole body": {
@@ -333,7 +467,8 @@
     "spine": 9.09513018372823,
     "all": 13.091377515976575,
     "legs_p90": 26.373596907690622,
-    "frac_legs_over_20": 0.2571428571428571
+    "frac_legs_over_20": 0.2571428571428571,
+    "coverage": 1.0
    },
    "confidence-weighted": {
     "n_frames": 70,
@@ -342,7 +477,8 @@
     "spine": 10.93156165672448,
     "all": 13.489945287252155,
     "legs_p90": 20.186928415786287,
-    "frac_legs_over_20": 0.11190476190476191
+    "frac_legs_over_20": 0.11190476190476191,
+    "coverage": 1.0
    },
    "visibility-weighted": {
     "n_frames": 70,
@@ -351,7 +487,28 @@
     "spine": 11.365665701710046,
     "all": 14.232854308394284,
     "legs_p90": 20.283889507119824,
-    "frac_legs_over_20": 0.12380952380952381
+    "frac_legs_over_20": 0.12380952380952381,
+    "coverage": 1.0
+   },
+   "segment rule (truth visibility)": {
+    "n_frames": 70,
+    "legs": 13.188293993371126,
+    "arms": 17.958710008864312,
+    "spine": 11.390644160111808,
+    "all": 14.287814521529722,
+    "legs_p90": 20.386775289429682,
+    "frac_legs_over_20": 0.13095238095238096,
+    "coverage": 1.0
+   },
+   "segment rule (run-time visibility)": {
+    "n_frames": 70,
+    "legs": 13.188293993371126,
+    "arms": 17.68900794819778,
+    "spine": 11.131948235130563,
+    "all": 13.782860075991245,
+    "legs_p90": 20.283889507119824,
+    "frac_legs_over_20": 0.12380952380952381,
+    "coverage": 1.0
    },
    "oracle pick": {
     "n_frames": 70,
@@ -360,7 +517,8 @@
     "spine": 7.281984674542223,
     "all": 12.238810278012313,
     "legs_p90": 18.232979372037097,
-    "frac_legs_over_20": 0.04523809523809524
+    "frac_legs_over_20": 0.04523809523809524,
+    "coverage": 1.0
    }
   }
  },
@@ -479,6 +637,52 @@
    "R_Elbow": 17.17,
    "L_Wrist": 18.92,
    "R_Wrist": 17.55
+  },
+  "segment rule (truth visibility)": {
+   "L_Hip": NaN,
+   "R_Hip": NaN,
+   "Spine1": NaN,
+   "L_Knee": NaN,
+   "R_Knee": NaN,
+   "Spine2": NaN,
+   "L_Ankle": NaN,
+   "R_Ankle": NaN,
+   "Spine3": NaN,
+   "L_Foot": NaN,
+   "R_Foot": NaN,
+   "Neck": NaN,
+   "L_Collar": NaN,
+   "R_Collar": NaN,
+   "Head": NaN,
+   "L_Shoulder": NaN,
+   "R_Shoulder": NaN,
+   "L_Elbow": NaN,
+   "R_Elbow": NaN,
+   "L_Wrist": NaN,
+   "R_Wrist": NaN
+  },
+  "segment rule (run-time visibility)": {
+   "L_Hip": NaN,
+   "R_Hip": NaN,
+   "Spine1": NaN,
+   "L_Knee": NaN,
+   "R_Knee": NaN,
+   "Spine2": NaN,
+   "L_Ankle": NaN,
+   "R_Ankle": NaN,
+   "Spine3": NaN,
+   "L_Foot": NaN,
+   "R_Foot": NaN,
+   "Neck": NaN,
+   "L_Collar": NaN,
+   "R_Collar": NaN,
+   "Head": NaN,
+   "L_Shoulder": NaN,
+   "R_Shoulder": NaN,
+   "L_Elbow": NaN,
+   "R_Elbow": NaN,
+   "L_Wrist": NaN,
+   "R_Wrist": NaN
   },
   "oracle pick": {
    "L_Hip": 12.25,

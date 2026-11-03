@@ -266,6 +266,7 @@ the truth and both views), the answer is measured rather than argued
 | side view alone (head cut 77 % of the time) | 13.9 deg | 17 % | 12.4 deg | 12.6 deg |
 | fused, plain rotation mean | 14.1 deg | 21 % | 14.4 deg | 11.3 deg |
 | fused, weighted by per-joint visibility | 13.9 deg | 18 % | 12.9 deg | 11.6 deg |
+| **segment rule**: a joint only from the view(s) whose keypoints for it are in frame, averaged when both, nothing when neither (96 % of cells emitted) | 13.7 deg | 16 % | 12.5 deg | 10.2 deg |
 | fused, oracle per-joint pick (needs the truth) | 12.2 deg | 9 % | 11.3 deg | 5.7 deg |
 
 ![two-view fusion](docs/two_view_fusion/two_view_fusion.png)
@@ -273,11 +274,20 @@ the truth and both views), the answer is measured rather than argued
 What this says. A cut head costs nothing: the side view's head-cut frames are as accurate as its whole-body
 frames (13.6 versus 13.7 deg). The along view is as good as the side view while the hips are in frame (13-14 deg),
 loses ground when the shoulders go (18.6 deg) and is poor once only the legs remain (31 deg). Two views do give one
-pose, but a fusion that does not know which view is right per joint and per frame cannot beat the better view by
-much: the plain mean sits between the two, visibility weighting matches the better view on the legs and improves
-the knee-flexion RMSE (12.6 to 11.6 deg) but not the arms, and the oracle shows what a good per-joint selector would
-be worth (leg outliers 17 % to 9 %, knee-flexion RMSE 12.6 to 5.7 deg). ViTPose confidence is not that selector. The selector is the open
-problem this sample now lets anyone work on offline, with the truth beside the data.
+pose, and the rule that works is the obvious one: cut each view into the segments where it can actually see a
+joint, combine on the shared timeline, and output nothing where neither view saw it. Implemented with a run-time
+test only (the ViTPose keypoints a joint moves must be confident and inside the panel), that rule emits 96 % of
+joint-frames at a lower error than the better view, with the knee-flexion RMSE down from 12.6 to 10.2 deg, and does
+as well as the same rule driven by the truth's visibility (10.4 deg). Soft weighting by ViTPose confidence does
+not do this (it never drops a view), and the oracle per-joint pick shows what is still left on the table (leg
+outliers 16 % to 9 %, knee-flexion RMSE to 5.7 deg) for a selector that knows more than visibility.
+
+![two-view demo](docs/figures/two_view_demo.gif)
+
+*Fourteen seconds of HC901 (`tools/make_demo.py`): the two views with the chosen subject's skeleton and what each
+can use, the rendered truth beside the reconstruction by the segment rule (red = a part no view could see, not
+output), and the usable segments of each view on the shared IMU timeline. The side view leaves the frame at 29-32 s
+and the along view holds only the legs at 35-38 s; the output follows whichever view can see.*
 
 ## Outputs
 
