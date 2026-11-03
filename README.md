@@ -235,7 +235,7 @@ or jumps to whoever else is in frame. What the pipeline does, and what the synth
 These numbers come from rendered bodies. GVHMR on real clothed, truncated people is on the list of things only the
 first real run can show.
 
-### Two compromised views, one pose
+### 3D reconstruction from two partial views
 
 The real session layout is harsher than the dry-run sample: the along-walkway camera sits at the end of the mat,
 so the participant fills and overflows the frame when close, and the side camera's framing cuts the head. To ask
@@ -267,27 +267,36 @@ the truth and both views), the answer is measured rather than argued
 | fused, plain rotation mean | 14.1 deg | 21 % | 14.4 deg | 11.3 deg |
 | fused, weighted by per-joint visibility | 13.9 deg | 18 % | 12.9 deg | 11.6 deg |
 | **segment rule**: a joint only from the view(s) whose keypoints for it are in frame, averaged when both, nothing when neither (96 % of cells emitted) | 13.7 deg | 16 % | 12.5 deg | 10.2 deg |
+| **segment rule, cross-faded** over the first and last 0.5 s of each usable segment | 13.7 deg | 15 % | 12.5 deg | 10.3 deg |
 | fused, oracle per-joint pick (needs the truth) | 12.2 deg | 9 % | 11.3 deg | 5.7 deg |
 
 ![two-view fusion](docs/two_view_fusion/two_view_fusion.png)
 
 What this says. A cut head costs nothing: the side view's head-cut frames are as accurate as its whole-body
 frames (13.6 versus 13.7 deg). The along view is as good as the side view while the hips are in frame (13-14 deg),
-loses ground when the shoulders go (18.6 deg) and is poor once only the legs remain (31 deg). Two views do give one
-pose, and the rule that works is the obvious one: cut each view into the segments where it can actually see a
-joint, combine on the shared timeline, and output nothing where neither view saw it. Implemented with a run-time
-test only (the ViTPose keypoints a joint moves must be confident and inside the panel), that rule emits 96 % of
-joint-frames at a lower error than the better view, with the knee-flexion RMSE down from 12.6 to 10.2 deg, and does
-as well as the same rule driven by the truth's visibility (10.4 deg). Soft weighting by ViTPose confidence does
-not do this (it never drops a view), and the oracle per-joint pick shows what is still left on the table (leg
-outliers 16 % to 9 %, knee-flexion RMSE to 5.7 deg) for a selector that knows more than visibility.
+loses ground when the shoulders go (18.6 deg) and is poor once only the legs remain (31 deg). Two partial views do
+give one 3D pose, and the rule that works is the plain one: cut each view into the segments where it can actually
+see a joint, combine on the shared timeline, and output nothing where neither view saw it. Implemented with a
+run-time test only (the ViTPose keypoints a joint moves must be confident and inside the panel), that rule emits
+96 % of joint-frames at a lower error than the better view, with the knee-flexion RMSE down from 12.6 to 10.2 deg,
+and does as well as the same rule driven by the truth's visibility (10.4 deg). Hand-overs between views are where
+discontinuities would come from, since the two views disagree by about 10 deg: cross-fading the weights over the
+first and last half-second of each usable segment brings the merge's frame-to-frame steps down from a 99th
+percentile of 16.6 deg (0.73 % of steps over 20 deg) to 7.0 deg (0.07 %), fewer than either view alone, at the
+same error. Soft weighting by ViTPose confidence does none of this (it never drops a view), and the oracle
+per-joint pick shows what is still left on the table (leg outliers 15 % to 9 %, knee-flexion RMSE to 5.7 deg) for
+a selector that knows more than visibility.
 
 ![two-view demo](docs/figures/two_view_demo.gif)
 
-*Fourteen seconds of HC901 (`tools/make_demo.py`): the two views with the chosen subject's skeleton and what each
-can use, the rendered truth beside the reconstruction by the segment rule (red = a part no view could see, not
-output), and the usable segments of each view on the shared IMU timeline. The side view leaves the frame at 29-32 s
-and the along view holds only the legs at 35-38 s; the output follows whichever view can see.*
+*Fourteen seconds of HC901 (`tools/make_demo.py`, full video in the results of the run). Top: the two views with
+the chosen subject's skeleton and what each can use. Middle: the rendered truth on the mat, the reconstruction
+beside it (red = a part no view could see, not output; at 35-38 s the along view holds only the legs and the
+upper body GVHMR invents from them is exactly what gets excluded), and the whole scene from above with the walker
+on the mat and the two cameras. Bottom: the readout as timelines on the shared IMU axis: each view's own
+knee-flexion output (blue, orange), the merge (green, with gaps where no view saw the joint) and the truth (white).
+The side view leaves the frame at 29-32 s; the merge follows whichever view can see and hands over without a
+step.*
 
 ## Outputs
 
