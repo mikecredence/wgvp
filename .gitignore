@@ -8,8 +8,13 @@ dist/
 .venv/
 wgvp-env/
 
-# Pipeline outputs (never commit a run)
+# Pipeline outputs (never commit a run) - except the operator pick shipped with the second sample
 wgvp_output/
+!sample_v2/data/wgvp_output/
+sample_v2/data/wgvp_output/*
+!sample_v2/data/wgvp_output/HC901/
+sample_v2/data/wgvp_output/HC901/*
+!sample_v2/data/wgvp_output/HC901/config/
 wgvp_dryrun_*/
 
 # Example corpus: videos and derived files are fetched locally, only the manifest is tracked

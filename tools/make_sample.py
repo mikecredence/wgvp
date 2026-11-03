@@ -139,17 +139,18 @@ def project(P, cam_pose, fx, fy, cx, cy):
 VARIANTS = {
     # v1: the dry-run sample. Along view: camera low at the walkway end (head cut when close); side view: oblique,
     # elevated, narrow (subject exits at both ends); a co-walker, a seated operator, a bystander.
-    "v1": {"sid": "HC900", "subdir": "sample", "decoy": True,
+    "v1": {"sid": "HC900", "subdir": "sample", "decoy": True, "seat": lambda xm, zm: [xm - 0.35, 0.0, zm - 1.55],
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 55.0, "eye": [x0 - 1.6, 0.9, zm + 0.1], "target": [x0 + 2.2, 0.0, zm]},
                                            "right": {"W": RW, "H": RC, "yfov": 30.0, "eye": [xm + 1.0, 2.0, zm - 4.0], "target": [xm - 0.4, 0.5, zm + 0.4]}}},
-    # v2: two deliberately compromised views of one walk, after the real session layout. Along view: camera 0.9 m
-    # beyond the near end, 0.75 m high, wide: at the near end only the legs are in frame (the pose is lost), at the
-    # far end the body is a tenth of the frame. Side view: low and narrow, aimed at hip height: the head is out of
-    # frame for the whole pass and the shoulders sit at the top edge; the subject exits at both ends. No co-walker:
-    # the point of this sample is reconstruction from two truncated views, and the ground-truth 3D pose is saved.
-    "v2": {"sid": "HC901", "subdir": "sample_v2", "decoy": False,
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.9, 0.75, zm + 0.05], "target": [x0 + 1.5, 0.3, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 22.0, "eye": [xm, 1.0, zm - 3.5], "target": [xm, 0.75, zm]}}},
+    # v2: two deliberately compromised views of one walk, after the real session layout. Along view: camera 0.5 m
+    # beyond the near end, 0.6 m high, looking down the mat: the whole body only at the far end, head and shoulders
+    # gone mid-way, shins only at the near end (the pose is lost there). Side view: 6 m back, 1 m high, narrow and
+    # tilted at the hips: the whole mat is in frame but the head is above the top edge for the entire pass and the
+    # shoulders sit at it; the walker leaves the frame only at the very ends. No co-walker: the point of this sample
+    # is reconstruction from two truncated views, and the ground-truth 3D pose is saved beside it.
+    "v2": {"sid": "HC901", "subdir": "sample_v2", "decoy": False, "seat": lambda xm, zm: [xm + 2.4, 0.0, zm - 1.2],    # beside the far end, outside the side view's frustum: no occlusion of the mat
+           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.5, 0.6, zm + 0.05], "target": [x0 + 1.2, 0.0, zm]},
+                                           "right": {"W": RW, "H": RC, "yfov": 22.0, "eye": [xm, 1.0, zm - 6.0], "target": [xm, 0.35, zm]}}},
 }
 
 
@@ -177,8 +178,9 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     # cameras: along-walkway = low at the x0 end looking down the mat (bodies truncate at the top when close);
     # side = oblique, elevated, narrow field so it sees only the middle of the corridor (exits at both ends)
     cams = var["cams"](x0, x1, xm, zm)
-    # the seated operator sits close to the side camera (image right = -x), lower right of its view, facing the room
-    seat_pos = np.array([xm - 0.35, 0.0, zm - 1.55], np.float32)
+    # the seated operator sits close to the side camera, lower right of its view, facing the room (v2: beside the far
+    # end of the mat instead, outside the side view, so no part of the walk is occluded in the reconstruction sample)
+    seat_pos = np.array(var["seat"](xm, zm), np.float32)
     seat_rot = Rt.from_euler("y", np.deg2rad(25))
     seat[:, :3] = np.tile((seat_rot * Rt.from_rotvec(seat[0, :3])).as_rotvec().astype(np.float32), (n_frames, 1))
     V_o, J_o = fk(seat, smpl, np.tile(seat_pos, (n_frames, 1)) + np.array([0, 0.45, 0], np.float32))

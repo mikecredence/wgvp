@@ -28,7 +28,7 @@ from .imu_ref import load_recording, summarize_imu_ref
 from .labels import read_walk_intervals, walk_label_offset
 from .qc import dump_json, privacy_check, tee_logger, write_thumbnails
 from .reconcile import reconcile_recording, SMPLX_BODY_JOINTS
-from .selection import decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
+from .selection import DEFAULTS as SEL_DEFAULTS, coverage, decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
 from .sync import combine_sync
 from .tracking import TrackSet, analyze_video, hip_vertical_signal, split_fragments
 from .video_io import cut_video, detect_panels, panel_preview, probe_video, sha256_file
@@ -340,11 +340,14 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
             roi = roi_selection(ts, sconf.get(f"walkway_{vid}"), selp)
             pick = pick_selection(sconf.get(f"pick_{vid}_{rid}"), ts)
             dec = decide_view(pv, prim.get("confidence", "none"), roi, pick)
+            cov = (pv or {}).get("coverage", {})
+            if dec["track_ids"] and sorted(dec["track_ids"]) != sorted((pv or {}).get("track_ids", [])) and sync.get("offset_s") is not None:
+                cov = coverage(ts, dec["track_ids"], float(sync["offset_s"]), imu, {**SEL_DEFAULTS, **selp})   # the operator's or the ROI's choice, not the primary's
             item = {"status": _status_merge(dec["status"], sync["status"]), "flags": [], "selection_source": dec["source"], "subject_track_ids": dec["track_ids"],
                     "accepted_by_xcorr": (pv or {}).get("accepted_by_xcorr", []), "attached_by_appearance": (pv or {}).get("attached_by_appearance", []),
                     "r_fine": (pv or {}).get("r_fine"), "margin": (pv or {}).get("margin"), "view_confidence": (pv or {}).get("confidence"), "view_offset_s": (pv or {}).get("view_offset_s"),
                     "n_fragments": int(len(ts.track_ids())), "video": video.name, "view_box": ts.box, "selection_status": dec["status"], "sync_status": sync["status"],
-                    "agreement": {"selection": dec["agreement"], "sync": sync["agreement"]}, "coverage": (pv or {}).get("coverage", {})}
+                    "agreement": {"selection": dec["agreement"], "sync": sync["agreement"]}, "coverage": cov}
             if dec["status"] != "PASS":
                 item["flags"].append("selection:" + dec["message"])
             log(f"    [{key}] selection {dec['status']} via {dec['source']} tracks {dec['track_ids']} (r {item['r_fine']}, margin {item['margin']}); coverage present {item['coverage'].get('present_frac')}, full {item['coverage'].get('full_frac')}, gaps {item['coverage'].get('n_gaps')}")
