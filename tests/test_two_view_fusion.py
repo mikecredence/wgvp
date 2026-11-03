@@ -68,3 +68,46 @@ def test_smooth_rotations_reduces_jitter_and_respects_gaps():
     assert err(sm) < err(noisy)                                                                             # closer to the clean motion, not just smoother
     # the frame right after the gap must not be pulled toward the frames before it
     assert abs(sm[150, 0, 0] - noisy[150:155, 0, 0].mean()) < abs(sm[150, 0, 0] - noisy[115:120, 0, 0].mean())
+
+
+def test_fuse_root_is_continuous_and_prefers_the_view_that_sees_more():
+    """The merge's root: a view that sees few joints and disagrees with the one that sees the whole body barely
+    moves the root, cannot step it when it enters or leaves, and carries it alone when it is the only view."""
+    from tools.two_view_fusion import fuse_root, step_stats
+    T = 200; good = np.tile(R.from_euler("x", 5, degrees=True).as_rotvec(), (T, 1)); bad = np.tile(R.from_euler("x", 50, degrees=True).as_rotvec(), (T, 1))
+    us_good = np.ones((T, 21), bool); us_bad = np.zeros((T, 21), bool); us_bad[:, :5] = True                 # sees 5 of 21 joints
+    lifted_good = np.ones(T, bool); lifted_bad = np.zeros(T, bool); lifted_bad[60:140] = True                # enters and leaves mid-run
+    out, share = fuse_root([good, bad], [us_good, us_bad], [lifted_good, lifted_bad])
+    assert np.isfinite(out).all()
+    assert np.degrees((R.from_rotvec(out).inv() * R.from_rotvec(good)).magnitude()).max() < 2.0
+    assert step_stats(out[:, None, :])["p99_deg"] < 0.5
+    assert share[1, 60:140].max() < 0.05 and share[0, :60].min() == 1.0
+    out2, share2 = fuse_root([good, good], [us_good, us_good], [lifted_good, lifted_good])                  # agreeing equals: an even average
+    assert np.allclose(share2, 0.5) and np.degrees((R.from_rotvec(out2).inv() * R.from_rotvec(good)).magnitude()).max() < 1e-6
+    out3, share3 = fuse_root([good, bad], [us_good, us_bad], [np.zeros(T, bool), lifted_bad])                # alone: it carries the root
+    assert np.isnan(out3[:60]).all() and np.allclose(out3[60:140], bad[60:140], atol=1e-6) and np.allclose(share3[1, 60:140], 1.0)
+
+
+def test_export_mask_requires_every_leg_joint_in_runs():
+    from tools.two_view_fusion import LEGS, export_mask
+    T = 100; m = np.zeros((T, 21, 3)); m[:10] = np.nan; m[40:48, 3] = np.nan; m[70:80, 12] = np.nan           # nothing / left knee missing / a collar missing (not required)
+    ok = export_mask(m, LEGS, min_run=15)
+    assert not ok[:10].any() and ok[10:40].all() and not ok[40:48].any() and ok[48:].all()
+    m2 = np.zeros((T, 21, 3)); m2[:50] = np.nan; m2[60:] = np.nan                                              # a 10-frame run
+    assert not export_mask(m2, LEGS, 15).any() and export_mask(m2, LEGS, 10).sum() == 10
+
+
+def test_side_consistent_undoes_a_left_right_flip_for_display():
+    """The demo's overlay helper: when a 2D estimator swaps the left and right leg labels mid-sequence, the drawn
+    skeleton keeps the assignment that continues the previous frame; a swap that is a genuine crossing (the two
+    legs at the same place) is left alone, and nothing but the arm and leg chains is touched."""
+    from tools.make_demo import side_consistent
+    T = 20; kp = np.full((T, 17, 3), np.nan); kp[:, :, 2] = 0.9
+    for t_ in range(T):                                                   # left leg ahead at x=100, right leg behind at x=60, both moving slowly
+        kp[t_, [11, 13, 15], :2] = [[100 + t_, 50], [100 + t_, 100], [100 + t_, 150]]; kp[t_, [12, 14, 16], :2] = [[60 + t_, 50], [60 + t_, 100], [60 + t_, 150]]
+        kp[t_, 0, :2] = [80, 10]
+    flipped = kp.copy(); flipped[8:, [11, 13, 15]] = kp[8:, [12, 14, 16]]; flipped[8:, [12, 14, 16]] = kp[8:, [11, 13, 15]]   # the estimator swaps sides from frame 8 on
+    fixed = side_consistent(flipped)
+    assert np.allclose(fixed[:, [11, 13, 15], :2], kp[:, [11, 13, 15], :2]) and np.allclose(fixed[:, [12, 14, 16], :2], kp[:, [12, 14, 16], :2])
+    assert np.allclose(fixed[:, 0], kp[:, 0]) and np.allclose(fixed[:, [5, 7, 9]], flipped[:, [5, 7, 9]], equal_nan=True)
+    assert np.allclose(side_consistent(kp), kp, equal_nan=True)              # a consistent sequence is unchanged

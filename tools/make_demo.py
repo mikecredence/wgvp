@@ -6,18 +6,24 @@ Layout per frame (IMU time t):
   top      the along view and the side view at t with the chosen subject's 2D skeleton; the border says whether the
            view is usable for the legs at t (green), lifted but with the leg joints at a frame edge (amber), or
            without the subject (red)
-  middle   left: the rendered truth. Right: the reconstruction by the cross-faded segment rule: every joint comes
+  middle   left: the rendered truth. Centre: the reconstruction by the cross-faded segment rule: every joint comes
            from the view(s) whose ViTPose keypoints for it are inside the frame, with the weights ramped over the
            first and last half-second of each usable segment so hand-overs between views are continuous, averaged
            where both qualify. Body parts driven by joints that no view could see are drawn red and are NOT part of
            the output (filled only so the mesh can be drawn). When the body is in neither view nothing is drawn.
-  bottom   the readout as timelines on the shared IMU axis: what each view outputs (left and right knee flexion,
-           thin blue / orange), what the merge outputs (green, gaps where no view saw the joint) and the truth
-           (black), under strips of each view's usable segments; a cursor marks t.
-The reconstruction's root comes from the view with more usable joints when the two views' roots disagree by more
-than 60 deg, else their visibility-weighted mean, after each view's constant heading offset to the truth has been
-removed (the two cameras' world frames differ by that heading). Root position is not part of the experiment; both
-bodies are drawn at the origin.
+           Right: the export, what a user would take away: only frames in which every leg joint is output, in runs
+           of at least half a second, and on those frames only the parts some view saw (the rest is absent).
+  bottom   the readout on the shared IMU axis: a filmstrip of small renders every --strip-step seconds (what each
+           view outputs, the merge, the truth) with the well-tracked blocks marked at frame resolution (bars) and
+           boxes around the consecutive thumbnails inside one block; then knee-flexion charts (each view, the
+           merge, the truth); a cursor marks t.
+The reconstruction's root is the weighted quaternion mean of the views' roots (weight = ramped presence x the
+square of the fraction of joints the view finds usable, sharpened towards the heavier view when the two disagree;
+tools/two_view_fusion.fuse_root), after each view's constant heading offset to the truth has been removed (the two
+cameras' world frames differ by that heading). Root position is not part of the experiment; bodies are drawn at
+the origin. The 2D skeletons on the views are ViTPose's keypoints (the lifter's input), drawn with the left/right
+labels of the arms and legs kept consistent from frame to frame (2D estimators flip sides on a side-on walker;
+the 3D stage does not use those labels).
 """
 from __future__ import annotations
 
@@ -35,15 +41,41 @@ from scipy.spatial.transform import Rotation as R
 
 PKG = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PKG))
-from tools.two_view_fusion import LEGS, chordal_mean, fit_yaw, geodesic, ramp_inside, smooth_rotations, usable_joints_rt   # noqa: E402
+from tools.two_view_fusion import LEGS, chordal_mean, export_mask, fit_yaw, fuse_root, geodesic, ramp_inside, smooth_rotations, usable_joints_rt   # noqa: E402
 from wgvp.tracking import FACE_KP, SKELETON                                                             # noqa: E402
 
 COL = {"ok": [150, 160, 200], "missing": [220, 70, 70], "truth": [170, 170, 170]}
-RAMP_FRAMES = 15
+RAMP_FRAMES = 15        # cross-fade at the edges of usable segments (0.5 s at 30 fps)
+MIN_RUN = 15            # an export keeps runs of at least this many frames
+ROW_BGR = {"along": (180, 119, 31), "side": (14, 127, 255), "merge": (63, 209, 63)}     # tab:blue, tab:orange, the merge green
 
 
 def knee_deg(body):   # (T, 21, 3) -> (T, 2) left, right knee flexion magnitude
     return np.degrees(np.linalg.norm(body[:, [3, 4]], axis=2))
+
+
+def side_consistent(kp: np.ndarray, max_gap: int = 10) -> np.ndarray:
+    """Display only. (T, 17, 3) COCO keypoints (NaN where absent) -> same, with the left/right labels of the legs,
+    and separately of the arms, swapped in a frame when the swapped assignment continues the previously drawn
+    frame more closely. 2D pose estimators flip sides on a side-on walker; the 3D stage does not use these labels,
+    so the flips only matter for the overlay."""
+    out = kp.copy(); prev = None; prev_t = -10 ** 9
+    for t in range(len(out)):
+        cur = out[t]
+        if not np.isfinite(cur[:, :2]).any():
+            continue
+        if prev is not None and t - prev_t <= max_gap:
+            for L_ids, R_ids in (([11, 13, 15], [12, 14, 16]), ([5, 7, 9], [6, 8, 10])):
+                ok = np.isfinite(cur[L_ids, :2]).all(1) & np.isfinite(cur[R_ids, :2]).all(1) & np.isfinite(prev[L_ids, :2]).all(1) & np.isfinite(prev[R_ids, :2]).all(1)
+                if not ok.any():
+                    continue
+                Li, Ri = np.array(L_ids)[ok], np.array(R_ids)[ok]
+                keep = np.linalg.norm(cur[Li, :2] - prev[Li, :2], axis=1).sum() + np.linalg.norm(cur[Ri, :2] - prev[Ri, :2], axis=1).sum()
+                swap = np.linalg.norm(cur[Li, :2] - prev[Ri, :2], axis=1).sum() + np.linalg.norm(cur[Ri, :2] - prev[Li, :2], axis=1).sum()
+                if swap < 0.7 * keep:
+                    cur[L_ids + R_ids] = cur[R_ids + L_ids]
+        prev = cur.copy(); prev_t = t
+    return out
 
 
 def main():
@@ -73,8 +105,18 @@ def main():
     common = [f for f in range(n_video) if f in gi and lifted[A][f] and lifted[B][f]]
     yaw = {v: fit_yaw(root[v][common], gt["pose_aa"][[gi[f] for f in common], :3], vis[v][common]) for v in views}
     print("heading offsets (deg):", yaw)
-    # ---- the merge, dense: cross-faded segment rule
-    w = {v: ramp_inside(usable[v], RAMP_FRAMES) for v in views}
+    # ---- the reconstruction's root, dense: per view after its heading offset, then the weighted quaternion mean of
+    # the lifted views (two_view_fusion.fuse_root: ramped presence x usable fraction squared, sharpened towards the
+    # heavier view when the two disagree), then the same smoothing
+    root_al = {v: np.full((n_video, 3), np.nan) for v in views}
+    for v in views:
+        ok = lifted[v]; root_al[v][ok] = (R.from_euler("y", yaw[v], degrees=True) * R.from_rotvec(root[v][ok])).as_rotvec()
+    root_fused, share = fuse_root([root_al[A], root_al[B]], [usable[A], usable[B]], [lifted[A], lifted[B]], ramp=RAMP_FRAMES)
+    if a.smooth and a.smooth > 1:
+        root_fused = smooth_rotations(root_fused[:, None, :], a.smooth)[:, 0, :]
+    # ---- the merge, dense: cross-faded segment rule, each view's weights scaled by its share of the root (a view
+    # whose root disagrees with the view that sees more of the body solved its joints in the wrong gravity frame)
+    w = {v: ramp_inside(usable[v], RAMP_FRAMES) * share[i][:, None] for i, v in enumerate(views)}
     est = {v: np.nan_to_num(body[v]) for v in views}
     merged = chordal_mean([est[A], est[B]], np.stack([w[A], w[B]]))
     none = ~(usable[A] | usable[B]); fill = chordal_mean([est[A], est[B]], np.stack([lifted[A][:, None].repeat(21, 1).astype(float), lifted[B][:, None].repeat(21, 1).astype(float)]))
@@ -84,24 +126,12 @@ def main():
         merged_out = smooth_rotations(merged_out, a.smooth)
         anyl = (lifted[A] | lifted[B])[:, None].repeat(21, 1)
         md = merged_draw.copy(); md[~anyl] = np.nan; merged_draw = np.nan_to_num(smooth_rotations(md, a.smooth))
-    # ---- the reconstruction's root, dense: per view after its heading offset, the view with more usable joints when
-    # the two disagree by more than 60 deg, else their visibility-weighted mean; then the same smoothing
-    root_al = {v: np.full((n_video, 3), np.nan) for v in views}
+    # ---- what an export keeps: frames with every leg joint output, in runs of at least MIN_RUN frames
+    export_ok = export_mask(merged_out, LEGS, MIN_RUN)
+    # ---- 2D keypoints drawn on the views: ViTPose (the lifter's input), sides kept consistent for display
+    kp_draw = {}
     for v in views:
-        ok = lifted[v]; root_al[v][ok] = (R.from_euler("y", yaw[v], degrees=True) * R.from_rotvec(root[v][ok])).as_rotvec()
-    root_fused = np.full((n_video, 3), np.nan)
-    for f in range(n_video):
-        rs = [(root_al[v][f], float(usable[v][f].sum()) + 1e-3) for v in views if lifted[v][f]]
-        if len(rs) == 1:
-            root_fused[f] = rs[0][0]
-        elif len(rs) == 2:
-            (ra, wa), (rb, wb) = rs
-            if np.degrees((R.from_rotvec(ra).inv() * R.from_rotvec(rb)).magnitude()) > 60:
-                root_fused[f] = ra if wa >= wb else rb
-            else:
-                q = R.from_rotvec(np.stack([ra, rb])).as_quat(); q[1] *= np.sign(q[0] @ q[1]); root_fused[f] = R.from_quat((wa * q[0] + wb * q[1]) / (wa + wb)).as_rotvec()
-    if a.smooth and a.smooth > 1:
-        root_fused = smooth_rotations(root_fused[:, None, :], a.smooth)[:, 0, :]
+        arr = np.full((n_video, 17, 3), np.nan); arr[K[v]["frame_idx"].astype(int)] = K[v]["kp2d"]; kp_draw[v] = side_consistent(arr)
     # ---- truth series
     truth_body = np.full((n_video, 21, 3), np.nan)
     for f, i in gi.items():
@@ -122,7 +152,7 @@ def main():
         with torch.no_grad():
             o = bm(global_orient=torch.tensor(root_aa, dtype=torch.float32)[None], body_pose=torch.tensor(body_aa.reshape(63), dtype=torch.float32)[None], betas=torch.zeros(1, 10), transl=torch.zeros(1, 3))
         return o.vertices[0].numpy()
-    RW, RH = 400, 520; AW, AH = 360, 250
+    RW, RH = 340, 442; AW, AH = 360, 250
     renderer = pyrender.OffscreenRenderer(RW, RH); aerial_r = pyrender.OffscreenRenderer(AW, AH)
     # the scene's mat: the walk's extent along x (from the sample's expected answers) and the mat's lateral position
     exp = json.loads((Path(a.gt).parent / "expected.json").read_text()) if (Path(a.gt).parent / "expected.json").exists() else {}
@@ -157,14 +187,19 @@ def main():
     def finish(rd, sc):
         col, _ = rd.render(sc, flags=pyrender.RenderFlags.RGBA | pyrender.RenderFlags.SKIP_CULL_FACES); col = col.astype(np.float32); al = col[..., 3:4] / 255.0
         return (col[..., :3] * al + 255 * (1 - al)).astype(np.uint8)[:, :, ::-1]
-    def body_mesh(V, colours):
-        tm = trimesh.Trimesh(V, faces, process=False); tm.visual = trimesh.visual.ColorVisuals(mesh=tm, vertex_colors=np.c_[colours, np.full(len(V), 255)].astype(np.uint8))
+    def body_mesh(V, colours, keep_faces=None):
+        tm = trimesh.Trimesh(V, faces if keep_faces is None else faces[keep_faces], process=False)
+        tm.visual = trimesh.visual.ColorVisuals(mesh=tm, vertex_colors=np.c_[colours, np.full(len(V), 255)].astype(np.uint8))
         return pyrender.Mesh.from_trimesh(tm, smooth=True)
-    def render(V, colours):
-        """Close-up: the body at the origin on a floor with the mat running along x under it."""
-        sc = pyrender.Scene(bg_color=(1.0, 1.0, 1.0, 1.0), ambient_light=(0.45, 0.45, 0.45)); sc.add(body_mesh(V, colours))
-        add_floor_and_mat(sc, float(V[:, 1].min()) - 0.01, 0.0, 2.45, 0.0)
-        c = np.array([0.0, V[:, 1].mean(), 0.0]); az = np.deg2rad(40); eye = c + 3.3 * np.array([np.sin(az), 0.25, np.cos(az)])
+    view_ref = {"floor": -1.17, "c": np.array([0.0, -0.25, 0.0])}
+    def render(V, colours, keep_faces=None):
+        """Close-up: the body at the origin on a floor with the mat running along x under it; V None = floor only
+        (the camera and floor height of the last body drawn, so an empty frame looks like the same room)."""
+        sc = pyrender.Scene(bg_color=(1.0, 1.0, 1.0, 1.0), ambient_light=(0.45, 0.45, 0.45))
+        if V is not None:
+            sc.add(body_mesh(V, colours, keep_faces)); view_ref["floor"] = float(V[:, 1].min()) - 0.01; view_ref["c"] = np.array([0.0, V[:, 1].mean(), 0.0])
+        add_floor_and_mat(sc, view_ref["floor"], 0.0, 2.45, 0.0)
+        c = view_ref["c"]; az = np.deg2rad(40); eye = c + 3.3 * np.array([np.sin(az), 0.25, np.cos(az)])
         sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(40)), pose=look_at(eye, c)); lights(sc); return finish(renderer, sc)
     def render_aerial(V_world):
         """The whole scene from above: floor, mat, the truth body at its real position, the two cameras."""
@@ -185,7 +220,8 @@ def main():
     # ---- layout
     PH = 320; vbox = {v: [int(x) for x in K[v]["view_box"]] for v in views}
     pw = {v: int(round(PH * (vbox[v][2] - vbox[v][0]) / (vbox[v][3] - vbox[v][1]))) for v in views}
-    W = max(pw[A] + pw[B] + 30 + 20, 2 * RW + 80 + AW); TLH = 330
+    W = max(pw[A] + pw[B] + 30 + 20, 3 * RW + 4 * 20 + AW + 20); TLH = 330
+    light_rect = exp.get("light_rect")                      # the sample's sync light (bright while the IMU records), labelled on the view that shows it
     def label(img, txt, xy, col=(255, 255, 255), scale=0.55, th=1, bg=(0, 0, 0)):
         (tw, tht), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, scale, th); x, y = xy
         cv2.rectangle(img, (x - 3, y - tht - 5), (x + tw + 3, y + 4), bg, -1); cv2.putText(img, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, col, th, cv2.LINE_AA)
@@ -215,7 +251,7 @@ def main():
     timeline = cv2.imread(str(tmpdir / "timeline.png")); timeline = cv2.resize(timeline, (W, TLH))
     def cursor_x(t): return int(L_ * W + (t - t0) / max(t1 - t0, 1e-6) * (R_ - L_) * W)
     # ---- the filmstrip: at every --strip-step seconds a small render of what each view outputs, the merge, the truth
-    ticks = np.arange(t0 + 0.5 * a.strip_step, t1, a.strip_step); n_tick = len(ticks); TW = min(56, int((R_ - L_) * W / max(n_tick, 1))); TH = int(TW * 5 / 3); SH = 4 * (TH + 4) + 18
+    ticks = np.arange(t0 + 0.5 * a.strip_step, t1, a.strip_step); n_tick = len(ticks); TW = min(56, int((R_ - L_) * W / max(n_tick, 1))); TH = int(TW * 5 / 3); RP = TH + 11; SH = 4 * RP + 20
     thumb_r = pyrender.OffscreenRenderer(2 * TW, 2 * TH)
     def thumb(V, colours):
         sc = pyrender.Scene(bg_color=(0.16, 0.16, 0.16, 1.0), ambient_light=(0.5, 0.5, 0.5)); sc.add(body_mesh(V, colours))
@@ -223,10 +259,13 @@ def main():
         sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(42)), pose=look_at(eye, c)); lights(sc)
         col, _ = thumb_r.render(sc, flags=pyrender.RenderFlags.SKIP_CULL_FACES); return cv2.resize(col[:, :, ::-1], (TW, TH), interpolation=cv2.INTER_AREA)
     strip = np.full((SH, W, 3), 28, np.uint8); rows = [("along view", A), ("side view", B), ("merge", None), ("truth", "truth")]
+    # the well-tracked blocks per row, at frame resolution: a view's legs usable; for the merge, the frames the export keeps
+    good = {A: leg_ok[A] & win, B: leg_ok[B] & win, None: export_ok & win}; row_bgr = {A: ROW_BGR["along"], B: ROW_BGR["side"], None: ROW_BGR["merge"]}
+    xL = int(L_ * W); x_of_t = lambda t_: xL + (t_ - t0) / a.strip_step * TW          # thumbnail k spans IMU [t0 + k step, t0 + (k + 1) step)
     for r_i, (name, key) in enumerate(rows):
-        y = 14 + r_i * (TH + 4); cv2.putText(strip, name, (4, y + TH // 2 + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (210, 210, 210), 1, cv2.LINE_AA)
+        y = 18 + r_i * RP; cv2.putText(strip, name, (4, y + TH // 2 + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (210, 210, 210), 1, cv2.LINE_AA)
         for k_i, tk in enumerate(ticks):
-            f = int(np.argmin(np.abs(t_all - tk))); x = int(L_ * W) + k_i * TW; img = None
+            f = int(np.argmin(np.abs(t_all - tk))); x = xL + k_i * TW; img = None
             if key == "truth":
                 if f in gi:
                     img = thumb(verts(gt["pose_aa"][gi[f], :3], gt["pose_aa"][gi[f], 3:66]), np.tile(COL["truth"], (10475, 1)))
@@ -236,10 +275,21 @@ def main():
             elif lifted[key][f] and vis[key][f]:
                 V_ = verts(root_al[key][f], np.nan_to_num(body[key][f])); cl = np.tile(COL["ok"], (len(V_), 1)); cl[np.isin(dom, np.flatnonzero(~usable[key][f]) + 1)] = COL["missing"]; img = thumb(V_, cl)
             if img is not None:
+                if key in good and not good[key][f]:
+                    img = (img * 0.45).astype(np.uint8)                                   # outside a well-tracked block: dimmed
                 strip[y:y + TH, x:x + TW] = img
             else:
                 cv2.rectangle(strip, (x, y), (x + TW - 1, y + TH - 1), (40, 40, 40), -1); cv2.putText(strip, "-", (x + TW // 2 - 4, y + TH // 2 + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (90, 90, 90), 1)
-    cv2.putText(strip, f"every {a.strip_step:g} s: what each view outputs (red = joints it cannot see), the merge, the truth", (int(L_ * W), 10), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1, cv2.LINE_AA)
+        if key in good:                                       # frame-resolution bar under the row; a box around the consecutive thumbnails inside one block
+            edges = np.flatnonzero(np.diff(np.r_[0, good[key].astype(int), 0]))
+            for a_, b_ in zip(edges[::2], edges[1::2]):
+                ta, tb = t_all[a_], t_all[b_ - 1]
+                cv2.rectangle(strip, (int(x_of_t(ta)), y + TH + 2), (min(int(x_of_t(tb)) + 1, xL + n_tick * TW - 1), y + TH + 5), row_bgr[key], -1)
+                ks = [k_ for k_, tk in enumerate(ticks) if ta <= tk <= tb]
+                if ks:
+                    cv2.rectangle(strip, (xL + ks[0] * TW - 1, y - 2), (xL + (ks[-1] + 1) * TW, y + TH + 7), row_bgr[key], 1)
+    cv2.putText(strip, f"every {a.strip_step:g} s: what each view outputs (red = joints it cannot see), the merge, the truth.   Bars and boxes mark the well-tracked blocks "
+                       "(a view: its legs usable; the merge: the frames the export keeps); thumbnails outside a block are dimmed", (xL, 11), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1, cv2.LINE_AA)
     thumb_r.delete()
     show_charts, show_strip = a.readout in ("both", "charts"), a.readout in ("both", "strips")
     H = 20 + PH + 30 + RH + 20 + (TLH if show_charts else 0) + (SH + 10 if show_strip else 0)
@@ -255,20 +305,21 @@ def main():
         x = 10
         for v in views:                                                          # top: the views
             x0, y0, x1, y1 = vbox[v]; crop = img[y0:y1, x0:x1].copy()
-            sk = S[v]; hit = np.flatnonzero(sk["frame_idx"] == f)
-            if len(hit):
-                kp = sk["kp2d"][hit[0]]
-                for a_, b_ in SKELETON:
-                    if a_ in FACE_KP or b_ in FACE_KP:
-                        continue
-                    if np.isfinite(kp[[a_, b_], :2]).all() and kp[a_, 2] >= 0.3 and kp[b_, 2] >= 0.3:
-                        cv2.line(crop, (int(kp[a_, 0] - x0), int(kp[a_, 1] - y0)), (int(kp[b_, 0] - x0), int(kp[b_, 1] - y0)), (40, 230, 40), 3, cv2.LINE_AA)
+            kp = kp_draw[v][f]
+            for a_, b_ in SKELETON:
+                if a_ in FACE_KP or b_ in FACE_KP:
+                    continue
+                if np.isfinite(kp[[a_, b_], :2]).all() and kp[a_, 2] >= 0.3 and kp[b_, 2] >= 0.3:
+                    cv2.line(crop, (int(kp[a_, 0] - x0), int(kp[a_, 1] - y0)), (int(kp[b_, 0] - x0), int(kp[b_, 1] - y0)), (40, 230, 40), 3, cv2.LINE_AA)
             crop = cv2.resize(crop, (pw[v], PH), interpolation=cv2.INTER_AREA)
+            if light_rect and x0 <= light_rect[0] < x1 and y0 <= light_rect[1] < y1:
+                s_ = PH / (y1 - y0); lx, ly = int((light_rect[0] - x0) * s_), int((light_rect[1] - y0) * s_); lw_ = max(int(light_rect[2] * s_), 6)
+                cv2.rectangle(crop, (lx - 3, ly - 3), (lx + lw_ + 3, ly + lw_ + 3), (255, 255, 255), 1); label(crop, "sync light", (lx - 78, ly + lw_ + 2), scale=0.4)
             legs_ok = leg_ok[v][f]; n_us = int(usable[v][f].sum())
             col = (40, 200, 40) if legs_ok else ((30, 170, 240) if lifted[v][f] else (60, 60, 220))
             cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
             name = "along view" if v == A else "side view"
-            status = ("subject not in view" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 joints usable" + ("" if legs_ok else "; legs at edge")))
+            status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 joints usable" + ("" if legs_ok else "; legs at edge")))
             label(canvas, f"{name}: {status}", (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
         yb = 20 + PH + 30; gi_f = gi.get(f)                                       # middle: truth and reconstruction
         if gi_f is not None:
@@ -276,7 +327,7 @@ def main():
         label(canvas, "rendered truth", (28, yb + RH - 12))
         xr = 20 + RW + 20
         if not (lifted[A][f] or lifted[B][f]):
-            label(canvas, "no data: the subject is in neither view", (xr + 8, yb + RH // 2), col=(60, 60, 220))
+            label(canvas, "no data: the subject is tracked in neither view", (xr + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
         elif none[f].all():
             label(canvas, "no usable joint in either view", (xr + 8, yb + RH // 2), col=(60, 60, 220))
         else:
@@ -294,7 +345,19 @@ def main():
                 src.append(f"{nm}: " + ("both" if a_ok and b_ok else ("along" if a_ok else ("side" if b_ok else "none"))))
             label(canvas, "reconstruction  " + " | ".join(src), (xr + 8, yb + RH - 12), scale=0.5)
         label(canvas, "red = no view could see this part (not output)", (xr + 8, yb + RH - 34), col=(90, 90, 230), scale=0.5)
-        xt = xr + RW + 20
+        label(canvas, "2D skeletons: ViTPose keypoints (the lifter's input)", (10, 20 + PH + 8), scale=0.4, col=(200, 200, 200), bg=(28, 28, 28))
+        xe = xr + RW + 20                                                           # the export: the frame only if kept, only the parts some view saw
+        if export_ok[f]:
+            Ve = verts(root_fused[f], np.nan_to_num(merged_out[f])); keep = ~np.isin(dom[faces], np.flatnonzero(none[f]) + 1).any(1)
+            canvas[yb:yb + RH, xe:xe + RW] = render(Ve, np.tile(COL["ok"], (len(Ve), 1)), keep)
+        else:
+            canvas[yb:yb + RH, xe:xe + RW] = render(None, None)
+            why = ("subject tracked in neither view" if not (lifted[A][f] or lifted[B][f]) else ("a leg joint seen by neither view" if not np.isfinite(merged_out[f][LEGS]).all() else f"run shorter than {MIN_RUN / fps:.1f} s"))
+            label(canvas, "frame not exported:", (xe + 8, yb + RH // 2 - 22), col=(60, 60, 220), scale=0.5); label(canvas, why, (xe + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
+        label(canvas, f"frames kept so far: {export_ok[win & (tt <= t)].mean():.0%}", (xe + 8, yb + RH - 56), scale=0.5)
+        label(canvas, "parts no view saw are absent", (xe + 8, yb + RH - 34), scale=0.5)
+        label(canvas, "export  (what a user takes away)", (xe + 8, yb + RH - 12))
+        xt = xe + RW + 20
         Vw = verts_world(gt["pose_aa"][gi_f, :3], gt["pose_aa"][gi_f, 3:66], gt["transl"][gi_f]) if gi_f is not None else None
         canvas[yb:yb + AH, xt:xt + AW] = render_aerial(Vw)
         label(canvas, "aerial truth  (blue = along camera, orange = side camera)", (xt + 6, yb + AH - 8), scale=0.42)
@@ -309,7 +372,7 @@ def main():
         if show_strip:
             canvas[yt:yt + SH] = strip
             k_cur = int(np.clip((t - t0) // a.strip_step, 0, max(n_tick - 1, 0))); x_c = int(L_ * W) + k_cur * TW
-            cv2.rectangle(canvas, (x_c - 1, yt + 13), (x_c + TW, yt + SH - 3), (255, 255, 255), 2); yt += SH + 10
+            cv2.rectangle(canvas, (x_c - 2, yt + 14), (x_c + TW + 1, yt + SH - 2), (255, 255, 255), 1); yt += SH + 10
         if show_charts:
             canvas[yt:yt + TLH] = timeline; cv2.line(canvas, (cx, yt + 8), (cx, yt + TLH - 24), (255, 255, 255), 2)
         for pkt in stream.encode(av.VideoFrame.from_ndarray(canvas[:, :, ::-1].copy(), format="rgb24")):
