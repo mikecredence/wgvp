@@ -93,6 +93,64 @@ def smooth_rotations(aa: np.ndarray, window: int) -> np.ndarray:
     return out
 
 
+def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np.ndarray], ramp: int = 15,
+              soft_lo: float = 30.0, soft_hi: float = 60.0, n_joints: int = 21) -> tuple[np.ndarray, np.ndarray]:
+    """Root orientation of the merge and each view's share of it. Inputs per view, all in one world frame (per-view
+    heading offsets already removed): roots (T, 3), usable (T, J) bool, lifted (T,) bool. Returns the fused root
+    (T, 3) axis-angle, NaN where no view lifted the frame, and the normalised weights (V, T).
+
+    Each view's root carries the weight  presence x (usable fraction)^2: presence ramps from 0 to 1 over the first
+    and last `ramp` frames of every lifted run, so a view that enters or leaves cannot step the root, and the usable
+    fraction is averaged over `ramp` frames, so joints flickering in and out of a view cannot either; a view that
+    sees 5 of 21 joints carries 6 % of the weight of one that sees them all. When the roots disagree by more than
+    soft_lo degrees one of them is wrong (two good lifts of the same walker agree to within ~10 deg), so the weights
+    are sharpened towards the heaviest view, fully by soft_hi; the sharpening is a continuous function of the weights
+    and the disagreement, so nothing here introduces a discontinuity that is not in the inputs. The weighted mean is
+    taken on unit quaternions, hemisphere-aligned to the heaviest view.
+
+    The share is also the right weight for the view's body joints: a lifter that got the root's pitch wrong (the
+    along view of the sample at close range: +40 deg) has hips that compensate for it, and the rest of its body
+    solved in the wrong gravity frame."""
+    V = len(roots); T = roots[0].shape[0]
+    L = np.stack([np.asarray(l, bool) for l in lifted])                                                     # (V, T)
+    pres = np.stack([ramp_inside(L[i][:, None], ramp)[:, 0] for i in range(V)])
+    frac = np.stack([_moving_average(np.asarray(u, bool).sum(1) / float(n_joints), ramp) for u in usable])
+    w = pres * frac ** 2; w[~L] = 0.0
+    Q = np.stack([np.where(np.isfinite(r).all(1)[:, None], R.from_rotvec(np.nan_to_num(r)).as_quat(), np.nan) for r in roots])
+    out = np.full((T, 3), np.nan); share = np.zeros((V, T))
+    for t in range(T):
+        idx = np.flatnonzero(L[:, t] & np.isfinite(Q[:, t]).all(1))
+        if not len(idx):
+            continue
+        ww = w[idx, t].copy()
+        if ww.sum() <= 1e-9:                                   # lifted but nothing usable in any view (bridged frames): plain mean
+            ww[:] = 1.0
+        k = int(np.argmax(ww)); q = Q[idx, t].copy(); q *= np.sign(q @ q[k] + 1e-12)[:, None]
+        d = np.degrees(2.0 * np.arccos(np.clip(np.abs(q @ q[k]), 0.0, 1.0)))                               # each root's angle to the heaviest
+        p = 8.0 * np.clip((d - soft_lo) / (soft_hi - soft_lo), 0.0, 1.0)                                    # 0 below soft_lo, 8 at soft_hi
+        ww = ww * (ww / ww[k]) ** p; share[idx, t] = ww / ww.sum()
+        m = (ww[:, None] * q).sum(0); out[t] = R.from_quat(m / np.linalg.norm(m)).as_rotvec()
+    return out, share
+
+
+def _moving_average(x: np.ndarray, k: int) -> np.ndarray:
+    if k <= 1:
+        return np.asarray(x, float)
+    c = np.cumsum(np.r_[0.0, x]); h = k // 2; i = np.arange(len(x)); a_ = np.clip(i - h, 0, len(x)); b_ = np.clip(i + h + 1, 0, len(x))
+    return (c[b_] - c[a_]) / (b_ - a_)
+
+
+def export_mask(merged_out: np.ndarray, required=LEGS, min_run: int = 15) -> np.ndarray:
+    """Frames an export keeps: every required joint is output (seen by at least one view), in runs of at least
+    min_run frames. (T, 21, 3) with NaN for joints not output -> (T,) bool."""
+    ok = np.isfinite(merged_out[:, list(required)]).all(axis=(1, 2))
+    edges = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
+    for a_, b_ in zip(edges[::2], edges[1::2]):
+        if b_ - a_ < min_run:
+            ok[a_:b_] = False
+    return ok
+
+
 def step_stats(aa: np.ndarray) -> dict:
     """Frame-to-frame continuity of an estimate (T, 21, 3): largest per-joint rotation step between consecutive
     frames where both are emitted; p99 and the share of steps over 20 deg."""
@@ -187,10 +245,13 @@ def main(argv=None):
     fused = {"mean": chordal_mean([est[A], est[B]], np.ones((2, len(frames), 21))),
              "confidence-weighted": chordal_mean([est[A], est[B]], np.stack([w_conf[A], w_conf[B]])),
              "visibility-weighted": chordal_mean([est[A], est[B]], np.stack([w_vis[A], w_vis[B]]))}
-    def segment_rule(wa, wb, ramp_frames: int = 0):
+    def segment_rule(wa, wb, ramp_frames: int = 0, extra=None):
         """Per joint and frame: the view(s) whose flag is set, averaged when both; NaN (no output) when neither.
-        With ramp_frames > 0 the weights cross-fade over that many frames at the edges of each usable segment."""
+        With ramp_frames > 0 the weights cross-fade over that many frames at the edges of each usable segment;
+        extra = (sa, sb) multiplies each view's weights by a per-frame factor (the view's share of the fused root)."""
         fa, fb = (ramp_inside(wa, ramp_frames), ramp_inside(wb, ramp_frames)) if ramp_frames else (wa.astype(float), wb.astype(float))
+        if extra is not None:
+            fa, fb = fa * extra[0][:, None], fb * extra[1][:, None]
         out = chordal_mean([est[A], est[B]], np.stack([fa, fb]))
         none = ~(wa | wb); out[none] = np.nan
         return out
@@ -200,10 +261,15 @@ def main(argv=None):
     fused["segment rule, cross-faded (run-time visibility)"] = segment_rule(in_frame_rt[A], in_frame_rt[B], ramp_frames=15)
     fused["segment rule, cross-faded + smoothed 5 fr"] = smooth_rotations(fused["segment rule, cross-faded (run-time visibility)"], 5)
     fused["segment rule, cross-faded + smoothed 9 fr"] = smooth_rotations(fused["segment rule, cross-faded (run-time visibility)"], 9)
+    # the fused root and each view's share of it (fuse_root); the share also weights the view's body joints
+    yaw = {v: fit_yaw(root[v], gt_root, visible[v]) for v in views}
+    root_al = {v: (R.from_euler("y", yaw[v], degrees=True) * R.from_rotvec(root[v])).as_rotvec() for v in views}
+    root_f, share = fuse_root([root_al[A], root_al[B]], [in_frame_rt[A], in_frame_rt[B]], [visible[A] | True, visible[B] | True], ramp=15)
+    fused["segment rule, cross-faded x root share + smoothed 5 fr"] = smooth_rotations(segment_rule(in_frame_rt[A], in_frame_rt[B], ramp_frames=15, extra=(share[0], share[1])), 5)
     pick = np.where((err[A] <= err[B])[:, :, None], est[A], est[B]); fused["oracle pick"] = pick
     err.update({k: geodesic(v_, gt_body) for k, v_ in fused.items()})
-    yaw = {v: fit_yaw(root[v], gt_root, visible[v]) for v in views}
-    root_err = {v: geodesic((R.from_euler("y", yaw[v], degrees=True) * R.from_rotvec(root[v])).as_rotvec(), gt_root) for v in views}
+    root_err = {v: geodesic(root_al[v], gt_root) for v in views}; root_err["fused"] = geodesic(root_f, gt_root)
+    root_step = {k: step_stats(x[:, None, :]) for k, x in (list(root_al.items()) + [("fused", root_f)])}
     # ---- knee flexion, the gait-relevant scalar
     def knee(aa): return np.degrees(np.linalg.norm(aa[:, [3, 4]], axis=2))
     kg = knee(gt_body); knee_rmse = {k: float(np.sqrt(np.nanmean((knee(x) - kg) ** 2))) for k, x in list(est.items()) + list(fused.items())}
@@ -217,7 +283,8 @@ def main(argv=None):
     steps = {k: step_stats(x) for k, x in list(est.items()) + list(fused.items())}
     res = {"n_frames": int(len(frames)), "views": views, "yaw_offset_deg": yaw,
            "overall": {k: row(e) for k, e in err.items()}, "knee_flexion_rmse_deg": knee_rmse, "continuity": steps,
-           "root_orientation_median_deg": {v: float(np.median(root_err[v][visible[v]])) for v in views},
+           "root_orientation_median_deg": {**{v: float(np.median(root_err[v][visible[v]])) for v in views}, "fused": float(np.median(root_err["fused"]))},
+           "root_step_p99_deg": {k: v_["p99_deg"] for k, v_ in root_step.items()}, "root_share_mean": {v: float(share[i].mean()) for i, v in enumerate(views)},
            "by_visibility": {v: {c: row(err[v], classes[v] == c) for c in sorted(set(classes[v]))} for v in views},
            "fused_by_along_visibility": {c: {k: row(err[k], classes[A] == c) for k in fused} for c in sorted(set(classes[A]))},
            "per_joint_median": {k: dict(zip(SMPLX_BODY_JOINTS, np.median(e, 0).round(2).tolist())) for k, e in err.items()}}
@@ -230,7 +297,10 @@ def main(argv=None):
         L.append(f"| {k} | {r['coverage']:.0%} | {r['legs']:.1f} | {r['legs_p90']:.1f} | {r['frac_legs_over_20']:.0%} | {r['arms']:.1f} | {r['spine']:.1f} | {r['all']:.1f} | {knee_rmse[k]:.1f} | {st['p99_deg']:.1f} | {st['frac_over_20']:.2%} |")
     L.append("\nErrors of the segment rules are over the joints they emit; coverage is the share of (frame, joint) cells with an output. Both views and the other fusions emit every cell. "
              "Continuity: the largest per-joint rotation step between consecutive emitted frames, its 99th percentile and the share of steps over 20 deg.")
-    L.append(f"\nRoot orientation after a constant heading alignment of {yaw[A]:+.0f} deg ({A}) and {yaw[B]:+.0f} deg ({B}): median error {res['root_orientation_median_deg'][A]:.1f} / {res['root_orientation_median_deg'][B]:.1f} deg.\n")
+    rm = res["root_orientation_median_deg"]; rs = res["root_step_p99_deg"]
+    L.append(f"\nRoot orientation after a constant heading alignment of {yaw[A]:+.0f} deg ({A}) and {yaw[B]:+.0f} deg ({B}): median error {rm[A]:.1f} / {rm[B]:.1f} deg "
+             f"(frame step p99 {rs[A]:.1f} / {rs[B]:.1f}); the fused root (weighted by each view's ramped presence and the square of its usable fraction, sharpened towards the heavier view when the two disagree) "
+             f"{rm['fused']:.1f} deg (step p99 {rs['fused']:.1f}); mean share of the {A} view {res['root_share_mean'][A]:.2f}.\n")
     for v in views:
         L += [f"\n## {v} view by what the camera saw (truth)\n", "| frames | n | legs | arms | spine | all |", "|---|---|---|---|---|---|"]
         for c, r in res["by_visibility"][v].items():
