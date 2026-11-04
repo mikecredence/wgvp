@@ -129,6 +129,9 @@ def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) 
     metas = [json.loads(c.read_text()) for c in chunks]
     if not metas or any(m.get("status") != "done" for m in metas):
         return {"ok": False, "reason": "not all chunks done", "chunks": [m.get("status") for m in metas]}
+    missing = [m["pose_npz"] for m in metas if not (rec_cam_work / m["pose_npz"]).exists()]
+    if missing:                      # chunk records say done but the GVHMR dumps are not here (a re-run from pulled-back records)
+        return {"ok": False, "reason": "chunk pose file(s) missing", "missing": missing, "already_assembled": (deliver_dir / "smpl_global.npz").exists()}
     rows = {}   # source frame_idx -> (chunk_id, local index)
     for m in metas:
         fi = np.array(m["frame_idx"]); n = len(fi)
@@ -238,8 +241,15 @@ def main(argv=None):
         _log(f"     -> {m['status']} {m.get('error', '')} ({m.get('gvhmr_run', {}).get('elapsed_s', 0):.0f}s)")
         failed += m["status"] != "done"; done_dirs.add(j.parent)
     for d in sorted(done_dirs):
-        cam, rec = d.parts[-3], d.parts[-2]; session = d.parents[3]
-        r = assemble(d, session / "deliver" / rec / cam, keep_face_kp=a.keep_face_keypoints)
+        cam, rec = d.parts[-3], d.parts[-2]; session = d.parents[3]; out = session / "deliver" / rec / cam
+        try:
+            r = assemble(d, out, keep_face_kp=a.keep_face_keypoints)
+        except Exception as e:       # one view's assembly must not take the others down
+            r = {"ok": False, "reason": f"assembly failed: {e!r}"}; failed += 1
+        if not r.get("ok") and r.get("already_assembled"):
+            _log(f"assemble {session.name}/{rec}/{cam}: kept the existing output (chunk dumps not on this machine)"); continue
+        if not r.get("ok"):
+            failed += 1
         _log(f"assemble {session.name}/{rec}/{cam}: {r}")
     return 1 if failed else 0
 

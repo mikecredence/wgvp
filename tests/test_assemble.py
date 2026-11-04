@@ -45,3 +45,13 @@ def test_assemble_quality_fields(tmp_path):
     assert (z["chunk_id"][:100] == 0).all() and (z["chunk_id"][100:] == 1).all()
     gm = json.loads((deliver / "gvhmr_meta.json").read_text())
     assert gm["n_bridged"] == 10 and gm["n_edge_truncated"] == 25 and gm["n_pose_jumps_over_30deg"] == 1 and gm["pose_jump_frames"] == [90]
+
+
+def test_assemble_reports_missing_chunk_dumps_instead_of_crashing(tmp_path):
+    """Chunk records pulled back from a GPU box say 'done' but the pose dumps stayed there: assembly must say so
+    (and whether an assembled output already exists), not raise."""
+    work = tmp_path / "chunks"; work.mkdir(); deliver = tmp_path / "deliver"; deliver.mkdir()
+    f0 = np.arange(30); b0 = np.tile([200.0, 50.0, 300.0, 400.0], (30, 1))
+    _chunk(work, 0, f0, b0, np.zeros((30, 63)), np.ones(30, bool)); (work / "chunk_0_pose.npz").unlink()
+    r = assemble(work, deliver); assert r["ok"] is False and r["reason"] == "chunk pose file(s) missing" and r["already_assembled"] is False
+    (deliver / "smpl_global.npz").write_bytes(b""); r = assemble(work, deliver); assert r["already_assembled"] is True
