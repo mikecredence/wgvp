@@ -427,7 +427,14 @@ the exported frames:
 |---|---|---|---|---|---|
 | Sub 001 (HC900) | 100 % | 8.7 deg | 5.9 deg | 4.7 deg | 5.3 deg, 3 cm |
 | Sub 002 (HC901) | 96 % | 10.0 deg | 7.5 deg | 6.6 deg | 2 cm (roots 54 deg apart: the along view's pitch, flagged) |
-RESULTS_SUB003
+| Sub 003 (HC902) | 100 % | 11.5 deg | 9.2 deg | 7.4 deg | 8 deg, 0.52 m (flagged) |
+
+Sub 003's flag is the translation again: the two views put the pelvis half a metre apart on the frames both see,
+each a monocular depth under an assumed focal length, and the merge says so (`transl_weight` averages 0.67 there
+against 0.9 for the pose weights). The side view confirmed the sync from the other view and attached its six
+fragments at that lag (a WARN, as designed: the walker is out of that view for half of the recording), and the
+whole run, scan to demos, took the CPU stages at about 80 s per session on a laptop and the lift at 8-10 minutes
+per session on a T4.
 
 The first version of the third session used a walker whose sensor-derived path covered a single metre with a 5-mm
 pelvis bob, and it produced the one confidently wrong result of these runs: the side view fragmented, the fragments'

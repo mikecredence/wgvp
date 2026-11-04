@@ -398,7 +398,30 @@ leaves only 43 % of the recording inside the video (threshold 60 %), and a stron
 (`tests/test_sync_sanity.py`). The walker was then replaced by hc105 (6.3 m of walkway, 11 mm of pelvis bob, the
 largest in the public set), with the side camera turned towards one end so that the walker leaves it at the other
 for 45 % of the recording while the along camera sees the whole body there.
-RESULTS_PENDING
+
+The second pass exposed a robustness bug in the GPU stage. Its three chunks lifted normally (299 s for the along
+view, 87 s for each side-view chunk), but the assembly loop then reached the first two subjects, whose chunk
+records had come back from the first pass marked done while their pose dumps had stayed on the box, and
+`np.load` on the missing file took the whole stage down before the new subject was assembled. Assembly now
+reports missing dumps per view (keeping an existing output when there is one) and a failure in one view no longer
+stops the others (`tests/test_assemble.py`); the third subject was assembled from the dumps still on the box.
+
+Results (each session against its own rendered truth, exported frames). Sub 001 (HC900): scan paired, sync 3.008 s
+(truth 3.0, validated by the light), both views by cross-correlation (r 0.77 / 0.72); merge export 100 %, legs
+8.7 deg, knee-flexion RMSE 5.9, root 4.7, the side view turned onto the along view by -116.5 deg with residuals
+5.3 deg / 3 cm; 4 GVHMR frames flagged for a joint step over 30 deg in the side view. Sub 002 (HC901): sync
+2.995 s, the along view by its shipped operator pick, the side view by cross-correlation (r 0.58); export 96.5 %,
+legs 10.0, knee RMSE 7.5, root 6.6, the roots 54 deg apart on shared frames (the along view's pitch; info flag).
+Sub 003 (HC902, hc105): sync 3.007 s validated by the light; the along view by cross-correlation (r 0.66, margin
+0.51), the side view "weak, lag from the other view" with six fragments attached (WARN as designed: the walker is
+out of it for 48 % of the recording); 1,205 + 654 frames lifted; export 100 %, legs 11.5 deg (14 % over 20),
+knee RMSE 9.2, root 7.4 (step p99 5.7), the side view turned onto the along view by -128.7 deg with a root
+residual of 8 deg and a pelvis-position residual of 0.52 m, which the merge flags: the two monocular depths
+disagree by half a metre on the frames both views see (`transl_weight` mean 0.67 against pose weights of 0.92).
+The reconciliation's two-view leg disagreement is 9.2 deg. Timing: CPU stages 65-85 s per session on the laptop,
+the lift 8-10 min per session on the T4, the demo 2.5 min per session. The demos of all three sessions and the
+README GIF were rendered by `wgvp demo` from these outputs. Lesson for re-runs on a remote GPU: a pull with
+`rsync` must escape spaces in the remote path (`Sub\ 003`), and macOS's rsync has no `-s`.
 
 ## 3. What has not been tested on real clinic recordings
 
