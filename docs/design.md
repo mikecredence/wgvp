@@ -42,8 +42,10 @@ Per video (CPU, one decode pass, cached by file hash):
    Cross-checks, each reported with its difference and a PASS/WARN: the light flash if a persistent local brightness
    step is visible (operator rectangle or automatic grid search, global exposure removed), the Walk-interval
    correlation against an exported Video Labeler label file (video time) when present, and an annotation-sheet start
-   frame when present. Variable frame rate and dropped frames are handled by working on presentation timestamps
-   (the `timing` QC lists gaps).
+   frame when present. Two sanity rules (2026-11-04, after the hc102 case in 2.8): the offset must leave at least
+   60 % of the recording inside the video, and a strong (z >= 100) persistent light-like step more than 3 s from
+   the offset is reported as a disagreement even though no flash was used; either makes the sync a WARN. Variable
+   frame rate and dropped frames are handled by working on presentation timestamps (the `timing` QC lists gaps).
 5. **Coverage and gaps.** Per view: present / full / partial / absent fractions over the recording window, the gap
    list in IMU time, and for every annotated Walk bout the covered fraction; a recording needs at least one view
    covering a bout (>= 80 %), and the QC says which view covered which bout.
@@ -63,7 +65,26 @@ Per video (CPU, one decode pass, cached by file hash):
    (always) and, after GVHMR, per-joint geodesic disagreement of the SMPL-X body pose, knee/hip flexion correlations
    and the knee-signal residual lag (tolerance 3 frames); the per-frame disagreement is written to
    `pose_agreement_<a>_<b>.npz`.
-9. **QC and privacy.** Every stage writes JSON; skeleton-only thumbnails (black background, green = subject) at the
+9. **Merge: the training target** (`wgvp.merge`, CPU, after the lift; `wgvp merge <root>` re-runs it alone). Both
+   views come from one tiled video, so they share frame indices; the merge covers every frame some view lifted. Per
+   view and frame the joints it can vouch for are those whose ViTPose keypoints are confident and inside the panel
+   (`fusion.usable_joints_rt`). The view with more usable joints is the reference; the other view's GVHMR world is
+   turned onto it by one yaw (circular median of the two roots' heading difference) and one offset (median
+   translation difference), fitted on frames where both views see most of the body, with the residuals reported.
+   Root: `fusion.fuse_root` (presence-ramped, usable-fraction-weighted, sharpened when the roots disagree);
+   translation averaged with the same shares and smoothed over 5 frames inside runs. Body: per joint the view(s)
+   that vouch for it, cross-faded over 0.5 s at segment edges, each view weighted by its root share, nothing where
+   no view saw the joint, smoothed over 5 frames. Export: every leg joint output in runs of at least 0.5 s. For
+   learning from body-worn sensors the root is also written heading-relative (yaw removed; velocity in the heading
+   frame) and one body shape per recording is taken as the median of GVHMR's betas over whole-body frames. Loss
+   weights in [0, 1]: per joint, the summed view weights (one confident view or two agreeing ones: 1) times an
+   agreement factor 1 / (1 + ((d - 5 deg)+ / 20 deg)^2) on the two views' disagreement d; for the root, the summed
+   raw root weights; for the translation, the same discounted by the two views' pelvis-position disagreement
+   (10 cm free, 0.5 at 40 cm). The body IMUs are not used anywhere in this stage: the recording CSV serves the
+   sync and the subject identity only, so the file can supervise a sensor-to-pose model without circularity.
+   Output: `merged_smpl.npz` + `merge.json` beside `reconcile.json`; `merge_status` / `export_frac` in the QC
+   summary.
+10. **QC and privacy.** Every stage writes JSON; skeleton-only thumbnails (black background, green = subject) at the
    sync frame and along the video; `QC_SUMMARY.html` + `qc_summary.csv` across sessions with the panel previews
    (edge maps); `privacy_check.json` asserts no video/image file, no image-like array, only sparse skeleton PNGs in
    `deliver/`. Only the subject's track is exported (face keypoints blanked); all-person tracks, cut clips and GVHMR
@@ -323,6 +344,62 @@ remaining margin (legs 9.4, knee-flexion RMSE 5.1) is the open question. Compare
 sample (rendered without a visible floor), every single-view number improved, the side view's leg error from 13.9
 to 10.3 deg: GVHMR's camera and gravity estimates lean on the ground.
 
+**The merge as a pipeline stage (2026-11-04).** The fusion library moved into the package (`wgvp.fusion`) and the
+merge became stage 9 (`wgvp.merge`), with run-time inputs only: no truth-fitted heading per view, the second view
+is turned onto the first from shared frames. On HC901 the stage covers 1,453 frames (every frame some view
+lifted), exports 96.5 % of them (1,402 frames in 3 runs) and, against the rendered truth on the exported frames,
+has legs at 10.0 deg median with 8.7 % over 20 deg, all 21 joints at 11.4 deg, knee-flexion RMSE 7.5 deg: the
+same as the analysis tool's best row, so the truth-free alignment costs nothing measurable. The along view is
+turned onto the side view by 80.4 deg where the truth-fitted yaws of the two views differ by 84 deg; the
+translation offset is recovered to 2 cm; the roots still differ by 54 deg on the shared frames, which is the along
+view's pitch (an `info` flag, since the merge gave that view a mean root share of 0.17). Fused root 6.6 deg
+median; its frame step p99 8.1 deg (the tool had 5.4 on the both-lifted frames: the stage also covers the frames
+only the along view lifts, and at IMU 37.5 s, with the side view out and the legs alone in frame, GVHMR flips
+that view's root by 163 deg in one frame; the root weight there is 0.08). The weight does what it is for: median
+leg error 9.7 deg on cells with weight > 0.5, 15.0 deg below; its correlation with the per-cell error is -0.46.
+Body shape: each view's median betas lie 2.2-2.4 from the truth (the walker has the mean shape), 1.7 from each
+other; GVHMR's shape from a single far view is not accurate, which is why one vector per recording is taken and
+the two views' difference is reported rather than trusted. HC900 (the dry-run session): 1,458 frames, every one
+exported, legs 8.7 deg, knee RMSE 5.7, root 4.8 (step p99 5.2), the side view turned onto the along view by
+-115.3 deg with residuals 5.4 deg and 3 cm, mean weight 0.89. The dry run now checks the stage with the GPU: the
+file exists and exports >= 70 % of the lifted frames, legs within 15 deg of the truth, root within 15 deg after
+one constant heading with step p99 under 12 deg, no yaw left in the heading-relative root.
+
+Translation is the weak field, and the two sessions show how. GVHMR's position is a monocular depth estimate
+under an assumed focal length: median error after one yaw and one offset 6.5 cm (HC901) and 11.6 cm (HC900), but
+the 90th percentile is 1.4 m in both. The error sits where a view sees the walker small: on HC901 the frames
+where the along view carries the root alone have a median position error of 1.53 m (the side view's 5 cm), and
+on HC900 the side view alone places the far ends of the walk 3.1 m off, its x-span 7.5 m against the truth's 4.9.
+Where both views see the subject their disagreement exposes it (`transl_disagree_m`, discounted by
+`transl_weight`); a single far view does not. The walkway export in the same CSV carries the mat position, is
+independent of the body IMUs, and is the right scale reference; it is not used yet. The velocity target inherits
+this: forward-speed RMSE against the truth 1.0-1.3 m/s over all frames, dominated by the ends of the walk.
+
+### 2.8 Three subjects in a partner-style folder layout (2026-11-04)
+
+The three synthetic sessions (HC900, HC901 and the new HC902: another walker, a co-walker on the far side of the
+mat, the along camera at the far end and 1.5 m high so that the legs leave its frame when the walker is close, the
+side camera on the other side of the room) were laid out as a partner might: `Sub 001/Video/SP_combo.mp4` with
+`Sub 001/IMU/Sub001_selfpace.csv`, and the same for `Sub 002` and `Sub 003`. The default matching rules find all
+three (the task from the `SP` token, the subject from the folder); HC901's along view needs its shipped operator
+pick, renamed to the new recording id. The CPU stages ran locally, the GPU stage on the T4
+(`tools/remote_gpu_stage.sh`), the merge and the three demos (`wgvp demo`, with each sample's truth) after.
+
+The first HC902 was rendered with hc102 as the walker, and it failed in an instructive way. hc102's IK trajectory
+covers 1.1 m of walkway (the stance-foot-pinned root barely advances) and its pelvis bob is 5 mm (hc100: 4.9 m,
+10 mm), so the rendered walker paced within a metre, crossing in front of the co-walker. The side view's tracker
+cut the subject into some forty fragments of a few seconds each, whose own best lags scattered from -0.8 to 45 s;
+the along view's single long fragment peaked at r 0.39 with a 0.24 margin, which passed the "high" confidence
+rule, and the joint lag landed at -27.4 s against a truth of 3.0 s. Nothing in the record contradicted it: the
+side view simply chose nobody, the sync light's step at 3.0 s was not within 3 s of the offset and so was not
+compared, and the sync read PASS. Two sanity rules now catch exactly this, and both fire on the case: the offset
+leaves only 43 % of the recording inside the video (threshold 60 %), and a strong persistent light-like step
+(z 640) sits 30.4 s from the offset. Each makes the sync a WARN with the reason in `sync_flags`
+(`tests/test_sync_sanity.py`). The walker was then replaced by hc105 (6.3 m of walkway, 11 mm of pelvis bob, the
+largest in the public set), with the side camera turned towards one end so that the walker leaves it at the other
+for 45 % of the recording while the along camera sees the whole body there.
+RESULTS_PENDING
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
@@ -341,6 +418,9 @@ to 10.3 deg: GVHMR's camera and gravity estimates lean on the ground.
   light is visible in a combined video at all.
 * Throughput on other hardware (ours: CPU tracking 4-20 frames/s per view on an Apple M-series laptop for a
   1420 x 600 file; GVHMR about 0.5 s per frame per view on a T4).
+* The merge's alignment of the two views' GVHMR worlds (one yaw and one offset from shared frames) and GVHMR's
+  translation scale under an unknown focal length, both checked on rendered cameras only; the demo renderer
+  (pyrender offscreen) on the partner's operating system.
 
 Two cautions for a first real run: (1) the acceptance thresholds were set on crowded public footage and a rendered
 sample, and the co-walker case shows that a person walking in step 0.8 s behind the subject is the one configuration

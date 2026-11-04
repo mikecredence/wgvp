@@ -101,7 +101,7 @@ def test_side_consistent_undoes_a_left_right_flip_for_display():
     """The demo's overlay helper: when a 2D estimator swaps the left and right leg labels mid-sequence, the drawn
     skeleton keeps the assignment that continues the previous frame; a swap that is a genuine crossing (the two
     legs at the same place) is left alone, and nothing but the arm and leg chains is touched."""
-    from tools.make_demo import side_consistent
+    from wgvp.demo import side_consistent
     T = 20; kp = np.full((T, 17, 3), np.nan); kp[:, :, 2] = 0.9
     for t_ in range(T):                                                   # left leg ahead at x=100, right leg behind at x=60, both moving slowly
         kp[t_, [11, 13, 15], :2] = [[100 + t_, 50], [100 + t_, 100], [100 + t_, 150]]; kp[t_, [12, 14, 16], :2] = [[60 + t_, 50], [60 + t_, 100], [60 + t_, 150]]

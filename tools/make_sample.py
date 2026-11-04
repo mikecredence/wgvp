@@ -13,11 +13,12 @@ Panels: LEFT = along-walkway view 520x600 (camera at the walkway end, low: the h
 Files: HC900/SP/HC900_SP_DeID.mp4 + HC900/hc900_selfpace.csv (column subset of the public hc100_selfpace.csv) and
 expected.json with the single sync offset, the panel boxes, and the subject's ground-truth hip projection per view.
 
-    python tools/make_sample.py [--variant v1|v2]   (needs smplx, trimesh, pyrender, imageio[pyav], pandas and the inputs named below)
+    python tools/make_sample.py [--variant v1|v2|v3]   (needs smplx, trimesh, pyrender, imageio[pyav], pandas and the inputs named below)
 v2 (sample_v2/, session HC901) renders the same walk from two deliberately compromised views, after the real
 session layout: the along view loses everything above the hips when the walker is close, the side view never
 shows the head; the walker's ground-truth SMPL pose and 3D joints are saved beside it for the two-view
-reconstruction experiment (tools/two_view_fusion.py).
+reconstruction experiment (tools/two_view_fusion.py). v3 (sample_v3/, session HC902) is a third room with another
+walker (hc105), a co-walker, the along camera at the far end (legs cut when close) and the side camera on the other side.
 """
 from __future__ import annotations
 
@@ -151,11 +152,22 @@ VARIANTS = {
     "v2": {"sid": "HC901", "subdir": "sample_v2", "decoy": False, "seat": lambda xm, zm: [xm + 2.4, 0.0, zm - 1.2],    # beside the far end, outside the side view's frustum: no occlusion of the mat
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.5, 0.6, zm + 0.05], "target": [x0 + 1.2, 0.0, zm]},
                                            "right": {"W": RW, "H": RC, "yfov": 22.0, "eye": [xm, 1.0, zm - 6.0], "target": [xm, 0.35, zm]}}},
+    # v3: a third room (sample_v3/, session HC902): a different walker (hc105: 6.3 m of walkway, the largest pelvis bob of
+    # the public set) with hc100 as the co-walker on the far
+    # side of the mat. The along camera stands at the FAR end and higher (1.5 m), so when the walker is close it is
+    # the legs that leave its frame, not the head; the side camera is on the other side of the room, higher and
+    # turned towards one end, so the walker leaves it at the other end only, where the along camera sees the whole
+    # body. The operator sits close to the side camera, lower right; the bystander stands at the far wall.
+    "v3": {"sid": "HC902", "subdir": "sample_v3", "decoy": True, "subject": "hc105_selfpace", "decoy_name": "hc100_selfpace", "decoy_dz": -1.5,
+           "seat": lambda xm, zm: [xm + 0.6, 0.0, zm + 2.2], "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm - 2.0],
+           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 1.3, 1.5, zm - 0.15], "target": [x1 - 2.0, 0.4, zm]},
+                                           "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm - 1.6, 2.2, zm + 3.5], "target": [xm + 1.0, 0.5, zm - 0.3]}}},   # inside the back wall (z = zm + 4)
 }
 
 
 def main(out_dir: str | None = None, variant: str = "v1"):
     var = VARIANTS[variant]; sid = var["sid"]; has_decoy = var["decoy"]
+    subj_name = var.get("subject", "hc100_selfpace"); deco_name = var.get("decoy_name", "hc102_selfpace"); decoy_dz = var.get("decoy_dz", 1.5)
     _smplx_compat_shims(); os.environ.pop("PYOPENGL_PLATFORM", None)
     import smplx, trimesh, pyrender, imageio.v3 as iio
     from scipy.spatial.transform import Rotation as Rt
@@ -164,12 +176,12 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     smpl = smplx.create(BM, model_type="smpl", gender="neutral", batch_size=1); faces = smpl.faces.astype(np.int32)
     rng = np.random.default_rng(0)
 
-    subj = yaw_align(load_ik_aa("hc100_selfpace"), smpl); tr_s = root_trajectory(subj, smpl, "hc100_selfpace.csv"); T_s = len(subj)
+    subj = yaw_align(load_ik_aa(subj_name), smpl); tr_s = root_trajectory(subj, smpl, f"{subj_name}.csv"); T_s = len(subj)
     if has_decoy:
-        deco = yaw_align(load_ik_aa("hc102_selfpace"), smpl); tr_d = root_trajectory(deco, smpl, "hc102_selfpace.csv") + np.array([0, 0, 1.5], np.float32); delay_d = int(0.8 * FPS)
+        deco = yaw_align(load_ik_aa(deco_name), smpl); tr_d = root_trajectory(deco, smpl, f"{deco_name}.csv") + np.array([0, 0, decoy_dz], np.float32); delay_d = int(0.8 * FPS)
     byst = yaw_align(load_ik_aa("hc101_selfpace"), smpl)[:45]; byst = np.concatenate([byst, byst[::-1]]); tr_b = root_trajectory(byst, smpl)
     x0, x1 = float(tr_s[:, 0].min()), float(tr_s[:, 0].max()); xm = 0.5 * (x0 + x1); zm = float(tr_s[:, 2].mean())
-    tr_b = tr_b + np.array([x1 + 2.2, 0.0, zm + 1.2], np.float32)
+    tr_b = tr_b + np.array(var["bystander"](x0, x1, xm, zm) if "bystander" in var else [x1 + 2.2, 0.0, zm + 1.2], np.float32)
     pre = int(3.0 * FPS); post = int(1.5 * FPS); n_frames = pre + T_s + post
     seat = seated_sequence(n_frames, rng)
     V_s, J_s = fk(subj, smpl, tr_s); V_b, J_b = fk(byst, smpl, tr_b)
@@ -276,10 +288,10 @@ def main(out_dir: str | None = None, variant: str = "v1"):
         r.delete()
     import pandas as pd
     cols = ["Time", "GeneralEvent", "ClinicalEvent", "L Foot Contact", "R Foot Contact", "Walkway_X", "Walkway_Y", "LowerBack_FreeAcc_E", "LowerBack_FreeAcc_N", "LowerBack_FreeAcc_U"]
-    pd.read_csv(IMU / "hc100_selfpace.csv", usecols=lambda c: c in cols).to_csv(sess / f"{sid.lower()}_selfpace.csv", index=False)
+    pd.read_csv(IMU / f"{subj_name}.csv", usecols=lambda c: c in cols).to_csv(sess / f"{sid.lower()}_selfpace.csv", index=False)
     (sess / "README.txt").write_text(f"Synthetic session {sid} (rendered SMPL meshes, no real video): one combined two-view video\n"
                                      f"SP/{sid}_SP_DeID.mp4 (left = along-walkway view 520x600, right = side view 900x500 letterboxed)" + (" with a co-walker,\n" if has_decoy else ",\n") +
-                                     f"a seated operator near the side camera and a bystander; {sid.lower()}_selfpace.csv = column subset of the public hc100_selfpace.csv.\n")
+                                     f"a seated operator near the side camera and a bystander; {sid.lower()}_selfpace.csv = column subset of the public {subj_name}.csv.\n")
     # ground truth of the walker for the reconstruction experiment: SMPL pose, root trajectory, 3D joints, and per
     # view the image position and in-frame flag of every joint (no pixels)
     np.savez_compressed(out / f"{sid}_gt.npz", frame_idx=np.arange(pre, pre + T_s), imu_t_s=np.arange(T_s) / FPS, pose_aa=subj.astype(np.float32), transl=tr_s.astype(np.float32),
@@ -293,7 +305,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
                 "panels": {"left": [0, 0, LW, LH], "right": [LW, 0, LW + RW, RC]}, "layout": "horizontal", "seam": LW,
                 "views": {cid: {"gt_frames": gt[cid]["frames"], "gt_hip_px": gt[cid]["hip"], "n_visible": len(gt[cid]["frames"]),
                                 "vis_counts": {str(k): int(sum(1 for v in gt[cid]["vis"] if v == k)) for k in (0, 1, 2)}, "decoy_hip_px": gt[cid]["decoy"]} for cid in cams},
-                "scene": {"subject": "hc100_selfpace IK (public WearGait); pelvis vertical motion = double-integrated LowerBack_FreeAcc_U of the same recording", "decoy": ("hc102_selfpace +1.5 m, +0.8 s (its own IMU vertical motion)" if has_decoy else None), "operator": "seated near side camera", "bystander": "hc101 standing loop",
+                "scene": {"subject": f"{subj_name} IK (public WearGait); pelvis vertical motion = double-integrated LowerBack_FreeAcc_U of the same recording", "decoy": (f"{deco_name} {decoy_dz:+.1f} m, +0.8 s (its own IMU vertical motion)" if has_decoy else None), "operator": "seated near side camera", "bystander": "hc101 standing loop",
                           "layout": {"mat_x": [float(x0 - 0.8), float(x1 + 0.8)], "mat_z": [float(zm - 0.5), float(zm + 0.5)], "operator_seat_xyz": [float(v) for v in seat_pos], "operator_yaw_deg": 25.0,
                                      "desk_center_xyz": [float(seat_pos[0]), 0.74, float(seat_pos[2] - 0.75)], "desk_extents_xyz": [1.8, 0.05, 0.7],
                                      "bystander_xyz": [float(tr_b[0, 0]), 0.0, float(tr_b[0, 2])], "walls": [{"x": float(x1 + 4.0), "z": [float(zm - 8), float(zm + 8)]}, {"z": float(zm + 4.0), "x": [float(x0 - 8), float(x1 + 8)]}],

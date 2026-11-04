@@ -17,7 +17,14 @@ def _frame_at(pts_ms: np.ndarray, frame_idx: np.ndarray, t_s: float) -> int:
 
 
 def combine_sync(primary: dict, flash_cands: list[dict], labels: dict | None, sheet_frame: int | None, frame_idx: np.ndarray,
-                 pts_ms: np.ndarray, fps: float, tol_frames: float = 3.0, flash_search_s: float = 3.0) -> dict:
+                 pts_ms: np.ndarray, fps: float, tol_frames: float = 3.0, flash_search_s: float = 3.0, imu_duration_s: float | None = None,
+                 min_overlap_frac: float = 0.6, strong_flash_z: float = 100.0) -> dict:
+    """Combine the pelvis cross-correlation with the cross-checks into one sync record. Two sanity rules guard against a
+    confidently wrong cross-correlation (seen on a rendered walker who paced within a metre with a 5-mm pelvis bob: the
+    side view fragmented, the fragments' own lags disagreed, and the joint lag landed 30 s off with r 0.39): the offset
+    must leave at least `min_overlap_frac` of the recording inside the video, and a strong persistent light-like
+    brightness step (z >= strong_flash_z) that sits more than `flash_search_s` from the offset is reported as a
+    disagreement even though it was not used."""
     tol_s = tol_frames / fps
     x_ok = bool(primary.get("ok")) and primary.get("offset_s") is not None
     x_off = float(primary["offset_s"]) if x_ok else None
@@ -55,6 +62,17 @@ def combine_sync(primary: dict, flash_cands: list[dict], labels: dict | None, sh
         for k in checks:
             if not agree[k]:
                 flags.append(f"{k.split('_')[0]}_disagrees ({agree[k + '_s']:+.3f}s)"); status = "WARN" if status == "PASS" else status
+        if imu_duration_s and len(pts_ms):
+            v0, v1 = float(pts_ms[0] / 1000.0), float(pts_ms[-1] / 1000.0)
+            inside = max(0.0, min(v1, x_off + imu_duration_s) - max(v0, x_off)) / imu_duration_s
+            rec["recording_inside_video_frac"] = inside
+            if inside < min_overlap_frac:
+                flags.append(f"offset leaves only {inside:.0%} of the recording inside the video"); status = "WARN"
+        if flash_cands and fl is None:
+            strong = max(flash_cands, key=lambda c: c.get("z", 0.0))
+            if strong.get("z", 0.0) >= strong_flash_z and strong.get("persistent", True):
+                agree["strong_light_step_minus_xcorr_s"] = float(strong["onset_t_s"] - x_off)
+                flags.append(f"a strong light-like step at {strong['onset_t_s']:.2f}s ({strong.get('view', '?')} view) disagrees with the offset by {strong['onset_t_s'] - x_off:+.1f}s"); status = "WARN"
     elif (labels or {}).get("available"):
         chosen, src, status = labels["offset_s"], "walk_labels", "WARN"; flags.append("no_xcorr_subject")
     elif fl:

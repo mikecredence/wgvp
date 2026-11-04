@@ -1,0 +1,236 @@
+"""Merge stage: the two views' GVHMR outputs become one pose per frame on the IMU timeline, written as the training
+target `merged_smpl.npz` (+ `merge.json`) beside `reconcile.json`. Runs on the CPU after the GPU stage, with
+run-time information only; the body IMUs never enter it (the recording CSV is used for the sync and the subject
+identity, nothing else), so the file can supervise a sensor-to-pose model without circularity.
+
+Per recording:
+  1. Common timeline: both views come from one tiled video, so they share frame indices; the merge covers every
+     frame some view lifted. Per view and frame, the joints it can vouch for (`usable`): ViTPose keypoints
+     confident and inside the panel, frame not bridged.
+  2. One world frame: each view's GVHMR world is gravity-aligned but has its own heading and origin. The view with
+     more usable joints is the reference; every other view is turned onto it by one constant yaw (the circular
+     median of the heading difference of the two roots) and one constant offset (median translation difference),
+     fitted on frames where both views see most of the body. The residuals are reported.
+  3. Root: `fuse_root` (presence-ramped, usable-fraction-weighted, sharpened when the views disagree); the
+     translation is averaged with the same shares and smoothed over 5 frames inside runs.
+  4. Body: per joint, the view(s) that can vouch for it, cross-faded over 0.5 s at segment edges, each view
+     weighted by its share of the root; nothing where no view saw the joint; smoothed over 5 frames.
+  5. Export rule: a frame is kept when every leg joint is output, in runs of at least 0.5 s (`export_ok`).
+  6. Heading-relative root for learning from body-worn sensors: the heading yaw is taken out of the root
+     (`global_orient_heading_rel`), and the root velocity is expressed in the heading frame; a sensor model is
+     then asked for tilt, turning rate and velocity, never for the room's yaw.
+  7. One shape per recording (`betas`): the median of GVHMR's per-frame betas over whole-body frames of all views.
+  8. Weights for a loss, each in [0, 1] and meaning "no evidence against this value": `weight` (T, 21) = the
+     summed view weights that produced the joint (one confident view or two agreeing ones: 1) times an agreement
+     factor 1 / (1 + ((d - 5 deg)+ / 20 deg)^2) where two views both vouched for the joint and disagreed by d; zero
+     outside the export. `root_weight` = the summed raw root weights (presence x usable fraction squared, <= 1);
+     `transl_weight` = root_weight times the same kind of factor on the two views' pelvis positions (10 cm free,
+     0.5 at 40 cm). Translation from one far camera is the weakest field (see the README).
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
+from .fusion import (LEGS, chordal_mean, circular_median_deg, export_mask, fuse_root, geodesic, heading_yaw_deg, moving_average_in_runs,
+                     ramp_inside, smooth_rotations, step_stats, usable_joints_rt)
+from .reconcile import SMPLX_BODY_JOINTS
+
+RAMP_S = 0.5           # cross-fade at the edges of usable segments and of lifted runs
+MIN_RUN_S = 0.5        # an export keeps runs of at least this length
+SMOOTH_FRAMES = 5      # moving average of the merged rotations / translation
+AGREE_FREE_DEG = 5.0   # two views agreeing to within this carry full weight
+AGREE_SCALE_DEG = 20.0 # the agreement factor is 0.5 at AGREE_FREE_DEG + this
+TRANSL_FREE_M, TRANSL_SCALE_M = 0.10, 0.30   # the same for the two views' pelvis positions
+BETAS_DIFF_WARN = 3.0  # |betas_a - betas_b| above which the two views may not hold the same person
+ALIGN_MIN_FRAMES = 30
+
+FIELDS_DOC = (
+    "frame_idx: frame of the original combined video; imu_t_s: recording time (pts/1000 - offset); "
+    "body_pose (T,63): merged SMPL-X body pose, axis-angle, NaN for joints no view saw; "
+    "global_orient (T,3) / transl (T,3): merged root in the reference view's GVHMR world (y up, arbitrary heading and origin); "
+    "heading_yaw_deg (T): yaw of the pelvis forward axis in that world, unwrapped inside runs; heading_yaw_rate_deg_s (T): its rate; "
+    "global_orient_heading_rel (T,3): the root with the heading yaw removed (tilt only: what body-worn sensors can know); "
+    "root_vel_heading_rel_m_s (T,3): root velocity in the heading frame (x lateral, y up, z forward); "
+    "betas (10): one body shape for the recording; "
+    "export_ok (T): frames the export keeps (every leg joint output, runs >= 0.5 s); "
+    "weight (T,21): per-joint loss weight in [0,1] (0 outside the export or where the joint is NaN); root_weight (T): the same for the root orientation; "
+    "transl_weight (T): for the translation / velocity; transl_disagree_m (T): distance between the two views' aligned pelvis positions (NaN with one view); "
+    "source (T,21): bit i set when view i (in `views` order) contributed to the joint; usable (V,T,21): which joints each view could vouch for; "
+    "share (V,T): each view's share of the root per frame; views, reference_view, view_alignment_yaw_deg (V), view_alignment_offset_m (V,3): "
+    "how each view was turned onto the reference view's world; fps: frames per second of the merged timeline")
+
+
+def align_to_reference(root_ref, transl_ref, root_v, transl_v, mask) -> dict:
+    """One yaw (deg) and one offset (m) that turn view v's GVHMR world onto the reference view's, from frames in
+    `mask` (both lifted and seeing most of the body). Residuals are reported on the same frames."""
+    n = int(mask.sum())
+    if n == 0:
+        return {"yaw_deg": 0.0, "offset_m": [0.0, 0.0, 0.0], "n_frames": 0, "root_residual_deg": None, "transl_residual_m": None}
+    dyaw = heading_yaw_deg(root_ref[mask]) - heading_yaw_deg(root_v[mask])
+    yaw = circular_median_deg(dyaw); Ry = R.from_euler("y", yaw, degrees=True)
+    with np.errstate(all="ignore"):                                  # (Accelerate on macOS raises spurious matmul warnings here)
+        tv = Ry.apply(transl_v[mask]); off = np.median(transl_ref[mask] - tv, axis=0)
+        rr = geodesic((Ry * R.from_rotvec(root_v[mask])).as_rotvec(), root_ref[mask])
+        tr = np.linalg.norm(transl_ref[mask] - (tv + off), axis=1)
+    return {"yaw_deg": float(yaw), "offset_m": [float(x) for x in off], "n_frames": n,
+            "root_residual_deg": float(np.nanmedian(rr)), "transl_residual_m": float(np.nanmedian(tr))}
+
+
+def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write: bool = True) -> dict | None:
+    """Merge every lifted view under <deliver>/<recording>/<view>/ into merged_smpl.npz + merge.json. Returns the
+    merge.json content (status PASS/WARN with flags), or None when no view has been lifted yet."""
+    rec_dir = Path(rec_dir)
+    views = sorted(p.name for p in rec_dir.iterdir() if p.is_dir() and (p / "smpl_global.npz").exists() and (p / "kp2d_vitpose.npz").exists())
+    if not views:
+        return None
+    Z = {v: np.load(rec_dir / v / "smpl_global.npz") for v in views}; K = {v: np.load(rec_dir / v / "kp2d_vitpose.npz") for v in views}
+    frames = np.array(sorted(set().union(*[set(Z[v]["frame_idx"].tolist()) for v in views])), np.int64); T = len(frames); V = len(views)
+    fi = {int(f): i for i, f in enumerate(frames)}
+    lifted = np.zeros((V, T), bool); visible = np.zeros((V, T), bool); usable = np.zeros((V, T, 21), bool)
+    body = np.full((V, T, 21, 3), np.nan); root = np.full((V, T, 3), np.nan); transl = np.full((V, T, 3), np.nan); betas = np.full((V, T, 10), np.nan)
+    imu_t = np.full((V, T), np.nan); fps = None
+    for i, v in enumerate(views):
+        z, k = Z[v], K[v]; idx = np.array([fi[int(f)] for f in z["frame_idx"]])
+        lifted[i, idx] = True; visible[i, idx] = z["visible"].astype(bool)
+        body[i, idx] = z["body_pose"].reshape(-1, 21, 3); root[i, idx] = z["global_orient"]; transl[i, idx] = z["transl"]; betas[i, idx] = z["betas"]
+        imu_t[i, idx] = z["imu_t_s"]
+        kp = np.full((T, 17, 3), np.nan); kp[idx] = k["kp2d"]
+        usable[i] = usable_joints_rt(kp, k["view_box"] if "view_box" in k.files else None, visible[i])
+        if fps is None and "fps_source" in z.files:
+            fps = float(z["fps_source"]) / float(z["frame_step"] if "frame_step" in z.files else 1)
+    t_imu = np.nanmean(imu_t, axis=0)
+    with np.errstate(all="ignore"):
+        t_mismatch = float(np.nanmax(np.nanmax(imu_t, 0) - np.nanmin(imu_t, 0))) if V > 1 else 0.0
+    if fps is None or not np.isfinite(fps) or fps <= 0:
+        fps = float(1.0 / np.nanmedian(np.diff(t_imu)))
+    ramp = max(1, int(round(RAMP_S * fps))); min_run = max(1, int(round(MIN_RUN_S * fps)))
+    frac = usable.sum(2) / 21.0                                                                  # (V, T)
+    ref = int(np.argmax(usable.sum(axis=(1, 2)))); flags = []
+    # ---- one world frame
+    align = []; root_al = root.copy(); transl_al = transl.copy()
+    for i, v in enumerate(views):
+        if i == ref:
+            align.append({"yaw_deg": 0.0, "offset_m": [0.0, 0.0, 0.0], "n_frames": int(lifted[i].sum()), "root_residual_deg": 0.0, "transl_residual_m": 0.0, "reference": True}); continue
+        both = lifted[ref] & lifted[i] & visible[ref] & visible[i]
+        mask = both & (frac[ref] >= 0.75) & (frac[i] >= 0.75)
+        if mask.sum() < ALIGN_MIN_FRAMES:
+            mask = both & (frac[ref] >= 0.5) & (frac[i] >= 0.5)
+        if mask.sum() < ALIGN_MIN_FRAMES:
+            mask = both
+        a = align_to_reference(root[ref], transl[ref], root[i], transl[i], mask); align.append(a)
+        if a["n_frames"] < ALIGN_MIN_FRAMES:
+            flags.append(f"{v}: aligned to {views[ref]} on only {a['n_frames']} shared frames (heading / origin uncertain)")
+        if a["transl_residual_m"] is not None and a["transl_residual_m"] > 0.3:
+            flags.append(f"{v}: after alignment its pelvis position differs from {views[ref]} by {a['transl_residual_m']:.2f} m (median on shared frames)")
+        Ry = R.from_euler("y", a["yaw_deg"], degrees=True); li = lifted[i]
+        with np.errstate(all="ignore"):
+            root_al[i, li] = (Ry * R.from_rotvec(root[i, li])).as_rotvec(); transl_al[i, li] = Ry.apply(transl[i, li]) + np.array(a["offset_m"])
+    # ---- root, translation
+    root_f, share, raw = fuse_root([root_al[i] for i in range(V)], [usable[i] for i in range(V)], [lifted[i] for i in range(V)], ramp=ramp, return_raw=True)
+    for i, v in enumerate(views):
+        a = align[i]
+        if i != ref and a["root_residual_deg"] is not None and a["root_residual_deg"] > 20:
+            msg = (f"{v}: its root differs from {views[ref]}'s by {a['root_residual_deg']:.0f} deg on shared frames (one of them is in the wrong gravity frame); "
+                   f"the merge gave {v} a mean root share of {share[i].mean():.2f}")
+            flags.append(msg if share[i].mean() > 0.35 else "info: " + msg)
+    tr = np.nansum(share[:, :, None] * np.nan_to_num(transl_al), axis=0); tr[~lifted.any(0)] = np.nan
+    transl_f = moving_average_in_runs(tr, SMOOTH_FRAMES)
+    # ---- body
+    w = np.stack([ramp_inside(usable[i], ramp) * share[i][:, None] for i in range(V)])         # (V, T, 21)
+    body_raw = chordal_mean([body[i] for i in range(V)], w); none = ~usable.any(0); body_raw[none] = np.nan
+    body_f = smooth_rotations(body_raw, SMOOTH_FRAMES)
+    export_ok = export_mask(body_f, LEGS, min_run)
+    # ---- heading-relative root
+    yaw = heading_yaw_deg(root_f); yaw_u = np.full(T, np.nan); ok = np.isfinite(yaw)
+    edges = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
+    for a_, b_ in zip(edges[::2], edges[1::2]):
+        yaw_u[a_:b_] = np.degrees(np.unwrap(np.radians(yaw[a_:b_])))
+    root_hr = np.full((T, 3), np.nan)
+    with np.errstate(all="ignore"):
+        root_hr[ok] = (R.from_euler("y", -yaw[ok], degrees=True) * R.from_rotvec(root_f[ok])).as_rotvec()
+    def rate(x):                                                   # d/dt inside runs, on the IMU clock
+        out = np.full(x.shape, np.nan); okx = np.isfinite(x).all(1) if x.ndim == 2 else np.isfinite(x)
+        e = np.flatnonzero(np.diff(np.r_[0, okx.astype(int), 0]))
+        for a_, b_ in zip(e[::2], e[1::2]):
+            if b_ - a_ >= 2:
+                out[a_:b_] = np.gradient(x[a_:b_], t_imu[a_:b_], axis=0)
+        return out
+    yaw_rate = rate(yaw_u); vel_w = rate(transl_f); vel_hr = np.full((T, 3), np.nan); okv = np.isfinite(vel_w).all(1) & ok
+    with np.errstate(all="ignore"):
+        vel_hr[okv] = R.from_euler("y", -yaw[okv], degrees=True).apply(vel_w[okv])
+    # ---- one shape
+    bsel = (frac >= 0.999) & visible
+    if bsel.sum() < ALIGN_MIN_FRAMES:
+        bsel = (frac >= 0.75) & visible
+    if bsel.sum() < ALIGN_MIN_FRAMES:
+        bsel = visible & lifted
+    betas_rec = np.nanmedian(betas[bsel], axis=0) if bsel.any() else np.zeros(10)
+    betas_view = {v: [float(x) for x in np.nanmedian(betas[i][bsel[i]], axis=0)] for i, v in enumerate(views) if bsel[i].any()}
+    if len(betas_view) == 2:
+        d_b = float(np.linalg.norm(np.diff(np.array(list(betas_view.values())), axis=0)))
+        if d_b > BETAS_DIFF_WARN:
+            flags.append(f"the views' body shapes differ (|dbetas| {d_b:.2f}); check that both views hold the same person")
+    else:
+        d_b = None
+    # ---- weights
+    evidence = np.clip(w.sum(0), 0.0, 1.0)                                                         # (T, 21)
+    agree = np.ones((T, 21))
+    if V >= 2:
+        pair = usable[0] & usable[1]
+        if pair.any():
+            d = geodesic(body[0], body[1]); f = 1.0 / (1.0 + (np.maximum(np.nan_to_num(d, nan=0.0) - AGREE_FREE_DEG, 0.0) / AGREE_SCALE_DEG) ** 2); agree = np.where(pair, f, 1.0)
+    weight = evidence * agree * export_ok[:, None]; weight[~np.isfinite(body_f).all(2)] = 0.0
+    root_weight = np.clip(raw.sum(0), 0.0, 1.0); root_weight[~np.isfinite(root_f).all(1)] = 0.0
+    transl_dis = np.full(T, np.nan)
+    if V >= 2:
+        both_l = lifted[0] & lifted[1]; transl_dis[both_l] = np.linalg.norm(transl_al[0, both_l] - transl_al[1, both_l], axis=1)
+    f_tr = np.where(np.isfinite(transl_dis), 1.0 / (1.0 + (np.maximum(np.nan_to_num(transl_dis) - TRANSL_FREE_M, 0.0) / TRANSL_SCALE_M) ** 2), 1.0)
+    transl_weight = root_weight * f_tr; transl_weight[~np.isfinite(transl_f).all(1)] = 0.0
+    source = np.zeros((T, 21), np.int8)
+    for i in range(V):
+        source |= (usable[i].astype(np.int8) << i)
+    # ---- QC numbers
+    body_step = step_stats(body_f); root_step = step_stats(root_f[:, None, :])
+    exp_frac = float(export_ok.mean()); n_runs = int((np.diff(np.r_[0, export_ok.astype(int), 0]) == 1).sum())
+    cov = {"legs": float(np.isfinite(body_f[:, LEGS]).all(2).mean()), "arms": float(np.isfinite(body_f[:, [12, 13, 15, 16, 17, 18, 19, 20]]).all(2).mean()),
+           "all_joints": float(np.isfinite(body_f).all(2).mean())}
+    if exp_frac < 0.5:
+        flags.append(f"the export keeps only {exp_frac:.0%} of the lifted frames")
+    if np.isfinite(root_step["p99_deg"]) and root_step["p99_deg"] > 15:
+        flags.append(f"merged root steps {root_step['p99_deg']:.0f} deg between frames at the 99th percentile")
+    if t_mismatch > 0.002:
+        flags.append(f"the views' IMU times for the same frame differ by up to {t_mismatch * 1000:.0f} ms")
+    status = "WARN" if flags else "PASS"
+    summary = {"status": status, "flags": flags, "views": views, "reference_view": views[ref], "n_frames": T, "fps": fps,
+               "imu_span_s": [float(np.nanmin(t_imu)), float(np.nanmax(t_imu))],
+               "export": {"frac_of_lifted_frames": exp_frac, "n_frames": int(export_ok.sum()), "n_runs": n_runs, "min_run_frames": min_run},
+               "coverage_of_lifted_frames": cov, "per_view": {v: {"lifted_frames": int(lifted[i].sum()), "visible_frames": int(visible[i].sum()),
+                                                                 "mean_usable_fraction": float(frac[i][lifted[i]].mean()) if lifted[i].any() else 0.0,
+                                                                 "legs_usable_frac": float(usable[i][:, LEGS].all(1).mean()), "root_share_mean": float(share[i].mean()),
+                                                                 "alignment": align[i]} for i, v in enumerate(views)},
+               "continuity": {"body_step_p99_deg": body_step["p99_deg"], "body_steps_over_20deg_frac": body_step["frac_over_20"], "root_step_p99_deg": root_step["p99_deg"]},
+               "weight": {"mean_over_export": float(weight[export_ok].mean()) if export_ok.any() else 0.0, "frac_cells_over_0_5": float((weight > 0.5).mean()),
+                          "root_weight_mean": float(root_weight.mean()), "transl_weight_mean": float(transl_weight.mean())},
+               "translation": {"views_disagree_median_m": (float(np.nanmedian(transl_dis)) if np.isfinite(transl_dis).any() else None),
+                               "views_disagree_p90_m": (float(np.nanpercentile(transl_dis, 90)) if np.isfinite(transl_dis).any() else None),
+                               "note": "GVHMR's translation is a monocular depth estimate; on the rendered session it is within 0.1 m near the mat centre and off by 1-3 m at the far ends of the walk, which the two views expose where both see the subject (transl_disagree_m) and transl_weight discounts"},
+               "betas": {"recording": [float(x) for x in betas_rec], "per_view": betas_view, "n_frames_used": int(bsel.sum()), "view_difference_norm": d_b},
+               "imu_time_mismatch_s": t_mismatch, "files": ["merged_smpl.npz", "merge.json"],
+               "note": "the body IMUs are not used anywhere in this file: the recording CSV serves the sync and the subject identity only"}
+    if write:
+        np.savez_compressed(rec_dir / "merged_smpl.npz", frame_idx=frames, imu_t_s=t_imu, body_pose=body_f.reshape(T, 63).astype(np.float32),
+                            global_orient=root_f.astype(np.float32), transl=transl_f.astype(np.float32), heading_yaw_deg=yaw_u.astype(np.float32),
+                            heading_yaw_rate_deg_s=yaw_rate.astype(np.float32), global_orient_heading_rel=root_hr.astype(np.float32),
+                            root_vel_heading_rel_m_s=vel_hr.astype(np.float32), betas=betas_rec.astype(np.float32), export_ok=export_ok,
+                            weight=weight.astype(np.float32), root_weight=root_weight.astype(np.float32), transl_weight=transl_weight.astype(np.float32),
+                            transl_disagree_m=transl_dis.astype(np.float32), source=source, usable=usable, share=share.astype(np.float32),
+                            views=np.array(views), reference_view=views[ref], view_alignment_yaw_deg=np.array([a["yaw_deg"] for a in align], np.float32),
+                            view_alignment_offset_m=np.array([a["offset_m"] for a in align], np.float32), joints=np.array(SMPLX_BODY_JOINTS), fps=fps,
+                            fields_doc=FIELDS_DOC, note=summary["note"])
+        (rec_dir / "merge.json").write_text(json.dumps(summary, indent=1))
+    log(f"  [{rec_dir.name}] merge: {status} export {exp_frac:.0%} of {T} frames, root step p99 {root_step['p99_deg']:.1f} deg, ref {views[ref]} {flags}")
+    return summary
