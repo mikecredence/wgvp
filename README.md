@@ -34,6 +34,10 @@ For each session video (one file, two views tiled side by side or stacked, unequ
    (the only GPU step), driving the lifter with the subject's own bounding boxes so it follows the right person.
 6. **Reconciles the two views** on the IMU timeline, writes a QC record per recording and view, skeleton-only
    thumbnails, and one QC summary page across all sessions.
+7. **Merges the two views into one pose per frame** and writes the training target, `merged_smpl.npz`: only the
+   joints some view saw, cross-faded at the hand-overs, with per-joint loss weights, a heading-relative root and one
+   body shape per recording. This is what a sensor-to-pose model is trained on, and nothing from the body sensors
+   enters it: the recording CSV serves the sync and the subject identity, never a joint angle.
 
 ![two views](docs/figures/two_views_tracking.png)
 
@@ -107,7 +111,18 @@ or open the GUI (`python -m wgvp`): choose the data folder, **Scan**, **Dry run*
 [env/install_gvhmr.md](env/install_gvhmr.md). Once it exists, `python -m wgvp check-gpu --gvhmr-root <GVHMR>
 --gvhmr-python <that env's python>` lists every missing piece with its fix, and `python -m wgvp run <root>` (without
 `--cpu-only`, with `gvhmr.root` / `gvhmr.python` set in the config or passed as flags) runs the lift after the CPU
-stages. The CPU stages can be run now and the GPU stage later (`python -m wgvp gvhmr <root>`).
+stages. The CPU stages can be run now and the GPU stage later (`python -m wgvp gvhmr <root>`). The merge runs by
+itself after the lift; `python -m wgvp merge <root>` rebuilds it from existing lifts.
+
+**6. The demo video** of a lifted recording (the two views with the lifter's 2D input, the reconstruction, the
+export, an aerial view, a filmstrip and knee-flexion timelines; the figure further down is one frame of it) renders
+from the pipeline's outputs with `pip install -e .[demo]` and the SMPL-X body model from the GVHMR install:
+
+```bash
+python -m wgvp demo /path/to/data_root --session "Sub 001"     # -> wgvp_output/<session>/work/demo/<recording>_demo.mp4
+```
+
+It contains video frames, so it is written under `work/` and is not part of the deliverable.
 
 ## Expected input
 
@@ -120,6 +135,19 @@ stages. The CPU stages can be run now and the GPU stage later (`python -m wgvp g
      (optional) *label*.csv         Video Labeler scene labels exported in video time (sync cross-check)
      (optional) *annot*.csv         annotation sheet with a video start frame (sync cross-check)
 ```
+
+A simpler layout with one folder per subject, the video in a `Video` sub-folder and the recording export in an
+`IMU` sub-folder matches the default rules as well, and is the layout the three-subject run below used:
+
+```
+<data root>/
+  Sub 001/
+     Video/SP_combo.mp4             the task comes from the SP token in the file name
+     IMU/Sub001_selfpace.csv        the recording export; the pipeline needs it for the sync and the subject identity
+  Sub 002/ ...
+```
+
+`python tools/make_partner_layout.py <dest>` builds this layout from the three bundled synthetic sessions.
 
 Only the self-paced family is processed by default (`selfpace`, `selfpace_mat`, `selfpace_matturn`); add other
 tasks in `wgvp_config.json` under `tasks`. A video is paired with every recording CSV of its task family for that
@@ -162,7 +190,11 @@ so the acceptance rule is r >= 0.30 *and* excess >= 0.15, and a "high" confidenc
 reference, subjects visible for 8 s or more were found in every tested case among 300-400 other walkers, 4-8-s
 fragments about half the time (otherwise mostly declared low-confidence), with 11 ms median offset error
 ([docs/design.md](docs/design.md), section 2.4). A clinic recording gives 20-45 s of the subject per view with a
-stand / walk / turn pattern, which is the easy regime.
+stand / walk / turn pattern, which is the easy regime. Two sanity rules stand behind the confidence, added after a
+rendered walker who paced within a metre with a 5-mm pelvis bob produced a "high"-confidence lag 30 s off
+(section 2.8 of the design notes): the offset must leave at least 60 % of the recording inside the video, and a
+strong persistent light-like brightness step more than 3 s from the offset is raised as a disagreement even though
+it was not used. Either turns the sync into a WARN with the reason in `sync_flags`.
 
 ## Where tracking goes wrong, and what the pipeline does about it
 
@@ -180,6 +212,7 @@ can see it happened.
 | A seated operator large in frame, a bystander at the far wall | No gait-band pelvis oscillation, so they score about 0 whatever their size | their `r_at_lag` in the fragment table |
 | Short spurious fragments chaining up at a wrong lag with "high" confidence | Every correlation is judged by its excess over the chance level for its length and the number of lags searched; support = excess x overlap, so one long genuine match outweighs a chain of short ones | `excess`, `second_best_excess` |
 | The lifter follows the largest or longest person instead of the subject | GVHMR is driven with the subject's own bounding-box track (`preprocess/bbx.pt`), cut per view and per visible stretch | `gvhmr_frames` versus `present_frac` |
+| A confident but wrong lag (a subject who barely moves, short fragments whose own lags disagree) | The offset must leave >= 60 % of the recording inside the video, and a strong light-like step far from it is raised; the QC shows the runner-up lags (`lag_candidates`) and an operator pick re-anchors the choice | `sync_flags`, `lag_ambiguity`, `lag_candidates` |
 | The two views disagree after all this | Reconciliation on the IMU timeline: residual lag of the 2D pelvis signals (always) and per-joint disagreement of the SMPL-X poses (after GVHMR), tolerance 3 frames | `reconcile_status`, `residual_lag_s`, `legs_median_deg` |
 | The automatic choice is wrong or absent | Two operator tools: `set-roi` (draw the walkway polygon once per view) and `pick-subject` (click the subject on a skeleton-only frame); both are reported with their agreement with the automatic choice | `selection_source` = `walkway_roi` / `operator_pick`, status WARN |
 | Variable frame rate, dropped frames | All timing is done on presentation timestamps, never on frame counts | `timing` in the video record (gaps, VFR flag) |
@@ -319,9 +352,47 @@ can be drawn; the export (`export_mask`) keeps a frame only when every leg joint
 0.5 s, and on those frames contains only the joints some view saw. On HC901 that is 94 % of the IMU span (the
 along view alone has the legs for 37 % of it, the side view for 91 %).
 
+### The training target: `merged_smpl.npz`
+
+The merge is a pipeline stage (`wgvp/merge.py`, run after the lift and by `python -m wgvp merge <root>`), and its
+file is built to supervise a model that goes from body-worn sensors to pose. Two things follow from that. The body
+IMUs never enter it: the pipeline reads the recording CSV for the pelvis acceleration that picks the subject and
+places IMU t = 0, and for nothing else, so a sensor-to-pose model trained on this target is not shown its own
+input. And everything a learner needs to weigh the target is in the file.
+
+| field | what it is |
+|---|---|
+| `body_pose` (T, 63) | the merged SMPL-X body pose on the video's frames, NaN for a joint no view saw |
+| `global_orient`, `transl` (T, 3) | the merged root in the reference view's GVHMR world (y up); the other view is turned onto it by one yaw and one offset fitted on frames where both see most of the body |
+| `heading_yaw_deg`, `global_orient_heading_rel`, `root_vel_heading_rel_m_s` | the root split into the heading (what only the room knows) and the tilt and velocity in the heading frame (what the body can know): a sensor model is asked for the latter |
+| `betas` (10) | one body shape for the recording, the median of GVHMR's per-frame estimates over whole-body frames of both views |
+| `export_ok` (T) | the export rule above |
+| `weight` (T, 21), `root_weight`, `transl_weight` (T) | per-joint, root and translation loss weights in [0, 1]: one confident view or two agreeing ones carry 1, two views that both vouched for a joint and disagree are discounted (0.5 at 25 deg), nothing outside the export |
+| `usable` (V, T, 21), `source` (T, 21), `share` (V, T) | which joints each view could vouch for, which views made each output, each view's share of the root |
+| `view_alignment_yaw_deg`, `view_alignment_offset_m` | how each view was turned onto the reference view's world |
+
+`merge.json` beside it holds the numbers: export fraction, continuity, the alignment residuals, the views' body
+shapes and their difference, flags. On the two synthetic sessions, against the rendered truth: HC901 (the
+compromised views) exports 96 % of the lifted frames with legs at 10.0 deg median, knee-flexion RMSE 7.5 deg, root
+6.6 deg; the weight separates good cells from bad ones (median leg error 9.7 deg where weight > 0.5, 15.0 below).
+HC900 (the dry-run session) exports every frame at 8.7 deg legs, 5.7 deg knee RMSE, 4.8 deg root, with the views
+turned onto each other to within 5 deg and 3 cm. The weakest field is the translation: GVHMR's position is a
+monocular depth estimate, within 0.1 m near the middle of the walk and off by 1 to 3 m at the far ends of it in a
+view that sees the walker small (an assumed focal length). Where both views see the subject their disagreement
+exposes this (`transl_disagree_m`, discounted by `transl_weight`); a single far view does not. The walkway export
+in the same CSV carries the mat position and is the right scale reference for it; it is not used yet.
+
+![the training target](docs/figures/merged_target.png)
+
+*The target of HC901 (`tools/make_target_figure.py`). A: what each view can vouch for, the export mask and the
+per-joint weight; the along view (blue) drops out of the legs for most of the walk and the weight follows. B: the
+heading and the heading-relative tilt. C: the root velocity in the heading frame against the rendered truth, with the
+frames of low root weight shaded; the velocity errors sit at the ends of the walk, where the translation is a far
+view's depth guess.*
+
 ![two-view demo](docs/figures/two_view_demo.gif)
 
-*Fourteen seconds of HC901 (`tools/make_demo.py`, full video in the results of the run). Top: the two views with
+*Fourteen seconds of HC901 (`python -m wgvp demo`, full video in the results of the run). Top: the two views with
 ViTPose's keypoints for the chosen subject (the lifter's input; the left/right labels of the arms and legs are
 kept consistent from frame to frame for the drawing, because 2D estimators flip sides on a side-on walker, and
 the 3D stage does not use them) and what each view can use; the bright square in the side view is the sample's
@@ -330,13 +401,39 @@ truth on the mat; the reconstruction (red = a part no view could see, filled onl
 35-38 s the along view holds only the legs and the upper body GVHMR invents from them is exactly what gets
 excluded); the export, in which such parts are absent and a dropped frame shows the empty mat; and the whole room
 from above: mat, walker, the operator at the desk, the bystander, the along camera (blue) and the side camera
-(orange). Bottom, the readout in two forms (`--readout strips|charts|both`): a filmstrip with a small render
+(orange). Without a ground truth (a partner's recording) the truth panel and row are absent and the aerial view
+shows the reconstruction on its own path. Bottom, the readout in two forms (`--readout strips|charts|both`): a filmstrip with a small render
 every 2 s of what each view outputs (joints it cannot see in red), the merge and the truth, with the well-tracked
 blocks marked at frame resolution by a bar under each row and a box around the consecutive thumbnails inside one
 block (a view: its legs usable; the merge: the frames the export keeps; thumbnails outside a block are dimmed);
 then the same as timelines on the shared IMU axis: each view's knee-flexion output (blue, orange), the merge
 (green, with gaps where no view saw the joint) and the truth (white). The side view leaves the frame at 29-32 s;
 the merge follows whichever view can see and hands over without a step.*
+
+### Three subjects in a partner-style folder
+
+To check that the package runs off a study folder rather than off its own samples, the three synthetic sessions
+were laid out as `Sub 001/Video/SP_combo.mp4` with the recording export under `Sub 001/IMU/` (the layout shown
+under "Expected input"; `tools/make_partner_layout.py` builds it), scanned with the default rules, run on the CPU,
+lifted on a T4, merged, and rendered with `wgvp demo`. The third session is a new room (`sample_v3/`, HC902):
+another walker, a co-walker on the far side of the mat, the along camera at the far end and high enough that the
+legs leave its frame when the walker is close, the side camera on the other side of the room and turned towards
+one end, so the walker leaves it at the other end for almost half of the recording.
+
+The scan paired every video with its recording without a config edit. Against each session's rendered truth, on
+the exported frames:
+
+| session | export | legs (median) | knee-flexion RMSE | root | views turned onto each other to |
+|---|---|---|---|---|---|
+| Sub 001 (HC900) | 100 % | 8.7 deg | 5.9 deg | 4.7 deg | 5.3 deg, 3 cm |
+| Sub 002 (HC901) | 96 % | 10.0 deg | 7.5 deg | 6.6 deg | 2 cm (roots 54 deg apart: the along view's pitch, flagged) |
+RESULTS_SUB003
+
+The first version of the third session used a walker whose sensor-derived path covered a single metre with a 5-mm
+pelvis bob, and it produced the one confidently wrong result of these runs: the side view fragmented, the fragments'
+own lags disagreed, and the joint lag landed 30 s off with a "high" confidence while the sync light sat uncompared
+3 s into the video. That is where the two sanity rules above come from; both fire on the case. The walker was
+replaced for the shipped sample, and the episode is written up in the design notes (section 2.8).
 
 ## Outputs
 
@@ -350,6 +447,8 @@ QC_SUMMARY.html, qc_summary.csv, qc_summary.json, manifest.json        cross-ses
    <recording>/selection_joint.json   the joint two-view subject selection (per-fragment scores, appearance attachments)
    <recording>/reconcile.json         agreement between the two views on the IMU timeline (2D and, after GVHMR, SMPL joints)
    <recording>/pose_agreement_<a>_<b>.npz   after GVHMR: per-frame, per-joint disagreement between the two views (t_imu_s, geodesic_deg (T,21), legs_median_deg)
+   <recording>/merged_smpl.npz        after GVHMR: THE TRAINING TARGET, one pose per frame from the two views (see "The training target" above)
+   <recording>/merge.json             its numbers: export fraction, continuity, view alignment, body shapes, flags
    <recording>/qc.json                walk-bout coverage per view, flags
    <recording>/<view>/subject_track.npz   frame_idx, pts_ms, bbox_xyxy, kp2d (COCO-17, face points blanked), visibility, source fragment id
    <recording>/<view>/smpl_global.npz     GVHMR SMPL-X parameters per frame, gravity-aligned world frame: global_orient (T,3), body_pose (T,63), betas (T,10), transl (T,3), frame_idx, pts_ms, imu_t_s,
@@ -358,7 +457,7 @@ QC_SUMMARY.html, qc_summary.csv, qc_summary.json, manifest.json        cross-ses
    <recording>/<view>/kp2d_vitpose.npz    GVHMR's ViTPose 2D keypoints and boxes, camera intrinsics K
    <recording>/<view>/gvhmr_meta.json, selection.json, qc.json
    validation_bundle/  logs/, thumbnails/ (skeleton-only PNGs), panels/ (edge-map previews with the view boxes), environment.json, privacy_check.json, metrics.json
-<session>/work/     intermediates that stay on the machine (all-person tracks, cut clips, GVHMR dumps)
+<session>/work/     intermediates that stay on the machine (all-person tracks, cut clips, GVHMR dumps, demo/ videos)
 ```
 
 Frame indices refer to the original combined video (`frame_idx`), times to its presentation timestamps (`pts_ms`),
@@ -376,6 +475,7 @@ The QC summary has one row per recording and view. What good looks like:
 | `sync_source`, `offset_s`, `offset_frame` | pelvis cross-correlation; `(validated by flash,labels,sheet)` lists the agreeing cross-checks; `*_minus_xcorr_s` are the differences |
 | `reconcile_status`, `residual_lag_s`, `legs_median_deg` | the two views after the sync: residual lag about 0 (tolerance 3 frames); median leg-joint disagreement after GVHMR |
 | `gvhmr_frames` | frames lifted in this view; `session_summary.json` adds bridged, edge-truncated and jump counts per view |
+| `merge_status`, `export_frac` | the merged training target: PASS / WARN with the reason in `flags`, and the share of lifted frames its export keeps |
 | `status` | PASS / WARN (chosen but unconfirmed, or a cross-check disagrees) / FAIL (nothing chosen, no sync, lifter failed), with the reason in `flags` |
 
 Every stage writes its record; failures are explicit messages that say what to do (`pick-subject`, `set-roi`,
@@ -388,6 +488,9 @@ python -m wgvp                         GUI
 python -m wgvp scan <root>             find sessions / recordings / videos; write wgvp_config.json
 python -m wgvp run <root> [--cpu-only] [--only <session> ...] [--force] [--gvhmr-root .. --gvhmr-python ..]
 python -m wgvp gvhmr <root>            the GPU stage alone, on pending chunks
+python -m wgvp merge <root>            rebuild the merged training target (merged_smpl.npz) from existing lifts; no GPU
+python -m wgvp demo <root> [--session <id>] [--recording <id>] [--gt <sample>_gt.npz] [--t0 S --t1 S] [--gif FILE]
+                                       the demo video from the pipeline's outputs (demo extras; written under work/)
 python -m wgvp summary <root>          rebuild the QC summary
 python -m wgvp dry-run [--cpu-only] [--out DIR]
 python -m wgvp check-gpu --gvhmr-root <GVHMR> --gvhmr-python <python>
@@ -422,23 +525,29 @@ The pipeline was validated on a rendered two-view session with a known answer, o
 multi-person public footage with a simulated sensor reference. It has not yet run on real clinic video against a
 real IMU: the panel geometry of real encodes, the tracker under clinic lighting with sensor straps and
 de-identification blur, GVHMR on real truncated bodies, and the Walk-label and annotation-sheet cross-checks are
-exercised only on synthetic inputs. The decisive number, the subject's `r_fine` in real footage, comes out of the
-first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
+exercised only on synthetic inputs. The merge's alignment of the two views' GVHMR worlds (one yaw and one offset
+from shared frames) and GVHMR's translation scale have been checked on rendered cameras only. The decisive number,
+the subject's `r_fine` in real footage, comes out of the first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
 section 4 the questions to settle with a dataset's owners before that run.
 
 ## Repository layout
 
 ```
 wgvp/            the package: discovery, video_io (panels, cutting), tracking, signals, imu_ref, selection, sync,
-                 flash, labels, reconcile, gvhmr_stage, qc, summary, session (orchestration), cli, gui, dryrun
+                 flash, labels, reconcile, fusion + merge (the training target), demo, gvhmr_stage, qc, summary,
+                 session (orchestration), cli, gui, dryrun
 weights/         yolov8n-pose.pt (ultralytics, AGPL-3.0)
 sample/          the synthetic dry-run session (video + recording CSV + expected answers)
 sample_v2/       a second synthetic session with two deliberately compromised views and the walker's ground-truth
                  3D pose, for the two-view reconstruction experiment (tools/two_view_fusion.py)
+sample_v3/       a third room: another walker, a co-walker, the along camera at the far end (legs cut when close),
+                 the side camera on the other side; ground truth saved as well
 examples/        bundled/ (our own clip + a two-view composite of it, runs offline); the fetched public-footage
                  corpus: sources.json, fetch_examples.py, verify_examples.py; make_bundled.py
 tests/           unit tests (python -m pytest tests -q)
-tools/           make_sample.py (how the sample was rendered), make_readme_figures.py
+tools/           make_sample.py (how the samples were rendered), make_partner_layout.py (the three sessions in a
+                 Sub 00N/Video + IMU layout), make_readme_figures.py, two_view_fusion.py (the fusion experiment
+                 against the truth), make_target_figure.py
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), figures/
 ```

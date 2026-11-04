@@ -22,6 +22,36 @@ def _check(name, ok, detail, checks, log):
     checks.append({"check": name, "ok": bool(ok), "detail": detail}); log(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
 
 
+def _check_merged_target(out: Path, sid: str, rid: str, ss: dict, exp: dict, checks: list, log) -> None:
+    """The merged training target of the dry-run recording against the rendered truth (GPU runs)."""
+    mg = ss["items"].get(f"{rid}/merge", {}); mf = session_out(out, sid) / "deliver" / rid / "merged_smpl.npz"
+    if mf.exists():
+        from .fusion import LEGS, fit_yaw, geodesic, step_stats
+        m = np.load(mf); gt = np.load(SAMPLE_DIR / exp["gt_npz"]); gi = {int(f): i for i, f in enumerate(gt["frame_idx"])}
+        keep = m["export_ok"] & np.array([int(f) in gi for f in m["frame_idx"]])
+        sel = [gi[int(f)] for f in m["frame_idx"][keep]]
+        body = m["body_pose"][keep].reshape(-1, 21, 3); gt_body = gt["pose_aa"][sel, 3:66].reshape(-1, 21, 3)
+        legs = float(np.nanmedian(geodesic(body[:, LEGS], gt_body[:, LEGS]))) if keep.any() else float("nan")
+        ex = (mg.get("export") or {}).get("frac_of_lifted_frames")
+        _check("merged target written; its export keeps at least 70 % of the lifted frames", ex is not None and ex >= 0.7 and bool(np.isfinite(m["betas"]).all()),
+               f"export {ex} of {mg.get('n_frames')} frames in {(mg.get('export') or {}).get('n_runs')} run(s); reference view {mg.get('reference_view')}; status {mg.get('status')} {mg.get('flags')}", checks, log)
+        _check("merged legs within 15 deg of the rendered truth (median over exported frames)", np.isfinite(legs) and legs < 15.0,
+               f"legs median {legs:.1f} deg over {int(keep.sum())} exported frames (each view alone against the truth: tools/two_view_fusion.py)", checks, log)
+        root = m["global_orient"][keep]; gt_root = gt["pose_aa"][sel, :3]; okr = np.isfinite(root).all(1)
+        yaw = fit_yaw(root, gt_root, okr) if okr.sum() > 10 else 0.0
+        from scipy.spatial.transform import Rotation as Rot
+        root_al = np.full_like(root, np.nan); root_al[okr] = (Rot.from_euler("y", yaw, degrees=True) * Rot.from_rotvec(root[okr])).as_rotvec()
+        r_err = float(np.nanmedian(geodesic(root_al, gt_root))) if okr.any() else float("nan"); r_step = step_stats(m["global_orient"][:, None, :])["p99_deg"]
+        _check("merged root continuous and within 15 deg of the truth (after one constant heading)", np.isfinite(r_err) and r_err < 15.0 and r_step < 12.0,
+               f"root median error {r_err:.1f} deg (heading offset {yaw:+.0f} deg), frame step p99 {r_step:.1f} deg", checks, log)
+        hr = m["global_orient_heading_rel"]; okh = np.isfinite(hr).all(1)
+        fwd = Rot.from_rotvec(hr[okh]).apply([0.0, 0.0, 1.0]) if okh.any() else np.zeros((0, 3))
+        _check("heading-relative root has no yaw left in it", okh.any() and float(np.abs(np.degrees(np.arctan2(fwd[:, 0], fwd[:, 2]))).max()) < 1.0,
+               f"max residual heading {float(np.abs(np.degrees(np.arctan2(fwd[:, 0], fwd[:, 2]))).max()) if okh.any() else float('nan'):.2f} deg over {int(okh.sum())} frames", checks, log)
+    else:
+        _check("merged target exists", False, f"no merged_smpl.npz ({mg})", checks, log)
+
+
 def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_python: str | None = None, cpu_only: bool = False, log=print, keep: bool = True) -> dict:
     exp = json.loads((SAMPLE_DIR / "expected.json").read_text())
     out = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="wgvp_dryrun_"))
@@ -84,6 +114,8 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
     if gpu_ran and pair.get("pose"):
         _check("two views agree on SMPL leg joints", pair["pose"].get("legs_median_deg", 99) < 25 and abs(pair["pose"]["knee_residual_lag"].get("residual_lag_s", 9)) <= cfg["params"]["tol_frames"] / 30.0,
                f"legs median {pair['pose'].get('legs_median_deg')} deg, knee residual lag {pair['pose']['knee_residual_lag'].get('residual_lag_s')} s", checks, log)
+    if gpu_ran:
+        _check_merged_target(out, sid, rid, ss, exp, checks, log)
     _check("walk bouts covered by at least one view", ri.get("n_walk_bouts", 0) > 0 and ri.get("n_walk_bouts_ok") == ri.get("n_walk_bouts"), f"{ri.get('n_walk_bouts_ok')}/{ri.get('n_walk_bouts')}", checks, log)
     _check("privacy check on the deliverables", ss.get("privacy_check", {}).get("ok"), f"{ss.get('privacy_check')}", checks, log)
     ok = all(c["ok"] for c in checks)

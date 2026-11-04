@@ -27,6 +27,7 @@ from .flash import detect_flash_auto, detect_flash_roi
 from .imu_ref import load_recording, summarize_imu_ref
 from .labels import read_walk_intervals, walk_label_offset
 from .qc import dump_json, privacy_check, tee_logger, write_thumbnails
+from .merge import merge_recording
 from .reconcile import reconcile_recording, SMPLX_BODY_JOINTS
 from .selection import DEFAULTS as SEL_DEFAULTS, coverage, decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
 from .sync import combine_sync
@@ -322,7 +323,7 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
                 break
         sheet = rec.get("sheet_start_frames", {}); sheet_frame = sheet.get("*") or next(iter(sheet.values()), None)
         ts0 = next(iter(views.values()))
-        sync = combine_sync(prim, flash_all, lab, sheet_frame, ts0.frame_idx, ts0.pts_ms, fps_meas, tol_frames=params["tol_frames"])
+        sync = combine_sync(prim, flash_all, lab, sheet_frame, ts0.frame_idx, ts0.pts_ms, fps_meas, tol_frames=params["tol_frames"], imu_duration_s=imu["duration_s"])
         log(f"    [{rid}] sync {sync['status']} via {sync['source']} offset {None if sync['offset_s'] is None else round(sync['offset_s'], 3)} s (frame {sync['offset_frame']}) {sync['flags']}")
         d_rec = deliver / rid; d_rec.mkdir(parents=True, exist_ok=True)
         dump_json(sync, d_rec / "sync.json"); dump_json({**prim, "views": {vk: {kk: vv for kk, vv in vv_.items() if kk != "frame_masks"} for vk, vv_ in prim["views"].items()}}, d_rec / "selection_joint.json")
@@ -429,7 +430,7 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> d
         return {}
     summ = json.loads(f.read_text()); cams = {}
     for key, item in list(summ["items"].items()):
-        if "/" not in key or key.endswith("/reconcile"):
+        if "/" not in key or key.endswith("/reconcile") or key.endswith("/merge"):
             continue
         rid, vid = key.split("/"); d = deliver / rid / vid
         sync = json.loads((deliver / rid / "sync.json").read_text()) if (deliver / rid / "sync.json").exists() else {}
@@ -448,6 +449,7 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> d
             item["gvhmr"] = {"n_frames": int(len(z["frame_idx"])), "finite": bool(np.isfinite(z["body_pose"]).all()), "visible_frames": int(z["visible"].sum()),
                              "bridged_frames": int((~z["visible"]).sum()), "edge_truncated_frames": (int(z["edge_truncated"].sum()) if "edge_truncated" in z.files else None),
                              "pose_jumps_over_30deg": n_jump, "n_chunks": int(len(np.unique(z["chunk_id"]))) if "chunk_id" in z.files else None}
+            item["flags"] = [f for f in item.get("flags", []) if "GVHMR frame(s) with a joint-rotation jump" not in f and f != "non-finite SMPL parameters"]   # re-runs must not repeat them
             if not item["gvhmr"]["finite"]:
                 item["flags"].append("non-finite SMPL parameters"); item["status"] = "FAIL"
             if n_jump:
@@ -472,6 +474,12 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> d
                 pair["pose"]["per_frame_file"] = f"pose_agreement_{a}_{b}.npz"
         dump_json(rc, deliver / rid / "reconcile.json")
         summ["items"][f"{rid}/reconcile"] = {"status": rc["status"], "flags": rc["flags"], "pairs": _pairs_brief(rc)}
+        try:                                                        # the merged training target (merged_smpl.npz + merge.json)
+            m = merge_recording(deliver / rid, cfg["params"], log=log)
+        except Exception as e:                                      # a merge failure must not hide the per-view outputs
+            m = {"status": "FAIL", "flags": [f"merge failed: {e!r}"], "views": sorted(cams[rid])}; log(f"  [{rid}] merge FAILED: {e!r}")
+        if m is not None:
+            summ["items"][f"{rid}/merge"] = {k: m.get(k) for k in ("status", "flags", "views", "reference_view", "n_frames", "export", "coverage_of_lifted_frames", "continuity", "weight", "betas", "per_view", "files") if k in m}
     summ["status"] = _status_merge(*[v["status"] for v in summ["items"].values() if v["status"] != "N/A"], *[v["status"] for v in summ["videos"].values()])
     pc = privacy_check(deliver); dump_json(pc, deliver / "validation_bundle" / "privacy_check.json")
     summ["privacy_check"] = {"ok": pc["ok"], "n_files": pc["n_files"], "problems": pc["problems"]}

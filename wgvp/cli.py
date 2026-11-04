@@ -22,6 +22,12 @@ def main(argv=None):
     p = sub.add_parser("gvhmr", help="run only the GPU stage on pending chunks (inside or via the GVHMR environment)"); p.add_argument("root")
     p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python"); p.add_argument("--only")
     p = sub.add_parser("summary", help="rebuild the cross-session QC summary"); p.add_argument("root")
+    p = sub.add_parser("demo", help="render the demo video of a lifted recording from the pipeline's outputs (demo extras; the file holds video frames and stays under work/)")
+    p.add_argument("root"); p.add_argument("--session"); p.add_argument("--recording"); p.add_argument("--gt", help="a rendered sample's <sid>_gt.npz: adds the truth panels and the error")
+    p.add_argument("--out"); p.add_argument("--body-models"); p.add_argument("--t0", type=float); p.add_argument("--t1", type=float); p.add_argument("--step", type=int, default=1)
+    p.add_argument("--gif"); p.add_argument("--gif-span", help="A,B seconds of IMU time for the GIF (default: the first 14 s of the span)")
+    p.add_argument("--readout", choices=["both", "charts", "strips"], default="both"); p.add_argument("--strip-step", type=float, default=2.0)
+    p = sub.add_parser("merge", help="(re)build the merged training target (merged_smpl.npz) from existing GVHMR outputs; no GPU needed"); p.add_argument("root")
     p = sub.add_parser("dry-run", help="run the bundled sample and verify the known answers"); p.add_argument("--out"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python"); p.add_argument("--cpu-only", action="store_true")
     p = sub.add_parser("check-gpu", help="what is missing for the GPU stage"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python")
     p = sub.add_parser("init-config", help="write wgvp_config.json (matching rules) into the data folder"); p.add_argument("root"); p.add_argument("--overwrite", action="store_true")
@@ -60,6 +66,24 @@ def main(argv=None):
         for d in sorted((root / "wgvp_output").glob("*/deliver/session_summary.json")):
             refresh_session_after_gvhmr(root, d.parent.parent.name, cfg)
         build_summary(root, cfg, gvhmr=r); return 0 if r.get("returncode", 1) == 0 else 1
+    if a.cmd == "demo":
+        from .demo import render_demo
+        root = Path(a.root); sessions = [a.session] if a.session else sorted(d.parent.parent.name for d in (root / "wgvp_output").glob("*/deliver/*/merged_smpl.npz"))
+        sessions = sorted(set(sessions))
+        if not sessions:
+            print("no merged recording under wgvp_output (run the GPU stage, then `wgvp merge`)"); return 1
+        for sid in sessions:
+            render_demo(root, sid, a.recording, a.gt, a.out if len(sessions) == 1 else None, a.body_models, a.t0, a.t1, a.step, a.gif if len(sessions) == 1 else None, a.gif_span, a.readout, a.strip_step)
+        return 0
+    if a.cmd == "merge":
+        from .config import load_config
+        from .session import refresh_session_after_gvhmr
+        from .summary import build_summary
+        root = Path(a.root); cfg = load_config(root); n = 0
+        for d in sorted((root / "wgvp_output").glob("*/deliver/session_summary.json")):
+            s = refresh_session_after_gvhmr(root, d.parent.parent.name, cfg)
+            n += sum(1 for k in (s or {}).get("items", {}) if k.endswith("/merge"))
+        build_summary(root, cfg); print(f"{n} recording(s) merged"); return 0 if n else 1
     if a.cmd == "summary":
         from .config import load_config
         from .summary import build_summary

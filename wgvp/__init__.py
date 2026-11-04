@@ -8,8 +8,10 @@ Stages (CPU unless noted):
   cut       trim + bbox track for the lifter (frame mapping kept)
   gvhmr     [GPU] SMPL-X parameters per frame for the subject (GVHMR, static camera, no render)
   reconcile two camera angles against each other on the IMU timeline
+  merge     one pose per frame from the two views (merged_smpl.npz, the training target; no IMU enters it)
+  demo      [optional extras] the demo video of a lifted recording, from the outputs above (work/, holds video frames)
   qc        QC records, skeleton-only thumbnails, validation bundle, privacy check
 
 Only pose-level derivatives and scalar QC leave the partner's site; see README.md ("Privacy").
 """
-__version__ = "0.1.0"
+__version__ = "0.2.0"
