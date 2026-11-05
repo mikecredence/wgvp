@@ -626,9 +626,10 @@ the chest down (the first version's camera 0.6 m high and 0.5 m past the end gav
 jumped about when the walker was close). The mat is 16 x 2 ft (4.88 x 0.61 m, the GAITRite, exactly the 384 x 48
 cell grid of section 2.10), centred on the walk: self-paced and hurried walks step off its ends to turn, the mat
 tasks turn on it. Every sample now follows this layout (`side_cam`, `along_cam` in `tools/make_sample.py`: side
-camera 2.3 m high, 5.5 m from the mat's centre line, 43 deg vertical in a 2.4:1 strip, aimed at -0.65 m on the
-mat's line so the top edge at the mat is 1.65 m above the floor (a first pass at -0.42 m left 15 % of the strip
-above the head); along camera 1.0 m high, 1 m beyond the mat's end
+camera 2.3 m high, 43 deg vertical in a 2.4:1 strip, first 5.5 m from the mat's centre line aimed at -0.65 m on
+the mat's line so the top edge at the mat was 1.65 m above the floor (a first pass at -0.42 m left 15 % of the
+strip above the head), then, after the comparison with the real frame below, 4.0 m away aimed at -0.21 m (top
+edge at the mat 1.55 m); along camera 1.0 m high, 1 m beyond the mat's end
 and 1.2 m beyond the walker's turn point, 60 deg), with HC901 keeping the low, close along camera as the stress test.
 The old HC901 operator pick belonged to the old camera and was removed; the user's reading of the layout is that
 most of the information will come from the side view, the along view supplementing it.
@@ -667,6 +668,39 @@ check asks whether the truth hip lies inside the chosen box rather than within 3
 keypoint, since that keypoint sits about 30 px high while the head is cut at the top edge (placement, not
 identity). Two detector input sizes were tried for the small walker: 1280 px does not rescue the pelvis bob and
 fragments the along view (7 pieces for 1), so 640 stays the default.
+
+**The turn that turned at a human rate.** With every sample re-rendered in that room and lifted (T4, 65 min for
+the six), Sub 003's self-paced walk (HC902) still carried two root flips of 169 and 174 deg, at its two turns
+(18.3 and 32.4 s). The per-view headings against the truth showed a different failure from the TUG's: the along
+view turned with the truth (+134 deg over the 2-s turn, 100-150 deg/s), the side view turned the *other* way at
+a similar rate (-88 deg) and then snapped 177 deg onto the true heading in one frame when the turn was over. Both
+terms of round four's rule are causal: the rate term saw nothing wrong until the snap, and by then the continuity
+term had locked the output onto the side view, the heavier one (21 usable joints against 14; its share was 1.0
+through the turn, the along view's 0), so the output turned the wrong way and snapped with it. Nothing
+distinguishes the two views while they turn; what does is the snap, and the merge runs offline, so it can read it
+after the fact. `fuse_root` now runs a third rule over the whole recording before the causal pass: inside every
+disagreement episode (two views more than 30 deg apart, gaps up to 15 frames bridged), a view whose own root turns
+more than 90 deg within 0.25 s, during the episode or in the 0.25 s after it, is the one that took the turn the
+wrong way (a person cannot turn 90 deg in a quarter second; the snap is the lift's own correction, so that lift was
+wrong on one side of it, inside the episode), and its weight is zeroed over the episode, up to 4 s either side of
+the snap; when no view snaps or more than one does, the rule is silent. The rule is covered by a test that plants
+the HC902 pattern (the wrong-way view heavier, snapping at the end; the old code fails it, following that view
+through its wrong turn and its snap) beside round four's test of the TUG pattern (the snap at the start), which still passes because the
+rule and the causal terms agree there. Re-merged, HC902 has no flip, root error 8.6 to 8.1 deg and head 4.6 to
+3.5; the other five recordings are unchanged to the first decimal (HC905's root 7.8 to 7.6).
+
+**The side camera, measured against the real frame.** Checked against the Video Labeler frame once more, the
+re-rendered side view was framed too far back: the mat spanned 44 % of the panel's width where the real one spans
+63 % (the walker's size was right, 125 px of 375, against 140 in the real frame), and the walker's head sat on the
+top edge rather than outside it, which is what the user had asked for. The camera moved from 5.5 to 4.0 m from
+the mat's centre line (the mat at ~60 % of the width), aimed at -0.21 m on the mat's line so the top edge crosses
+the mat 1.55 m above the floor: the head is outside the frame along the mat, the face shows when the walker dips or
+steps towards the camera, as in the real frame; the operators' desk moved with it, 1.2 m in front of the lens. The
+along view did not change; for the record, its 2D keypoints are steadier than the first version's low camera (the
+"jumping skeleton" of Sub 006): on the hurried walk all 1,101 along-view frames have confident leg keypoints
+against 662 of 881 before, and the high-frequency deviation of the leg keypoints is 0.35-0.46 % of the leg's
+extent against 0.47-0.73 %. Every sample was rendered and lifted a third time with this camera; the numbers in
+the README are from that run.
 
 ## 3. What has not been tested on real clinic recordings
 

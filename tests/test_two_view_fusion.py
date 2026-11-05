@@ -133,3 +133,29 @@ def test_fuse_root_follows_continuity_when_one_view_turns_the_wrong_way():
     assert step.max() < 30.0, step.max()
     assert share[0][(t > 5.55) & (t < 6.2)].mean() > 0.9                                              # the view that continues the motion carries the turn
     assert abs(share[0][t > 7.5].mean() - 0.5) < 0.1                                                  # once the views agree again, both count
+
+
+def test_fuse_root_drops_the_view_that_snaps_at_the_end_of_a_wrong_way_turn():
+    """The other failure of a 180-degree turn: one view turns with the truth at a human rate, the other turns the
+    wrong way round at a human rate too, so nothing distinguishes them while they turn, and only gives itself
+    away by snapping onto the true heading when the turn is over. The causal terms cannot help (the merge had
+    locked onto the heavier, wrong view by then); the offline snap rule must drop the snapping view for the
+    whole episode, so the fused heading follows the truth with no jump."""
+    from scipy.spatial.transform import Rotation as R
+    from wgvp.fusion import fuse_root, heading_yaw_deg
+    T = 300; t = np.arange(T) / 30.0; turn = np.clip((t - 5.0) / 1.5, 0.0, 1.0)                    # the turn runs from 5.0 to 6.5 s
+    h_truth = 20.0 + 180.0 * turn; h_wrong = 20.0 - 90.0 * turn                                    # the wrong view turns the other way, slower
+    snap = np.clip((t - 6.3) / 0.1, 0.0, 1.0)                                                       # and snaps onto the truth in 3 frames at 6.3 s
+    h_snap = h_wrong + (h_truth - h_wrong) * snap
+    rng = np.random.default_rng(1)
+    def roots(h): return np.stack([(R.from_euler("y", hh, degrees=True) * R.from_euler("x", 5.0 + rng.normal(0, 1.0), degrees=True)).as_rotvec() for hh in h])
+    a, b = roots(h_truth), roots(h_snap)
+    us_a = np.zeros((T, 21), bool); us_a[:, :14] = True; us_b = np.ones((T, 21), bool)               # the wrong view sees the whole body, the right one 14 joints
+    fused, share = fuse_root([a, b], [us_a, us_b], [np.ones(T, bool), np.ones(T, bool)], ramp=15)
+    hf = heading_yaw_deg(fused); err = np.abs(((hf - h_truth + 180) % 360) - 180); step = np.abs(((np.diff(hf) + 180) % 360) - 180)
+    assert err.max() < 25.0, err.max()
+    assert step.max() < 30.0, step.max()
+    assert share[0][(t > 5.6) & (t < 6.3)].min() > 0.99                                             # the view that did not snap carries the whole turn
+    assert abs(share[0][t > 7.5].mean() - (0.44 / (1 + 0.44))) < 0.1                                # afterwards the usable fractions decide again
+    fused2, _ = fuse_root([a, a], [us_a, us_b], [np.ones(T, bool), np.ones(T, bool)], ramp=15)      # no snap anywhere: the rule is silent
+    assert np.abs(((heading_yaw_deg(fused2) - h_truth + 180) % 360) - 180).max() < 1e-6
