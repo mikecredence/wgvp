@@ -4,7 +4,7 @@ tasks per subject), to test the folder scan and run the whole pipeline on more t
     <dest>/Sub 001/Video/SP_combo.mp4, TUG_combo.mp4 + Sub 001/IMU/Sub001_selfpace.csv, Sub001_tug.csv   (HC900 + HC903)
     <dest>/Sub 002/Video/SP_combo.mp4 ...                                                                  (HC901; its operator pick is copied along)
     <dest>/Sub 003/Video/SP_combo.mp4, HP_combo.mp4 ...                                                    (HC902 + HC904, hurried pace)
-    <dest>/Sub 004/Video/SPM_combo.mp4 + Sub 004/IMU/Sub004_selfpace_mat.csv                             (HC905, on the mat: walkway footfalls in the CSV)
+    <dest>/Sub 004/Video/SPM_combo.mp4 + Sub 004/IMU/Sub004_selfpace_mat.csv                             (HC905, on the mat: the walkway's cells in the CSV)
 
     python tools/make_partner_layout.py <dest>
     python -m wgvp run <dest> --cpu-only          # then the GPU stage, `wgvp merge <dest>`, `wgvp demo <dest> --session "Sub 002" --gt sample_v2/HC901_gt.npz`
@@ -26,7 +26,7 @@ SESSIONS = [("Sub 001", PKG / "sample" / "data" / "HC900", "HC900", ("SP", "SP",
             ("Sub 002", PKG / "sample_v2" / "data" / "HC901", "HC901", ("SP", "SP", "selfpace"), PKG / "sample_v2" / "data" / "wgvp_output" / "HC901" / "config" / "pick_left_hc901_selfpace.json"),
             ("Sub 003", PKG / "sample_v3" / "data" / "HC902", "HC902", ("SP", "SP", "selfpace"), None),
             ("Sub 003", PKG / "sample_v5" / "data" / "HC904", "HC904", ("HP", "HP", "hurriedpace"), None),                 # the same walker at a hurried pace
-            ("Sub 004", PKG / "sample_v6" / "data" / "HC905", "HC905", ("SPM", "SPM", "selfpace_mat"), None)]              # a walk on the instrumented mat (walkway footfalls in the CSV)
+            ("Sub 004", PKG / "sample_v6" / "data" / "HC905", "HC905", ("SPM", "SPM", "selfpace_mat"), None)]              # a walk on the instrumented mat (the walkway's cells in the CSV)
 
 
 def main(dest: str) -> int:

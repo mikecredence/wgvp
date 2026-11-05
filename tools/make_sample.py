@@ -164,10 +164,11 @@ VARIANTS = {
            "seat": lambda xm, zm: [xm + 0.6, 0.0, zm + 2.2], "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm - 2.0],
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 1.3, 1.5, zm - 0.15], "target": [x1 - 2.0, 0.4, zm]},
                                            "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm - 1.6, 2.2, zm + 3.5], "target": [xm + 1.0, 0.5, zm - 0.3]}}},   # inside the back wall (z = zm + 4)
-    # v4: a Timed Up and Go (sample_v4/, session HC903, task TUG): hc100's three repetitions of sit, stand, walk 3 m,
-    # turn, walk back, turn and sit, with a chair at the start; v1's room, the along camera facing the chair, no co-walker. Short walks, a
-    # large sit-to-stand excursion and a seated start are what a TUG asks of the selection and the sync.
-    "v4": {"sid": "HC903", "subdir": "sample_v4", "decoy": False, "subject": "hc100_tug", "task": {"csv": "tug", "dir": "TUG", "token": "TUG"}, "chair": True,
+    # v4: a Timed Up and Go (sample_v4/, session HC903, task TUG): hc142's repetitions of sit, stand, walk 3 m, turn,
+    # walk back, turn and sit, with a chair at the start; v1's room, the along camera facing the chair, no co-walker. Short walks, a
+    # large sit-to-stand excursion and a seated start are what a TUG asks of the selection and the sync. (hc100's TUG,
+    # used first, has its left ankle 163 deg off in the inertial fit: a visibly wrong foot in the rendered truth.)
+    "v4": {"sid": "HC903", "subdir": "sample_v4", "decoy": False, "subject": "hc142_tug", "task": {"csv": "tug", "dir": "TUG", "token": "TUG"}, "chair": True,
            "seat": lambda xm, zm: [xm - 0.35, 0.0, zm - 1.55],
            # the along camera faces the chair from beyond the turn-around point, as a TUG is usually filmed
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 3.0, 1.0, zm + 0.1], "target": [x1 - 2.0, 0.5, zm]},
@@ -179,13 +180,86 @@ VARIANTS = {
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.5, 0.6, zm + 0.05], "target": [x0 + 1.2, 0.0, zm]},
                                            "right": {"W": RW, "H": RC, "yfov": 22.0, "eye": [xm, 1.0, zm - 6.0], "target": [xm, 0.35, zm]}}},
     # v6: a self-paced walk ON the instrumented mat (sample_v6/, session HC905, task SPM = selfpace_mat) with the walkway
-    # columns of the recording CSV FABRICATED from the rendered truth (the public export leaves them empty): a row at
-    # every footfall with the foot's position on the mat in cm, as a pressure walkway reports it. v3's room.
+    # columns of the recording CSV FABRICATED from the rendered truth in the export's own form: at every IMU sample the
+    # loaded cells of the mat (Walkway_X/Y cell indices, WalkwayFoot labels, WalkwayPressureLevel) under each foot that
+    # is on it, on a 384 x 48 grid of 1.27 cm cells centred on the walk. (The real recording's own walkway rows are
+    # NOT used: the render walks the neutral SMPL body along a stance-pinned path 22 % shorter than the real one, so
+    # the real footprints would contradict the video.) v3's room.
     "v6": {"sid": "HC905", "subdir": "sample_v6", "decoy": False, "subject": "hc105_selfpace_mat", "task": {"csv": "selfpace_mat", "dir": "SPM", "token": "SPM"}, "walkway_from_truth": True,
            "seat": lambda xm, zm: [xm + 0.6, 0.0, zm + 2.2], "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm - 2.0],
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 1.3, 1.5, zm - 0.15], "target": [x1 - 2.0, 0.4, zm]},
                                            "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm - 1.6, 2.2, zm + 3.5], "target": [xm + 1.0, 0.5, zm - 0.3]}}},
 }
+
+
+MAT_CELL_M = 0.0127; MAT_CELLS = (384, 48)        # the GAITRite grid: 4.88 x 0.61 m
+
+
+def recording_csv_subset(var: dict, subj_name: str, J_s: np.ndarray, T_s: int, x0: float, x1: float, xm: float, zm: float):
+    """The session's recording CSV: a column subset of the public recording with the walkway columns EMPTIED (the
+    real footprints describe the real walk, 22 % longer than the rendered neutral-body one) or, for the mat variant,
+    fabricated from the rendered truth in the export's own form. Returns (DataFrame, mat_frame | None); mat_frame
+    gives the world position of cell (0, 0), the cell size and the grid, X along the walk (+x), Y across (+z)."""
+    import pandas as pd
+    cols = ["Time", "GeneralEvent", "ClinicalEvent", "L Foot Contact", "R Foot Contact", "Walkway_X", "Walkway_Y", "WalkwayPressureLevel", "WalkwayFoot",
+            "LowerBack_FreeAcc_E", "LowerBack_FreeAcc_N", "LowerBack_FreeAcc_U"]
+    dfc = pd.read_csv(IMU / f"{subj_name}.csv", usecols=lambda c: c in cols, low_memory=False)
+    for c in ("Walkway_X", "Walkway_Y", "WalkwayPressureLevel", "WalkwayFoot"):
+        dfc[c] = ""
+    dfc = dfc[[c for c in cols if c in dfc.columns]]
+    if not var.get("walkway_from_truth"):
+        return dfc, None
+    # the mat: 384 x 48 cells of 1.27 cm centred on the walk; a foot on it loads an ellipse of cells 24 x 9 cm around
+    # the rendered truth's foot centre (midpoint of ankle and toe joints) for every sample its contact flag is on,
+    # heel-weighted early in the stance and toe-weighted late, pressure levels 2-9
+    tcsv_s = np.array([float(str(v).split()[0]) for v in dfc["Time"]]); n = len(dfc)
+    mat_frame = {"x0": float(xm - 0.5 * MAT_CELLS[0] * MAT_CELL_M), "z0": float(zm - 0.5 * MAT_CELLS[1] * MAT_CELL_M), "cell_m": MAT_CELL_M, "cells": list(MAT_CELLS),
+                 "about": "cell (0,0) corner in the render's world; Walkway_X = (x - x0) / cell_m along the walk, Walkway_Y = (z - z0) / cell_m across"}
+    X = [""] * n; Y = [""] * n; P = [""] * n; F = [""] * n; rng_w = np.random.default_rng(1); n_rows = 0
+    for col, lab, ja, jf in (("L Foot Contact", "L", 7, 10), ("R Foot Contact", "R", 8, 11)):
+        c = np.nan_to_num(pd.to_numeric(dfc[col], errors="coerce").to_numpy(float)) > 0.5
+        edges = np.flatnonzero(np.diff(np.r_[0, c.astype(int), 0]))
+        for a, b in zip(edges[::2], edges[1::2]):
+            for i in range(a, b):
+                fi = int(round(tcsv_s[i] * FPS))
+                if not (0 <= fi < T_s):
+                    continue
+                cx, cz = 0.5 * (J_s[fi, ja, [0, 2]] + J_s[fi, jf, [0, 2]]); heading = J_s[fi, jf, [0, 2]] - J_s[fi, ja, [0, 2]]
+                u = heading / max(np.linalg.norm(heading), 1e-6); v = np.array([-u[1], u[0]]); phase = (i - a) / max(b - a - 1, 1)
+                centre = np.array([cx, cz]) + (0.06 * (phase - 0.5)) * u                      # heel to toe roll-over
+                gx = (centre[0] - mat_frame["x0"]) / MAT_CELL_M; gz = (centre[1] - mat_frame["z0"]) / MAT_CELL_M
+                xs, ys, ps = [], [], []
+                for dx in range(-12, 13):
+                    for dz in range(-12, 13):
+                        q = np.array([dx, dz]) * MAT_CELL_M; along = q @ u; across = q @ v
+                        if (along / 0.12) ** 2 + (across / 0.045) ** 2 <= 1.0:
+                            ix, iz = int(round(gx)) + dx, int(round(gz)) + dz
+                            if 0 <= ix < MAT_CELLS[0] and 0 <= iz < MAT_CELLS[1]:
+                                xs.append(ix); ys.append(iz); ps.append(int(np.clip(round(6 - 20 * abs(across) - 10 * abs(along - 0.06 * (phase - 0.5)) + rng_w.normal(0, 1.0)), 2, 9)))
+                if len(xs) >= 5:
+                    X[i] = (X[i] + "|" if X[i] else "") + "|".join(map(str, xs)); Y[i] = (Y[i] + "|" if Y[i] else "") + "|".join(map(str, ys))
+                    P[i] = (P[i] + "|" if P[i] else "") + "|".join(map(str, ps)); F[i] = (F[i] + "|" if F[i] else "") + "|".join([lab] * len(xs)); n_rows += 1
+    dfc["Walkway_X"] = X; dfc["Walkway_Y"] = Y; dfc["WalkwayPressureLevel"] = P; dfc["WalkwayFoot"] = F
+    print(f"walkway cells fabricated: {n_rows} foot-samples on a {MAT_CELLS[0]}x{MAT_CELLS[1]} grid of {100 * MAT_CELL_M} cm; mat x {mat_frame['x0']:.2f}..{mat_frame['x0'] + MAT_CELLS[0] * MAT_CELL_M:.2f}, walk {x0:.2f}..{x1:.2f}")
+    return dfc, mat_frame
+
+
+def refresh_csv(variant: str, out_dir: str | None = None):
+    """Rewrite only the recording CSV (and the mat frame in expected.json) of an already rendered sample."""
+    var = VARIANTS[variant]; sid = var["sid"]; subj_name = var.get("subject", "hc100_selfpace")
+    task = var.get("task", {"csv": "selfpace", "dir": "SP", "token": "SP"}); tcsv = task["csv"]
+    _smplx_compat_shims(); import smplx
+    out = Path(out_dir) if out_dir else PKG / var["subdir"]; sess = out / "data" / sid
+    smpl = smplx.create(BM, model_type="smpl", gender="neutral", batch_size=1)
+    subj = yaw_align(load_ik_aa(subj_name), smpl); tr_s = root_trajectory(subj, smpl, f"{subj_name}.csv"); T_s = len(subj)
+    x0, x1 = float(tr_s[:, 0].min()), float(tr_s[:, 0].max()); xm = 0.5 * (x0 + x1); zm = float(tr_s[:, 2].mean())
+    _, J_s = fk(subj, smpl, tr_s)
+    G = np.load(out / f"{sid}_gt.npz")
+    assert np.allclose(G["transl"], tr_s, atol=1e-4) and len(G["pose_aa"]) == T_s, "the rendered truth differs from this build: re-render instead"
+    dfc, mat_frame = recording_csv_subset(var, subj_name, J_s, T_s, x0, x1, xm, zm)
+    dfc.to_csv(sess / f"{sid.lower()}_{tcsv}.csv", index=False)
+    ej = out / "expected.json"; exp = json.loads(ej.read_text()); exp["mat_frame"] = mat_frame; ej.write_text(json.dumps(exp))
+    print(f"{sid}: CSV rewritten ({len(dfc)} rows); mat_frame {mat_frame}")
 
 
 def main(out_dir: str | None = None, variant: str = "v1"):
@@ -319,31 +393,12 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     writer.close()
     for r in renderer.values():
         r.delete()
-    import pandas as pd
-    cols = ["Time", "GeneralEvent", "ClinicalEvent", "L Foot Contact", "R Foot Contact", "Walkway_X", "Walkway_Y", "LowerBack_FreeAcc_E", "LowerBack_FreeAcc_N", "LowerBack_FreeAcc_U"]
-    dfc = pd.read_csv(IMU / f"{subj_name}.csv", usecols=lambda c: c in cols, low_memory=False)
-    mat_frame = None
-    if var.get("walkway_from_truth"):
-        # a pressure walkway reports one row per footfall: the position of the foot that just landed, in cm, X along the
-        # mat from its near end, Y across from its near edge. Footfalls = onsets of the recording's own Foot Contact
-        # flags during Walk; the position comes from the rendered truth's foot joint, with 1 cm of noise.
-        tcsv_s = np.array([float(str(v).split()[0]) for v in dfc["Time"]]); mat_frame = {"x0": float(x0 - 0.8), "z0": float(zm - 0.5)}
-        wx = np.full(len(dfc), np.nan); wy = np.full(len(dfc), np.nan); rng_w = np.random.default_rng(1)
-        for col, jnt in (("L Foot Contact", 10), ("R Foot Contact", 11)):
-            c = pd.to_numeric(dfc[col], errors="coerce").to_numpy(float); on = np.flatnonzero((np.nan_to_num(c) > 0.5) & ~(np.nan_to_num(np.r_[0.0, c[:-1]]) > 0.5))
-            for i in on:
-                fi = int(round(tcsv_s[i] * FPS))
-                if 0 <= fi < T_s and str(dfc["GeneralEvent"].iloc[i]) == "Walk":
-                    fx, fz = float(J_s[fi, jnt, 0]), float(J_s[fi, jnt, 2])
-                    if x0 - 0.8 <= fx <= x1 + 0.8 and abs(fz - zm) <= 0.5:
-                        wx[i] = round(100.0 * (fx - mat_frame["x0"]) + rng_w.normal(0, 1.0)); wy[i] = round(100.0 * (fz - mat_frame["z0"]) + rng_w.normal(0, 1.0))
-        dfc["Walkway_X"] = wx; dfc["Walkway_Y"] = wy
-        print(f"walkway rows fabricated: {int(np.isfinite(wx).sum())} footfalls, X {np.nanmin(wx):.0f}-{np.nanmax(wx):.0f} cm, Y {np.nanmin(wy):.0f}-{np.nanmax(wy):.0f} cm")
+    dfc, mat_frame = recording_csv_subset(var, subj_name, J_s, T_s, x0, x1, xm, zm)
     dfc.to_csv(sess / f"{sid.lower()}_{tcsv}.csv", index=False)
     (sess / "README.txt").write_text(f"Synthetic session {sid} (rendered SMPL meshes, no real video): one combined two-view video\n"
                                      f"{tdir}/{sid}_{ttok}_DeID.mp4 (left = along-walkway view 520x600, right = side view 900x500 letterboxed)" + (" with a co-walker,\n" if has_decoy else ",\n") +
                                      f"a seated operator near the side camera and a bystander; {sid.lower()}_{tcsv}.csv = column subset of the public {subj_name}.csv"
-                                     + (" with the walkway columns fabricated from the rendered truth (one row per footfall, cm on the mat).\n" if mat_frame else ".\n"))
+                                     + (" with the walkway columns fabricated from the rendered truth in the export's form (loaded cells per sample, 1.27 cm grid).\n" if mat_frame else "; its walkway columns are left empty (the real recording's footprints do not describe the rendered walk).\n"))
     # ground truth of the walker for the reconstruction experiment: SMPL pose, root trajectory, 3D joints, and per
     # view the image position and in-frame flag of every joint (no pixels)
     np.savez_compressed(out / f"{sid}_gt.npz", frame_idx=np.arange(pre, pre + T_s), imu_t_s=np.arange(T_s) / FPS, pose_aa=subj.astype(np.float32), transl=tr_s.astype(np.float32),
@@ -369,6 +424,11 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     print(f"sample -> {out}: " + ", ".join(f"{p.name} {p.stat().st_size / 1e6:.1f} MB" for p in (sess / tdir).iterdir()))
     return 0
 
+
+if __name__ == "__main__" and "--csv-only" in sys.argv:
+    args = [a for a in sys.argv[1:] if a != "--csv-only"]
+    var_ = args[args.index("--variant") + 1] if "--variant" in args else "v1"
+    refresh_csv(var_, next((a for a in args if not a.startswith("--") and a != var_), None)); sys.exit(0)
 
 if __name__ == "__main__":
     import argparse

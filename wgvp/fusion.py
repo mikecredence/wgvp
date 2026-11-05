@@ -207,6 +207,58 @@ def fk_joints(root_aa: np.ndarray, body_aa: np.ndarray, transl: np.ndarray) -> n
     return out
 
 
+# left <-> right partner of every SMPL-X body joint (0-based body index: joint 1..21 of the kinematic tree)
+MIRROR_SWAP = [1, 0, 2, 4, 3, 5, 7, 6, 8, 10, 9, 11, 13, 12, 14, 16, 15, 18, 17, 20, 19]
+_MIRROR_SIGN = np.array([1.0, -1.0, -1.0])   # a rotation conjugated by the reflection x -> -x: rotvec (x, y, z) -> (x, -y, -z)
+
+
+def mirror_body(body_aa: np.ndarray) -> np.ndarray:
+    """The body pose of the mirror image of a person: left and right joints swapped and every local rotation
+    conjugated by the sagittal reflection. (T, 21, 3) -> (T, 21, 3). The map is an involution and exact for the
+    bilaterally symmetric SMPL-X template; it holds for ANY vertical mirror plane, since two such reflections
+    differ by a yaw and a horizontal shift, which the view alignment absorbs."""
+    return np.asarray(body_aa)[:, MIRROR_SWAP] * _MIRROR_SIGN
+
+
+def mirror_root(root_aa: np.ndarray) -> np.ndarray:
+    """Root orientation of the mirror image (reflection about the world plane x = 0). (T, 3) -> (T, 3)."""
+    return np.asarray(root_aa) * _MIRROR_SIGN
+
+
+def mirror_transl(transl: np.ndarray) -> np.ndarray:
+    return np.asarray(transl) * np.array([-1.0, 1.0, 1.0])
+
+
+def mirror_check(body_ref: np.ndarray, body_v: np.ndarray, both_ok: np.ndarray, min_asym_deg: float = 15.0) -> dict:
+    """Is `body_v` the mirror image of `body_ref`? On the frames `both_ok` (T,) where the reference's two knees
+    differ in flexion by more than `min_asym_deg` (one leg swinging), the median geodesic distance of the KNEES as
+    they are and after mirroring `body_v`. Walking makes the test sharp there: the knees are half a cycle apart, so
+    a swapped pair disagrees by the flexion range. Measured on six rendered two-camera sessions: as-is 11-16 deg vs
+    mirrored 21-40; on a mirrored panel of a real clip: 44 vs 8. A view counts as mirrored when the mirrored
+    distance is under 0.6 of the as-is one and at least 6 deg smaller. Returns the two distances, the frames used
+    and the verdict (False when there are too few frames to tell)."""
+    ok = np.asarray(both_ok, bool) & np.isfinite(np.asarray(body_ref)[:, [3, 4]]).all((1, 2)) & np.isfinite(np.asarray(body_v)[:, [3, 4]]).all((1, 2))
+    kn = np.degrees(np.linalg.norm(np.nan_to_num(np.asarray(body_ref)[:, [3, 4]]), axis=2)); swing = ok & (np.abs(kn[:, 0] - kn[:, 1]) > min_asym_deg)
+    idx = np.flatnonzero(swing)
+    if len(idx) < 30:
+        return {"mirrored": False, "n_frames": int(len(idx)), "as_is_deg": None, "mirrored_deg": None, "note": "fewer than 30 frames with one knee swinging in both views"}
+    a = np.asarray(body_ref)[idx][:, [3, 4]]; b = np.asarray(body_v)[idx][:, [3, 4]]; bm = mirror_body(np.asarray(body_v)[idx])[:, [3, 4]]
+    d0 = float(np.nanmedian(geodesic(a, b))); d1 = float(np.nanmedian(geodesic(a, bm)))
+    return {"mirrored": bool(d1 < 0.6 * d0 and d0 - d1 >= 6.0), "n_frames": int(len(idx)), "as_is_deg": d0, "mirrored_deg": d1}
+
+
+def collapsed_legs(kp: np.ndarray, rel: float = 0.08, rel_knee: float = 0.12, min_conf: float = 0.3) -> np.ndarray:
+    """Frames where a 2D pose estimator put BOTH legs on one leg: the two ankles within `rel` of the shank length
+    of each other and the knees within `rel_knee` (COCO-17 keypoints (T, 17, 3)). A side-on walker's legs cross
+    once a stride, which also triggers this for a frame or two; the 3D lifter copes either way (measured: leg error
+    against the truth 8-16 deg on these frames vs 13 deg elsewhere), so this is for display, not for weighting."""
+    kp = np.asarray(kp, float); ank = np.linalg.norm(kp[:, 15, :2] - kp[:, 16, :2], axis=1); kne = np.linalg.norm(kp[:, 13, :2] - kp[:, 14, :2], axis=1)
+    shank = np.maximum(np.linalg.norm(kp[:, 13, :2] - kp[:, 15, :2], axis=1), np.linalg.norm(kp[:, 14, :2] - kp[:, 16, :2], axis=1))
+    conf = np.nan_to_num(kp[:, [13, 14, 15, 16], 2]).min(1)
+    with np.errstate(invalid="ignore"):
+        return (ank < rel * shank) & (kne < rel_knee * shank) & (conf >= min_conf) & np.isfinite(shank)
+
+
 def heading_yaw_deg(root_aa: np.ndarray) -> np.ndarray:
     """Heading of a root orientation (T, 3) axis-angle in a y-up world: the yaw of the pelvis forward axis (SMPL
     faces +z in its rest pose) projected on the floor, degrees in (-180, 180]; NaN rows stay NaN."""

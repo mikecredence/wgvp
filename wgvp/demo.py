@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .fusion import LEGS, chordal_mean, geodesic, smooth_rotations
+from .fusion import LEGS, chordal_mean, collapsed_legs, geodesic, mirror_body, mirror_root, smooth_rotations
 from .tracking import FACE_KP, SKELETON
 
 COL = {"ok": [150, 160, 200], "missing": [220, 70, 70], "truth": [170, 170, 170]}
@@ -106,13 +106,19 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     # ---- per view, dense over the video's frames
     body, root_al, usable, lifted, vis, kp_draw = {}, {}, {}, {}, {}, {}
     yaw_al = {v: float(y) for v, y in zip(views, M["view_alignment_yaw_deg"])}
+    mirrored = {v: bool(m) for v, m in zip(views, M["view_mirrored"])} if "view_mirrored" in M.files else {v: False for v in views}
+    collapsed = {}
     for i, v in enumerate(views):
         z, k = Z[v], K[v]; fr = z["frame_idx"].astype(int)
         body[v] = np.full((n_video, 21, 3), np.nan); root_al[v] = np.full((n_video, 3), np.nan); lifted[v] = np.zeros(n_video, bool); vis[v] = np.zeros(n_video, bool)
-        body[v][fr] = z["body_pose"].reshape(-1, 21, 3); lifted[v][fr] = True; vis[v][fr] = z["visible"]
+        bp = z["body_pose"].reshape(-1, 21, 3); ro = z["global_orient"]
+        if mirrored[v]:                                                    # the merge reflected this view back; show it the same way
+            bp = mirror_body(bp); ro = mirror_root(ro)
+        body[v][fr] = bp; lifted[v][fr] = True; vis[v][fr] = z["visible"]
         with np.errstate(all="ignore"):
-            root_al[v][fr] = (R.from_euler("y", yaw_al[v], degrees=True) * R.from_rotvec(z["global_orient"])).as_rotvec()
+            root_al[v][fr] = (R.from_euler("y", yaw_al[v], degrees=True) * R.from_rotvec(ro)).as_rotvec()
         arr = np.full((n_video, 17, 3), np.nan); arr[k["frame_idx"].astype(int)] = k["kp2d"]; kp_draw[v] = side_consistent(arr)
+        collapsed[v] = np.zeros(n_video, bool); collapsed[v][k["frame_idx"].astype(int)] = collapsed_legs(k["kp2d"])
     mf = M["frame_idx"].astype(int)
     usable_all = np.zeros((V, n_video, 21), bool); usable_all[:, mf] = M["usable"]
     for i, v in enumerate(views):
@@ -191,7 +197,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         sc = pyrender.Scene(bg_color=(1.0, 1.0, 1.0, 1.0), ambient_light=(0.45, 0.45, 0.45))
         if Vv is not None:
             sc.add(body_mesh(Vv, colours, keep_faces)); view_ref["floor"] = float(Vv[:, 1].min()) - 0.01; view_ref["c"] = np.array([0.0, Vv[:, 1].mean(), 0.0])
-        add_floor_and_mat(sc, view_ref["floor"], 0.0, 2.45, 0.0)
+        add_floor_and_mat(sc, view_ref["floor"], 0.0, 2.45, 0.0, mat=G is not None)
         c = view_ref["c"]; az = np.deg2rad(40); eye = c + 3.3 * np.array([np.sin(az), 0.25, np.cos(az)])
         sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(40)), pose=look_at(eye, c)); lights(sc); return finish(renderer, sc)
     V_op = V_by = desk = None
@@ -332,13 +338,16 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         x = 10
         for i, v in enumerate(views):                                             # top: the views
             x0, y0, x1, y1 = vbox[v]; crop = img[y0:y1, x0:x1].copy()
-            kp = kp_draw[v][f]
+            kp = kp_draw[v][f]; legs_merged = bool(collapsed[v][f])
             for a_, b_ in SKELETON:
                 if a_ in FACE_KP or b_ in FACE_KP:
                     continue
                 if np.isfinite(kp[[a_, b_], :2]).all() and kp[a_, 2] >= 0.3 and kp[b_, 2] >= 0.3:
-                    cv2.line(crop, (int(kp[a_, 0] - x0), int(kp[a_, 1] - y0)), (int(kp[b_, 0] - x0), int(kp[b_, 1] - y0)), (40, 230, 40), 3, cv2.LINE_AA)
+                    bone_col = (40, 190, 250) if (legs_merged and a_ >= 11 and b_ >= 11) else (40, 230, 40)     # amber: both legs found on one leg
+                    cv2.line(crop, (int(kp[a_, 0] - x0), int(kp[a_, 1] - y0)), (int(kp[b_, 0] - x0), int(kp[b_, 1] - y0)), bone_col, 3, cv2.LINE_AA)
             crop = cv2.resize(crop, (pw[v], PH), interpolation=cv2.INTER_AREA)
+            if legs_merged:
+                label(crop, "2D: both legs on one leg", (8, 22), col=(40, 190, 250), scale=0.42)
             if light_rect and x0 <= light_rect[0] < x1 and y0 <= light_rect[1] < y1:
                 s_ = PH / (y1 - y0); lx, ly = int((light_rect[0] - x0) * s_), int((light_rect[1] - y0) * s_); lw_ = max(int(light_rect[2] * s_), 6)
                 cv2.rectangle(crop, (lx - 3, ly - 3), (lx + lw_ + 3, ly + lw_ + 3), (255, 255, 255), 1); label(crop, "sync light", (lx - 78, ly + lw_ + 2), scale=0.4)
@@ -346,7 +355,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
             col = (40, 200, 40) if legs_ok else ((30, 170, 240) if lifted[v][f] else (60, 60, 220))
             cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
             status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge")))
-            label(canvas, f"{v} view: {status}", (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
+            label(canvas, f"{v} view: {status}" + (" (mirror image: reflected back)" if mirrored[v] else ""), (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
         yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20                               # middle: (truth | each view alone), reconstruction, export, aerial
         if G is not None:
             if gi_f is not None:
@@ -380,7 +389,8 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
                 src.append(f"{nm}: " + ("both" if len(who) == V and V > 1 else (who[0] if len(who) == 1 else ("all" if who else "none"))))
             label(canvas, "reconstruction  " + " | ".join(src), (xr + 8, yb + RH - 12), scale=0.5)
         label(canvas, "red = no view could see this part (not output)", (xr + 8, yb + RH - 34), col=(90, 90, 230), scale=0.5)
-        label(canvas, "2D skeletons: ViTPose keypoints (the lifter's input)", (10, 20 + PH + 8), scale=0.4, col=(200, 200, 200), bg=(28, 28, 28))
+        label(canvas, "2D skeletons: ViTPose keypoints (the lifter's input); amber legs = the detector put both legs on one leg (the 3D lifter copes, measured)",
+              (10, 20 + PH + 8), scale=0.4, col=(200, 200, 200), bg=(28, 28, 28))
         xe = xr + RW + 20                                                           # the export
         if export_ok[f] and np.isfinite(root_fused[f]).all():
             Ve = verts(root_fused[f], np.nan_to_num(merged_out[f])); keep = ~np.isin(dom[faces], np.flatnonzero(none[f]) + 1).any(1)

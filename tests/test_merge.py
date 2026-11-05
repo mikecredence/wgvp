@@ -147,6 +147,35 @@ def test_walkway_calibration_recovers_each_views_depth_scale(tmp_path):
         okt = np.isfinite(tr).all(1); d = tr - transl; d = d - np.nanmedian(d[okt], axis=0); return np.linalg.norm(d, axis=1)
     err_raw = err(m["transl"]); err_cal = err(m["transl_scaled"])
     assert np.nanmedian(err_cal) < 0.5 * np.nanmedian(err_raw) and np.nanmedian(err_cal) < 0.06
-    assert abs(((fit["mat_yaw_deg"] - 25.0 + 180) % 360) - 180) < 3.0 and np.isfinite(m["transl_mat"]).all()
-    # the mat-frame path matches the fabricated reference up to the scatter
-    Xm = np.interp(tk, t, m["transl_mat"][:, 0]); assert np.corrcoef(Xm, X)[0, 1] > 0.9 and abs(np.std(Xm) / np.std(X) - 1) < 0.15   # the reference carries half a step of scatter
+    assert abs(((fit["mat_yaw_deg"] - 25.0 + 180) % 360) - 180) < 3.0 and np.isfinite(m["transl_mat_video"]).all()
+    # the video path in the mat frame matches the fabricated reference up to the scatter
+    Xm = np.interp(tk, t, m["transl_mat_video"][:, 0]); assert np.corrcoef(Xm, X)[0, 1] > 0.9 and abs(np.std(Xm) / np.std(X) - 1) < 0.15   # the reference carries half a step of scatter
+    # the pelvis path ON THE MAT (footprints + the video pose) covers the walk and beats the video's own path against the truth
+    okm = np.isfinite(m["transl_mat"]).all(1); assert okm.mean() > 0.8 and np.isfinite(m["transl_from_walkway"][okm]).all()
+    err_mat = err(m["transl_from_walkway"]); assert np.nanmedian(err_mat) < 0.08 and np.nanmedian(err_mat) < 0.5 * np.nanmedian(err_raw), (np.nanmedian(err_mat), np.nanmedian(err_raw))
+    # (this fabricated walker has no stance phase, its feet travel with the body, so the footfall rows pin the pelvis to ~5 cm;
+    # the scale calibration removes the pure depth error exactly here, which no real lift offers)
+
+
+def test_mirrored_view_is_detected_and_reflected_back(tmp_path):
+    """One view is the mirror image of the other (camera software mirroring the picture): its left leg is the
+    walker's right leg. The merge must notice from the legs, reflect that view back, and then merge as well as
+    with an honest second view."""
+    from wgvp.fusion import mirror_body, mirror_root, mirror_transl
+    rng = np.random.default_rng(5); T = 400; frames = np.arange(T)
+    body, root, transl, heading = _truth(T, rng); betas = np.zeros(10); conf = np.full(T, 0.9)
+    Rl = R.from_euler("y", 35.0, degrees=True)
+    body_m = mirror_body(_noisy(body, 0.03, rng)); root_m = (Rl * R.from_rotvec(mirror_root(root))).as_rotvec(); transl_m = Rl.apply(mirror_transl(transl)) + [0.5, 0.0, -1.0]
+    rec = tmp_path / "deliver" / "s_selfpace"
+    _view(rec / "left", "left", frames, _noisy(body, 0.03, rng), root, transl, betas, conf, np.ones(T, bool))
+    _view(rec / "right", "right", frames, body_m, root_m, transl_m, betas, conf, np.ones(T, bool))
+    s = merge_recording(rec, log=lambda *a: None); m = np.load(rec / "merged_smpl.npz")
+    assert s["views_mirrored"] == ["right"] and m["view_mirrored"].tolist() == [False, True] and any("mirror image" in f for f in s["flags"])
+    chk = s["mirror_check"]["right"]; assert chk["mirrored"] and chk["mirrored_deg"] < 0.5 * chk["as_is_deg"]
+    out = m["body_pose"].reshape(T, 21, 3); legs = np.nanmedian(geodesic(out[:, [0, 1, 3, 4, 6, 7]], body[:, [0, 1, 3, 4, 6, 7]]))
+    assert legs < 3.0, legs                                                        # two agreeing views, noise averaged
+    # the un-mirrored merge: the same data without the reflection must NOT be flagged
+    rec2 = tmp_path / "deliver" / "s2_selfpace"
+    _view(rec2 / "left", "left", frames, _noisy(body, 0.03, rng), root, transl, betas, conf, np.ones(T, bool))
+    _view(rec2 / "right", "right", frames, _noisy(body, 0.03, rng), (Rl * R.from_rotvec(root)).as_rotvec(), Rl.apply(transl), betas, conf, np.ones(T, bool))
+    s2 = merge_recording(rec2, log=lambda *a: None); assert s2["views_mirrored"] == [] and not s2["mirror_check"]["right"]["mirrored"]

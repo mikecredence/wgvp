@@ -8,8 +8,8 @@ authors:
     given-names: Mike
     email: mcaiola@credence-llc.com
     affiliation: Credence Management Solutions, LLC
-version: 0.2.0
-date-released: 2026-11-02
+version: 0.3.0
+date-released: 2026-11-05
 repository-code: "https://github.com/mikecredence/wgvp"
 license: AGPL-3.0-or-later
 keywords:

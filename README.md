@@ -221,6 +221,7 @@ can see it happened.
 | The two views disagree after all this | Reconciliation on the IMU timeline: residual lag of the 2D pelvis signals (always) and per-joint disagreement of the SMPL-X poses (after GVHMR), tolerance 3 frames | `reconcile_status`, `residual_lag_s`, `legs_median_deg` |
 | The automatic choice is wrong or absent | Two operator tools: `set-roi` (draw the walkway polygon once per view) and `pick-subject` (click the subject on a skeleton-only frame); both are reported with their agreement with the automatic choice | `selection_source` = `walkway_roi` / `operator_pick`, status WARN |
 | Variable frame rate, dropped frames | All timing is done on presentation timestamps, never on frame counts | `timing` in the video record (gaps, VFR flag) |
+| One camera's picture is mirrored (a webcam's "mirror preview" left on): its left leg is the walker's right | The merge compares the knees of the two views in the swing phase as lifted and with the sides swapped (as lifted 11-16 deg vs swapped 21-40 on the rendered sessions; 43 vs 7 on a mirrored panel of a real clip) and reflects the mirrored view back before fusing | `view_mirrored` in `merged_smpl.npz`, `mirror_check` and a flag in `merge.json` |
 
 Two of these rules were learned the hard way while testing (the perspective term in the pelvis signal, and the
 chance level of short fragments); [docs/design.md](docs/design.md) section 2.6 has the numbers before and after.
@@ -370,7 +371,10 @@ input. And everything a learner needs to weigh the target is in the file.
 | `body_pose` (T, 63) | the merged SMPL-X body pose on the video's frames, NaN for a joint no view saw |
 | `global_orient`, `transl` (T, 3) | the merged root in the reference view's GVHMR world (y up); the other view is turned onto it by one yaw and one offset fitted on frames where both see most of the body |
 | `heading_yaw_deg`, `global_orient_heading_rel`, `root_vel_heading_rel_m_s` | the root split into the heading (what only the room knows) and the tilt and velocity in the heading frame (what the body can know): a sensor model is asked for the latter |
-| `transl_scaled`, `transl_mat` (T, 3), `walkway_scale` (V), `transl_calibrated` | the translation after the walkway calibration (equal to `transl` without walkway rows), the same in the mat frame, each view's path scale, and whether the fit ran; see the translation paragraph below |
+| `transl_mat` (T, 3) | the pelvis **on the mat**, metres in the mat frame (X along, height from the video, Y across): the walkway's footprint under each foot in stance plus the video pose's foot-to-pelvis offset; a measured position with no depth estimate in it; NaN off the mat or without walkway data |
+| `transl_mat_video`, `transl_from_walkway` (T, 3) | the video's own path turned into the mat frame, and `transl_mat` turned back into the reference view's world |
+| `transl_scaled` (T, 3), `walkway_scale` (V), `transl_calibrated` | the translation after the per-view depth-scale fit against the footfalls (equal to `transl` without walkway data), the fitted factors, whether the fit ran |
+| `view_mirrored` (V) | views found to be mirror images of the reference (a camera's picture flipped by its software): reflected back before merging, and flagged, each view's path scale, and whether the fit ran; see the translation paragraph below |
 | `betas` (10) | one body shape for the recording, the median of GVHMR's per-frame estimates over whole-body frames of both views |
 | `export_ok` (T) | the export rule above |
 | `weight` (T, 21), `root_weight`, `transl_weight` (T) | per-joint, root and translation loss weights in [0, 1]: one confident view or two agreeing ones carry 1, two views that both vouched for a joint and disagree are discounted (0.5 at 25 deg), nothing outside the export |
@@ -386,22 +390,32 @@ turned onto each other to within 5 deg and 3 cm. The weakest field is the transl
 monocular depth estimate, within 0.1 m near the middle of the walk and off by 1 to 3 m at the far ends of it in a
 view that sees the walker small (an assumed focal length). Where both views see the subject their disagreement
 exposes this (`transl_disagree_m`, discounted by `transl_weight`); a single far view does not. When the recording
-CSV carries walkway footfall positions (`Walkway_X`, `Walkway_Y`), the merge fits, per view, one scale factor of
-its path (about the path's own centre, with the mat's pose in that view's world) to the footfalls against the
-position of the foot that landed (a model-free forward kinematics of the mean body gives the feet), accepts the fit
-only when its residual stays under 0.5 m, and writes `transl_scaled`, `transl_mat` (metres in the mat frame) and
-`walkway_scale`; the heading-frame velocity then comes from the scaled translation. The public WearGait export has
-these columns but almost never fills them (7 of 1,577 files, a few dozen rows each; two task exports put
-sensor-index lists in them), so the calibration was tested on rendered sessions whose CSV carries footfalls
-fabricated from the truth. **It does not help much.** On the mat session (`sample_v6`) it fixes the path's length
-(+15 % too long before, 1 % short after) and the 90th-percentile error (0.85 to 0.61 m) but not the median error
-(0.19 to 0.23 m) or the walking speed (0.26 to 0.28 m/s RMSE), which are per-frame jitter; on HC900, whose side
-view stretched the walk from 4.9 to 7.5 m, both fits are rejected (residuals 0.64 and 0.72 m after the best
-similarity), because that path is distorted, not scaled. The reason is in the data: GVHMR's world path is
-integrated by its network, not projected from the camera (its camera-frame and world-frame translations differ by
-0.4 to 1.6 m RMS as a rigid pair), so neither a focal-length nor a body-scale correction applies. If a partner's
-export does carry footfalls, the useful thing to do with them is to take the position on the mat from the walkway
-itself and the pose from the video; that is a small addition, not done here.
+CSV carries the pressure walkway, the merge uses it two ways. The WearGait export carries the walkway in 1,574 of
+its 1,577 files, whatever the task (the mat records all through a session): at every 10-ms sample the lists of
+loaded cells, `Walkway_X` / `Walkway_Y` as `'x1|x2|...'` cell indices on the GAITRite's 384 x 48 grid of half-inch
+cells (4.88 x 0.61 m; `params.walkway_cell_cm`, 1.27), with each cell's footprint label in `WalkwayFoot` (`L`, `R`,
+or `Other 1` for what the software did not assign) and its pressure level. The reader (`wgvp/imu_ref.py`) turns
+them into the pressure-weighted centre of each labelled footprint per sample and groups those into stances (first
+and last sample, median centre; 0.6 s each in a self-paced walk); unlabelled cells are counted and ignored. From
+the stances the merge (a) fits per view one depth-scale factor of its path about the path's own centre, the mat's
+yaw and offset in that view's world, against the landing foot's position (a model-free forward kinematics of the
+mean body gives the feet), accepted only when its residual stays under 0.5 m, writing `transl_scaled` and
+`walkway_scale`; and (b) builds the pelvis path **on the mat**, `transl_mat`: during each stance the walkway knows
+where that foot is and the video pose knows where the pelvis is relative to it, both feet count during double
+support, each stance's say ramps in and out over 0.12 s, gaps under 0.5 s are bridged. On the rendered mat
+session (`sample_v6`, whose CSV carries cells fabricated from the rendered truth in the export's own form) the
+video's path is 0.28 m from the truth at the median and 0.65 m at the 90th percentile, the scale-calibrated one
+0.29 / 0.49 m, and the path from the walkway 0.034 / 0.089 m over the 86 % of frames it covers; in the mat frame,
+with no fitting at all, its bias is 0.1 cm along the mat and 4 cm across. That measures the mechanism, not the
+mat: the fabricated footprints come from the same truth as the video. The scale fit, by contrast, does not help
+much (it fixes the path's length, not the per-frame error), because GVHMR's world path is integrated by its
+network, not projected from the camera (its camera-frame and world-frame translations differ by 0.4 to 1.6 m RMS
+as a rigid pair), so neither a focal-length nor a body-scale correction applies. One caution for anyone testing
+this on the rendered samples with the public recordings' own walkway rows: the render walks the neutral SMPL body
+along a stance-pinned path that is 22 % shorter than the real walk the mat recorded (hc105: 3.4 m of footfalls
+against 4.5 m), so the real footprints do not describe the rendered video; the samples' CSVs carry empty walkway
+columns except the mat session's fabricated ones. The heading-frame velocity comes from the walkway path where
+it exists and from `transl_scaled` elsewhere.
 
 ![the training target](docs/figures/merged_target.png)
 
@@ -463,28 +477,32 @@ own lags disagreed, and the joint lag landed 30 s off with a "high" confidence w
 3 s into the video. That is where the two sanity rules above come from; both fire on the case. The walker was
 replaced for the shipped sample, and the episode is written up in the design notes (section 2.8).
 
-### Other tasks, and a mat walk with walkway footfalls
+### Other tasks, and a mat walk with the walkway
 
 Three more sessions were rendered and run through the same folder: a **Timed Up and Go** (`sample_v4`, HC903: hc100's
 three repetitions of sit, stand, walk 3 m, turn, walk back and sit, with a chair; the along camera faces the chair
 from beyond the turn), a **hurried-pace walk** (`sample_v5`, HC904: hc105 at speed with a co-walker, in HC901's
 compromised views), and a **self-paced walk on the instrumented mat** (`sample_v6`, HC905: hc105 in HC902's room,
-with the recording's `Walkway_X/Y` rows fabricated from the truth, one per footfall). Tandem gait has no public IK
+with the recording's walkway columns fabricated from the truth in the export's own form, see above). Tandem gait has no public IK
 sequence to render from. All three paired, synced and selected without a config edit (sync within 5 ms of the
 truth; the TUG's selection r = 0.82 in the view facing the chair, the hurried walk 0.82 and 0.71), and lifted and
 merged like the others:
 
 | session | export | legs (median) | knee-flexion RMSE | root | two views' leg disagreement |
 |---|---|---|---|---|---|
-| TUG (HC903) | 97 % | 26.1 deg (see text) | 9.3 deg | 8.4 deg | 9.3 deg |
+| TUG (HC903, first render) | 97 % | 26.1 deg (see text) | 9.3 deg | 8.4 deg | 9.3 deg |
 | hurried pace (HC904) | 82 % | 14.0 deg | 13.8 deg | 7.8 deg | 14.0 deg |
 | mat walk (HC905) | 100 % | 9.6 deg | 6.7 deg | 6.2 deg | 8.2 deg |
 
 The TUG row says something about the truth rather than the lift: the two views agree with each other on the legs
-to 9 deg and on the ankles to 10 deg, yet both sit 26 deg from the IK sequence the walker was rendered from, with
-its ankles 95 deg off in every phase (sitting, standing up, walking, turning alike). The TUG is the task on which
-that IK's calibration passes least often (41 % of recordings), so for this sample the per-joint error measures the
-truth; the knee-flexion RMSE and the two-view agreement are the usable numbers. The hurried walk is the hard case
+to 9 deg and on the ankles to 10 deg, yet both sit 26 deg from the IK sequence the walker was rendered from. That
+sequence (hc100's TUG) has its left ankle 163 deg off in the inertial fit, a visibly wrong foot in the rendered
+truth, so the sample has since been re-rendered with hc142's TUG, whose fit passes the ankle check (median ankle
+angles 10 deg, knees to 85 deg when seated); its CPU stages pass as before (sync 3.004 s against 3.0 planted,
+validated by the light; selection r 0.78 in both views), its lift and numbers follow the next GPU run, and until
+then the row stands for the first render, where the knee-flexion RMSE and the two-view agreement are the usable
+numbers. The
+hurried walk is the hard case
 it was built to be: the side view holds the walker for 42 % of the recording in five pieces, the two views share
 130 frames, and the merge exports 82 %.
 
@@ -501,11 +519,19 @@ mode, lifted on a T4 like the rest:
 *One frame of `wgvp demo` on the bundled phone clip (OWN01, one view: 393 frames, 95 % exported, two runs with a
 0.7-s gap where the walker turned at the far end). With one view the reconstruction and the view coincide, so the
 middle row is reconstruction, export and the path from above; the timelines carry the view's output and the merge.
-The two-view composite of the same clip (OWN02) exercises the two-view layout, and its per-view panels and
-disagreement chart show at once why it is a layout check and not a second camera: the right panel is a mirror
-image, so its left leg is the walker's right leg, the two "views" flex opposite knees at the same instant, and the
-merge of the two means nothing for the legs. A real second camera does not do that; the synthetic sessions above
-are the test of the merge itself.*
+On real video the close-ups show a floor and no mat (the mat is drawn only when the room is known, i.e. for a
+rendered truth), and a leg pair the 2D detector put on one leg is drawn in amber: on the rendered sessions that
+happens on 0.1-23 % of a view's frames (a side-on walker's legs cross once a stride) and the lifter's leg error on
+those frames is 8-19 deg against 9-25 elsewhere, so the merge does not weight them down.*
+
+The two-view composite of the same clip (OWN02) is built the way a careless second camera would be: the left
+panel is the clip zoomed in a little, the right panel the clip **mirrored** and zoomed in more (1.16x and 1.32x,
+different letterboxing), which makes the right panel's left leg the walker's right leg. On its lift the merge's
+mirror check reads the knees 43 deg apart as lifted and 7 deg apart with the sides swapped, reflects the right
+view back, and the two "views" then agree: root residual 14 to 7 deg, pelvis offset 0.33 to 0.21 m, their knee
+curves on top of each other. It is still one camera (the two panels carry the same information), so the synthetic
+sessions above remain the test of the merge itself; what this clip tests is the panel detector on two zoom levels,
+the per-view scale, the mirror detection and the no-truth layout.
 
 ## Outputs
 
@@ -598,7 +624,10 @@ multi-person public footage with a simulated sensor reference. It has not yet ru
 real IMU: the panel geometry of real encodes, the tracker under clinic lighting with sensor straps and
 de-identification blur, GVHMR on real truncated bodies, and the Walk-label and annotation-sheet cross-checks are
 exercised only on synthetic inputs. The merge's alignment of the two views' GVHMR worlds (one yaw and one offset
-from shared frames) and GVHMR's translation scale have been checked on rendered cameras only. The decisive number,
+from shared frames) and GVHMR's translation scale have been checked on rendered cameras only; the walkway reader
+has been run on the public recordings (1,574 files parse; stances alternate feet 90 % of the time), but the
+pelvis path on the mat has only been checked against a rendered truth whose footprints were fabricated from that
+truth, never against a real mat under a real video. The decisive number,
 the subject's `r_fine` in real footage, comes out of the first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
 section 4 the questions to settle with a dataset's owners before that run.
 
