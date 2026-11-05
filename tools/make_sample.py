@@ -49,7 +49,9 @@ MAT_L, MAT_W = 4.88, 0.61    # the instrumented mat: 16 x 2 ft (GAITRite), centr
 # down and is whole only beyond ~3.5 m. Every sample follows this layout; v2 keeps a lower, closer along camera as the
 # deliberate stress test of truncation in that view.
 def side_cam(xm, zm, side=-1.0, dx=0.8):
-    return {"W": RW, "H": RC, "yfov": 43.0, "eye": [xm + dx, 2.3, zm + side * 5.5], "target": [xm - 0.2, -0.42, zm]}
+    # aimed at -0.65 m on the mat's line: the top edge of the picture crosses the mat 1.65 m above the floor, so the
+    # neutral body's head top is just outside it there and the face shows when the walker dips (the real frame)
+    return {"W": RW, "H": RC, "yfov": 43.0, "eye": [xm + dx, 2.3, zm + side * 5.5], "target": [xm - 0.2, -0.65, zm]}
 def along_cam(mat_end, walk_end, direction, zm, height=1.0, back_mat=1.0, back_walk=1.2):
     """Camera beyond the mat's end `mat_end` and beyond the walker's turn point `walk_end` (whichever is further
     out, so a walk that overshoots the mat still turns in front of the lens), `height` m high, looking along the mat

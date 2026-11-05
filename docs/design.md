@@ -35,7 +35,14 @@ Per video (CPU, one decode pass, cached by file hash):
    pelvis oscillation and score about 0 whatever their size; a second detection box on the subject (partial bodies
    in the along-walkway view) is recognised by box overlap and not counted as a rival. Confidence: best r >= 0.35 and
    a margin >= 0.12 over the best other person at that lag; lag ambiguity is reported as the support ratio of the
-   runner-up lag. Secondary: a walkway polygon drawn once per view by the operator. Fallback: a one-click pick on a
+   runner-up lag. Cross-view confirmation (2026-11-05): a view where no fragment reaches the pelvis match (the
+   walker a hundred pixels tall in a room-wide side view: the bob is under a pixel, below the keypoint noise, at
+   640 and at 1280 px of detector input alike) takes its subject from the confirmed view's by the correlation at
+   zero lag, on the shared video clock, between progress-along-the-walk signals (the hip column; the log of the
+   body's pixel width; the best of the four pairings, sign-free), |r| >= 0.8 over >= 5 s, accepted best first
+   without temporal overlap; the margin against another person moving with the subject (a co-walker 0.8 s behind
+   correlates nearly as well on a 20-s walk cycle) decides PASS or WARN (`selection.cross_view_selection`).
+   Secondary: a walkway polygon drawn once per view by the operator. Fallback: a one-click pick on a
    skeleton-only frame. All three are reported with their agreement; a confident primary wins, else the pick, else
    the polygon (WARN).
 4. **Sync.** Offset = video presentation time of IMU t = 0 from the joint cross-correlation (sub-frame).
@@ -619,11 +626,27 @@ the chest down (the first version's camera 0.6 m high and 0.5 m past the end gav
 jumped about when the walker was close). The mat is 16 x 2 ft (4.88 x 0.61 m, the GAITRite, exactly the 384 x 48
 cell grid of section 2.10), centred on the walk: self-paced and hurried walks step off its ends to turn, the mat
 tasks turn on it. Every sample now follows this layout (`side_cam`, `along_cam` in `tools/make_sample.py`: side
-camera 2.3 m high, 5.5 m from the mat's centre line, 43 deg vertical in a 2.4:1 strip, aimed at -0.42 m on the
-mat's line so the top edge at the mat is 1.75 m above the floor; along camera 1.0 m high, 1 m beyond the mat's end
+camera 2.3 m high, 5.5 m from the mat's centre line, 43 deg vertical in a 2.4:1 strip, aimed at -0.65 m on the
+mat's line so the top edge at the mat is 1.65 m above the floor (a first pass at -0.42 m left 15 % of the strip
+above the head); along camera 1.0 m high, 1 m beyond the mat's end
 and 1.2 m beyond the walker's turn point, 60 deg), with HC901 keeping the low, close along camera as the stress test.
 The old HC901 operator pick belonged to the old camera and was removed; the user's reading of the layout is that
 most of the information will come from the side view, the along view supplementing it.
+
+**The room-wide side view defeats the pelvis match.** The first CPU dry run on the re-rendered HC900 failed its
+side-view checks: the along view selected the walker as before (r 0.73), the side view tracked them in three
+fragments (34, 10 and 4.5 s, keypoint confidence 0.95) but accepted none. Their box is 24 % of the panel height,
+144 px, the size of the walker in the real Video Labeler frame, and at that scale the vertical pelvis bob (a
+centimetre, under a pixel) sits below the keypoint noise: the 34-s fragment correlates with the IMU at r 0.17 at
+the true lag, the chance level for that window; its own best lag is 21 s off. Running the detector at 1280 px
+instead of 640 changed nothing for that view (and fragmented the along view, 7 pieces for 1). So a second cue was
+added for the view the pelvis match leaves empty: the correlation, at zero lag on the shared video clock, of the
+fragment's progress along the walk with the confirmed subject's in the other view (the hip column where the walk
+runs across the picture, the log of the body's pixel width where it runs into it). On the dry run's side view the
+walker's fragment reads |r| 0.86 against the along view's subject, the operator's 0.36, the bystander's 0.28, and
+short pieces reach 0.9 only at lags of a second or more. What this cue cannot do is tell a person walking in step
+from the subject (the correlation of a 0.8-s-delayed copy of a 20-s cycle is 0.97), which is what the pelvis match
+did with its sub-frame lag; such a case is flagged by the margin and left to the thumbnails or a pick.
 
 ## 3. What has not been tested on real clinic recordings
 

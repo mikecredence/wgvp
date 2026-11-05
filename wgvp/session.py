@@ -29,7 +29,7 @@ from .labels import read_walk_intervals, walk_label_offset
 from .qc import dump_json, privacy_check, tee_logger, write_thumbnails
 from .merge import merge_recording
 from .reconcile import reconcile_recording, SMPLX_BODY_JOINTS
-from .selection import DEFAULTS as SEL_DEFAULTS, coverage, decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
+from .selection import DEFAULTS as SEL_DEFAULTS, coverage, cross_view_selection, decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
 from .sync import combine_sync
 from .tracking import TrackSet, analyze_video, hip_vertical_signal, split_fragments
 from .video_io import cut_video, detect_panels, panel_preview, probe_video, sha256_file
@@ -335,27 +335,45 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
             rec_item["flags"].append(f"another person matches the IMU nearly as well at offset {alt['offset_s']:.2f} s (support ratio {prim['lag_ambiguity']:.2f}) - check the thumbnails")
         cam_results[rid] = {}
         bouts_cov = {}
+        decs = {}
+        for vid, ts in views.items():                                       # first pass: every view's own decision
+            pv = prim["views"].get(vid); roi = roi_selection(ts, sconf.get(f"walkway_{vid}"), selp); pick = pick_selection(sconf.get(f"pick_{vid}_{rid}"), ts)
+            decs[vid] = [decide_view(pv, prim.get("confidence", "none"), roi, pick), pv, roi, pick]
+        # second pass: a view with no subject takes it from a view whose subject the pelvis match confirmed, by their
+        # motion along the walk on the shared video clock (a walker small in a room-wide view has no usable pelvis bob)
+        confirmed = [v for v, (d, pv, _, _) in decs.items() if d["track_ids"] and d["source"].startswith("imu_xcorr") and prim.get("confidence") == "high"]
+        for vid, (dec, pv, roi, pick) in decs.items():
+            if dec["track_ids"] or not confirmed:
+                continue
+            refv = confirmed[0]; rdec, rpv = decs[refv][0], decs[refv][1]
+            ref_tr = merged_subject_track(views[refv], rdec["track_ids"], (rpv or {}).get("frame_masks") if rdec["source"].startswith("imu_xcorr") else None)
+            xv = cross_view_selection(ts, ref_tr, fps_meas, selp); dec["cross_view"] = xv
+            if xv["ok"]:
+                dec.update(track_ids=xv["track_ids"], source="cross_view", status="PASS" if xv["margin"] >= {**SEL_DEFAULTS, **selp}["xview_min_margin"] else "WARN",
+                           view_offset_s=prim.get("offset_s"),
+                           message=f"subject identified by its motion along the walk against the {refv} view's confirmed subject (|r| {xv['r']:.2f} at zero lag; "
+                                   f"the pelvis bob is below the keypoint noise at this scale)" + (f"; {xv['reason']}" if xv["reason"] else ""))
         for vid, ts in views.items():
             key = f"{rid}/{vid}"; d_out = d_rec / vid; d_out.mkdir(parents=True, exist_ok=True)
-            pv = prim["views"].get(vid)
-            roi = roi_selection(ts, sconf.get(f"walkway_{vid}"), selp)
-            pick = pick_selection(sconf.get(f"pick_{vid}_{rid}"), ts)
-            dec = decide_view(pv, prim.get("confidence", "none"), roi, pick)
+            dec, pv, roi, pick = decs[vid]
             cov = (pv or {}).get("coverage", {})
             if dec["track_ids"] and sorted(dec["track_ids"]) != sorted((pv or {}).get("track_ids", [])) and sync.get("offset_s") is not None:
                 cov = coverage(ts, dec["track_ids"], float(sync["offset_s"]), imu, {**SEL_DEFAULTS, **selp})   # the operator's or the ROI's choice, not the primary's
             item = {"status": _status_merge(dec["status"], sync["status"]), "flags": [], "selection_source": dec["source"], "subject_track_ids": dec["track_ids"],
                     "accepted_by_xcorr": (pv or {}).get("accepted_by_xcorr", []), "attached_by_appearance": (pv or {}).get("attached_by_appearance", []),
-                    "r_fine": (pv or {}).get("r_fine"), "margin": (pv or {}).get("margin"), "view_confidence": (pv or {}).get("confidence"), "view_offset_s": (pv or {}).get("view_offset_s"),
+                    "r_fine": (pv or {}).get("r_fine"), "margin": (pv or {}).get("margin"), "view_confidence": (pv or {}).get("confidence") if dec["source"] != "cross_view" else "cross_view",
+                    "view_offset_s": (pv or {}).get("view_offset_s") if dec["source"] != "cross_view" else dec.get("view_offset_s"),
+                    "cross_view": ({k: v for k, v in dec["cross_view"].items() if k != "frame_masks"} if dec.get("cross_view") else None),
                     "n_fragments": int(len(ts.track_ids())), "video": video.name, "view_box": ts.box, "selection_status": dec["status"], "sync_status": sync["status"],
                     "agreement": {"selection": dec["agreement"], "sync": sync["agreement"]}, "coverage": cov}
             if dec["status"] != "PASS":
                 item["flags"].append("selection:" + dec["message"])
             log(f"    [{key}] selection {dec['status']} via {dec['source']} tracks {dec['track_ids']} (r {item['r_fine']}, margin {item['margin']}); coverage present {item['coverage'].get('present_frac')}, full {item['coverage'].get('full_frac')}, gaps {item['coverage'].get('n_gaps')}")
-            dump_json({k: v for k, v in dec.items() if k != "primary"} | {"primary": {kk: vv for kk, vv in (dec.get("primary") or {}).items() if kk != "frame_masks"}}, d_out / "selection.json")
+            dump_json({k: v for k, v in dec.items() if k not in ("primary", "cross_view")} | {"primary": {kk: vv for kk, vv in (dec.get("primary") or {}).items() if kk != "frame_masks"},
+                       "cross_view": {kk: vv for kk, vv in (dec.get("cross_view") or {}).items() if kk != "frame_masks"}}, d_out / "selection.json")
             subj = None
             if dec["track_ids"]:
-                masks = (pv or {}).get("frame_masks") if dec["source"].startswith("imu_xcorr") else None
+                masks = (pv or {}).get("frame_masks") if dec["source"].startswith("imu_xcorr") else ((dec.get("cross_view") or {}).get("frame_masks") if dec["source"] == "cross_view" else None)
                 subj = merged_subject_track(ts, dec["track_ids"], masks)
                 item["lag_consistency"] = {str(k): {kk: vv for kk, vv in v.items() if kk != "window_r"} for k, v in ((pv or {}).get("consistency") or {}).items()}
                 if masks:
