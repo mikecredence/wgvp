@@ -273,6 +273,17 @@ or jumps to whoever else is in frame. What the pipeline does, and what the synth
   `reconcile.json` with the per-joint disagreement between the two views on every IMU frame; and a QC flag when any
   frame moves a joint by more than 30 deg in one frame.
 
+The synthetic sessions are real three-dimensional scenes, not composites: `tools/make_sample.py` places the
+walker (an SMPL body driven by a public WearGait inertial fit), the co-walker, the seated operator, the desk, the
+bystander, the mat, the floor tiles and the walls in one world, puts two perspective cameras where the aerial panel
+of the demo draws them (their poses and intrinsics are saved in the truth file as `<view>_cam_pose` and
+`<view>_intrinsics`), and renders each camera's picture with pyrender, an OpenGL rasteriser. The per-view truth
+(`<view>_joints2d`, the in-frame flags) is the projection of the same joints through the same cameras, so a view's
+truncation, a camera's height and tilt and the panel sizes are what the geometry gives, not what was drawn by
+hand. What the renders lack is appearance (textures, clothing, lighting, lens distortion, motion blur), which a
+game engine would add and which matters for the 2D detectors rather than for the geometry; the detectors have
+coped with the grey bodies so far, and the real-footage examples carry that test.
+
 These numbers come from rendered bodies. GVHMR on real clothed, truncated people is on the list of things only the
 first real run can show.
 
@@ -481,8 +492,9 @@ replaced for the shipped sample, and the episode is written up in the design not
 
 Three more sessions were rendered and run through the same folder: a **Timed Up and Go** (`sample_v4`, HC903: hc100's
 three repetitions of sit, stand, walk 3 m, turn, walk back and sit, with a chair; the along camera faces the chair
-from beyond the turn), a **hurried-pace walk** (`sample_v5`, HC904: hc105 at speed with a co-walker, in HC901's
-compromised views), and a **self-paced walk on the instrumented mat** (`sample_v6`, HC905: hc105 in HC902's room,
+from beyond the turn), a **hurried-pace walk** (`sample_v5`, HC904: hc105 at speed with a co-walker; the
+first render used HC901's narrow side camera; the sample now has a side camera laid out like the real session's,
+elevated and wide, with the whole room and mat in frame), and a **self-paced walk on the instrumented mat** (`sample_v6`, HC905: hc105 in HC902's room,
 with the recording's walkway columns fabricated from the truth in the export's own form, see above). Tandem gait has no public IK
 sequence to render from. All three paired, synced and selected without a config edit (sync within 5 ms of the
 truth; the TUG's selection r = 0.82 in the view facing the chair, the hurried walk 0.82 and 0.71), and lifted and
@@ -525,8 +537,9 @@ happens on 0.1-23 % of a view's frames (a side-on walker's legs cross once a str
 those frames is 8-19 deg against 9-25 elsewhere, so the merge does not weight them down.*
 
 The two-view composite of the same clip (OWN02) is built the way a careless second camera would be: the left
-panel is the clip zoomed in a little, the right panel the clip **mirrored** and zoomed in more (1.16x and 1.32x,
-different letterboxing), which makes the right panel's left leg the walker's right leg. On its lift the merge's
+panel is the clip zoomed in a little, the right panel the clip **mirrored** and zoomed in hard (1.16x and 1.64x,
+different letterboxing; head and feet leave the right panel when the walker is close), which makes the right
+panel's left leg the walker's right leg. On the lift of an earlier, milder composite the merge's
 mirror check reads the knees 43 deg apart as lifted and 7 deg apart with the sides swapped, reflects the right
 view back, and the two "views" then agree: root residual 14 to 7 deg, pelvis offset 0.33 to 0.21 m, their knee
 curves on top of each other. It is still one camera (the two panels carry the same information), so the synthetic
