@@ -573,6 +573,24 @@ walker complete most of the time), so the hurried-pace sample's side camera was 
 got a harder zoom on its mirrored panel (the middle 50 x 55 % of the clip, 1.64x) so that head and feet are cut
 when the walker is close, as in the along-walkway view of a real session.
 
+**The lifts after those corrections (T4, 29 + 15 min).** Sub 005 (TUG, hc142): sync 3.004 s, export 94 % of 1,609
+frames in 4 runs, legs 14.3 deg median (24 % over 20), knee-flexion RMSE 8.1, root 12.8 (the seated and turning
+phases), two-view leg agreement 7.6 deg on 865 shared frames: the 26-deg "error" of the first render was the
+truth's. Sub 006 (hurried pace, room-wide side view): sync 2.992 s; the side view holds the walker for all 1,101
+frames with every leg joint usable, the along view has its legs usable 52 % of the time; export 100 %, legs
+12.0 deg (15 % over 20), knee RMSE 10.5, root 8.8, two-view legs 10.5 deg on 569 shared frames (82 % / 14.0 / 13.8
+/ 7.8 with the narrow side view). The bundled composite (OWN02, zoomed 1.16x | mirrored 1.64x): panels within 2 px,
+sync 0.817 s, both panels selected (r 0.85 / 0.77); the merge took the zoomed mirrored panel as the reference,
+flagged the other as its mirror image (knees 44.2 deg as lifted vs 7.8 swapped on 216 swing frames), and the two
+agree on the legs to 5.4 deg with 100 % exported; OWN01 95 %. One limit surfaced: on the frames where the walker's
+feet lie below the hard-zoomed panel, ViTPose reports both ankles with confidence 0.9 about 200 px INSIDE the
+panel (and the tracker's `edge_truncated` stays False), so the usable-joint rule passes a cut-off foot and the
+lifter extrapolates it; the two views' agreement factor is the guard that remains, and a geometric truncation test
+(the body's box against the panel edge, or the limb's expected extent) is the open item. Note also that
+`pose_agreement_<a>_<b>.npz` from the reconcile stage compares the views AS LIFTED (before the merge's reflection),
+so on a mirrored pair it reads 20-40 deg while the merge's own agreement is 5 deg; the demo's chart uses the
+merge's reflected bodies.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

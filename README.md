@@ -502,21 +502,19 @@ merged like the others:
 
 | session | export | legs (median) | knee-flexion RMSE | root | two views' leg disagreement |
 |---|---|---|---|---|---|
-| TUG (HC903, first render) | 97 % | 26.1 deg (see text) | 9.3 deg | 8.4 deg | 9.3 deg |
-| hurried pace (HC904) | 82 % | 14.0 deg | 13.8 deg | 7.8 deg | 14.0 deg |
+| TUG (HC903, hc142) | 94 % | 14.3 deg | 8.1 deg | 12.8 deg | 7.6 deg |
+| hurried pace (HC904, room-wide side view) | 100 % | 12.0 deg | 10.5 deg | 8.8 deg | 10.5 deg |
 | mat walk (HC905) | 100 % | 9.6 deg | 6.7 deg | 6.2 deg | 8.2 deg |
 
-The TUG row says something about the truth rather than the lift: the two views agree with each other on the legs
-to 9 deg and on the ankles to 10 deg, yet both sit 26 deg from the IK sequence the walker was rendered from. That
-sequence (hc100's TUG) has its left ankle 163 deg off in the inertial fit, a visibly wrong foot in the rendered
-truth, so the sample has since been re-rendered with hc142's TUG, whose fit passes the ankle check (median ankle
-angles 10 deg, knees to 85 deg when seated); its CPU stages pass as before (sync 3.004 s against 3.0 planted,
-validated by the light; selection r 0.78 in both views), its lift and numbers follow the next GPU run, and until
-then the row stands for the first render, where the knee-flexion RMSE and the two-view agreement are the usable
-numbers. The
+The TUG walker is hc142: the first render used hc100's TUG, whose inertial fit carries its left ankle 163 deg off (a
+visibly wrong foot in the rendered truth, and 26 deg of "error" that belonged to the truth), while hc142's fit
+passes the ankle check (median ankle angles 10 deg, knees to 85 deg when seated). The TUG's root error is the
+largest of the set (12.8 deg): the seated and turning phases, where the lifter's gravity frame is least
+constrained. Its sync lands at 3.004 s against 3.0 planted, validated by the light. The
 hurried walk is the hard case
-it was built to be: the side view holds the walker for 42 % of the recording in five pieces, the two views share
-130 frames, and the merge exports 82 %.
+it was built to be in the along view, which sees feet and mat with the head cut when close (legs usable 52 % of
+its frames); the side view is laid out like the real session's and holds the walker throughout (legs usable
+100 %), so the merge exports every frame and the two views share 569 frames with their legs usable in both.
 
 ### When there is no truth: a real clip
 
@@ -528,23 +526,30 @@ mode, lifted on a T4 like the rest:
 
 ![demo without a truth](docs/figures/demo_no_truth.png)
 
-*One frame of `wgvp demo` on the bundled phone clip (OWN01, one view: 393 frames, 95 % exported, two runs with a
-0.7-s gap where the walker turned at the far end). With one view the reconstruction and the view coincide, so the
-middle row is reconstruction, export and the path from above; the timelines carry the view's output and the merge.
-On real video the close-ups show a floor and no mat (the mat is drawn only when the room is known, i.e. for a
-rendered truth), and a leg pair the 2D detector put on one leg is drawn in amber: on the rendered sessions that
-happens on 0.1-23 % of a view's frames (a side-on walker's legs cross once a stride) and the lifter's leg error on
-those frames is 8-19 deg against 9-25 elsewhere, so the merge does not weight them down.*
+*One frame of `wgvp demo` on the two-view composite of the bundled phone clip (OWN02, 393 frames, 100 %
+exported): the left panel is marked as the mirror image it is and shown reflected back, each view's own lift
+stands beside the reconstruction and the export, the path from above replaces the aerial truth, and the bottom
+chart is the two views' leg disagreement (5.4 deg median) in place of an error against a truth. On real video the
+close-ups show a floor and no mat (the mat is drawn only when the room is known, i.e. for a rendered truth), and a
+leg pair the 2D detector put on one leg is drawn in amber: on the rendered sessions that happens on 0.1-23 % of a
+view's frames (a side-on walker's legs cross once a stride) and the lifter's leg error on those frames is 8-19 deg
+against 9-25 elsewhere, so the merge does not weight them down. The single-view clip (OWN01: 95 % exported, two
+runs with a 0.7-s gap where the walker turned at the far end) renders the same way with one view.*
 
 The two-view composite of the same clip (OWN02) is built the way a careless second camera would be: the left
 panel is the clip zoomed in a little, the right panel the clip **mirrored** and zoomed in hard (1.16x and 1.64x,
 different letterboxing; head and feet leave the right panel when the walker is close), which makes the right
-panel's left leg the walker's right leg. On the lift of an earlier, milder composite the merge's
-mirror check reads the knees 43 deg apart as lifted and 7 deg apart with the sides swapped, reflects the right
-view back, and the two "views" then agree: root residual 14 to 7 deg, pelvis offset 0.33 to 0.21 m, their knee
-curves on top of each other. It is still one camera (the two panels carry the same information), so the synthetic
-sessions above remain the test of the merge itself; what this clip tests is the panel detector on two zoom levels,
-the per-view scale, the mirror detection and the no-truth layout.
+panel's left leg the walker's right leg. On its lift the merge's mirror check reads the knees 44 deg apart as
+lifted and 8 deg apart with the sides swapped, reflects that view back, and the two "views" then agree on the legs
+to 5.4 deg with their knee curves on top of each other (root residual 8 deg; the pelvis positions still differ by
+0.54 m, the depth estimate being what two zoom levels disagree about). It is still one camera (the two panels
+carry the same information), so the synthetic sessions above remain the test of the merge itself; what this clip
+tests is the panel detector on two zoom levels, the per-view scale, the mirror detection, truncation and the
+no-truth layout. The truncation found a limit worth knowing: on the frames where the walker's feet are below the
+hard-zoomed panel, ViTPose still reports ankles with confidence 0.9 some 200 px inside the panel, so the
+usable-joint rule (confident and inside the panel) does not notice, and the lifter extrapolates the legs there;
+the two views' agreement factor is what discounts those frames. A geometric truncation test (the body's box
+against the panel edge) is the open item.
 
 ## Outputs
 
