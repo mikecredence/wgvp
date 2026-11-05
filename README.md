@@ -224,6 +224,7 @@ can see it happened.
 | The walker is small in a room-wide side view (a hundred pixels tall): the vertical pelvis bob is under a pixel, below the keypoint noise, and no fragment of that view correlates with the IMU at any lag | Once the other view's subject is confirmed (by the pelvis match, or by a lag the light validated), that view's fragments are tested by their **progress along the walk** against the confirmed subject at zero lag on the shared video clock (the hip column where the walk runs across the picture, the feet's row or the body's width where it runs into it; |r| >= 0.8 over >= 5 s, windows that stop following are dropped); someone walking in step correlates nearly as well at this time scale and is flagged, not resolved | `selection_source` `cross_view`, the candidates' correlations in `selection.json` |
 | A second person's gait correlates with the recording above the chance model at a wrong lag (a co-walker's 15-s walk reached r 0.78 at a lag 4 s off) | The sync light is used as evidence, not only as a check: when a strong light-like step contradicts the pelvis match's winner, the lag candidate at the light is taken (added if no fragment proposed it) and the fragments are re-accepted there | `sync.json` and the recording's flags say the lag was chosen by the light |
 | One camera's picture is mirrored (a webcam's "mirror preview" left on): its left leg is the walker's right | The merge compares the knees of the two views in the swing phase as lifted and with the sides swapped (as lifted 11-16 deg vs swapped 21-40 on the rendered sessions; 43 vs 7 on a mirrored panel of a real clip) and reflects the mirrored view back before fusing | `view_mirrored` in `merged_smpl.npz`, `mirror_check` and a flag in `merge.json` |
+| One view's lift takes a 180-degree turn the wrong way round (the monocular front/back ambiguity): the two headings end up opposite until that lift snaps back | The merged root stays with the view that turns like a person: while the views disagree, a view turning faster than 150 deg/s or far from the previous fused root is discounted, and, reading the whole recording, a view whose root turns more than 90 deg within a quarter of a second during a disagreement episode carries nothing over that episode (the snap is its own correction) | `merge.json` `continuity.root_flips_over_90deg`, a flag when any remain; the demo's heading trace |
 
 Two of these rules were learned the hard way while testing (the perspective term in the pelvis signal, and the
 chance level of short fragments); [docs/design.md](docs/design.md) section 2.6 has the numbers before and after.
@@ -365,8 +366,17 @@ turn that one view's lift takes the wrong way round, snapping through the front/
 the side view's heading jumped 120 deg in a quarter of a second while the chair-facing view turned with the truth,
 and the plain mean of two opposite headings had snapped the reconstruction instead of turning it; with the
 continuity terms the merged heading stays within 5 deg of the truth through the turn (2.5 deg median over the
-recording, no step over 90 deg; `merge.json` counts such steps). Every term is continuous, so nothing in the
-rule can step the root (`wgvp.fusion.fuse_root`). The same share then scales that view's weight for all
+recording, no step over 90 deg; `merge.json` counts such steps). Those two terms are causal and cannot settle the
+other form of the same failure: a view that turns the wrong way round at a human rate, indistinguishable from the
+right one while both turn, and gives itself away only by snapping onto the true heading once the turn is over
+(Sub 003's self-paced walk did this at both of its turns, 170-deg snaps in the side view, and the merge, which had
+locked onto that heavier view, snapped with it). The merge runs offline, so a third rule reads the whole recording
+first: within every episode of disagreement, a view whose own root turns more than 90 deg within a quarter of a
+second, during the episode or just after it, is the one that took the turn the wrong way (a person cannot; the
+snap is the lift's own correction), and it carries no weight over that episode, up to 4 s either side of its
+snap; when no view snaps, or more than one does, the rule is silent and the causal terms decide. That removed
+both flips. Every term is continuous in its inputs, so nothing in the rule can step the root
+(`wgvp.fusion.fuse_root`). The same share then scales that view's weight for all
 of its body joints, since a lifter that got the gravity frame wrong solved the whole body in it. This takes the
 fused root to 6.6 deg (the views: 49.6 and 7.3) with a frame step at the 99th percentile of 5.4 deg (the side
 view alone 7.3), and the merge below the better view in every column: legs 10.0 deg, outliers 8 %, all 21 joints

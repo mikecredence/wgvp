@@ -42,16 +42,18 @@ LW, LH = 520, 600            # along-walkway panel
 RW, RH, RC = 900, 600, 375   # side panel (content height RC, letterboxed to RH): the real side view is a wide strip, 2.4:1
 MAT_L, MAT_W = 4.88, 0.61    # the instrumented mat: 16 x 2 ft (GAITRite), centred on the walk; self-paced and hurried walks step off its ends to turn
 
-# The two cameras of a real session (from the Video Labeler frame of NLS036): the SIDE view is elevated (~2.3 m), ~5.5 m
-# from the mat's centre line, very wide (the whole room and mat in frame, the operators' desk in the foreground) and aimed
-# low, so a walker on the mat reaches the top edge with the head and loses it when tall, bouncing or nearer the camera;
+# The two cameras of a real session (from the Video Labeler frame of NLS036): the SIDE view is elevated (~2.3 m), ~4 m
+# from the mat's centre line (the mat spans ~60 % of the frame's width), very wide (the whole room in frame, the
+# operators' desk in the foreground) and aimed low, so a walker on the mat has the head outside the top edge and shows
+# the face only when dipping or stepping towards the camera;
 # the ALONG view sits at the mat's end about 1 m high looking down the mat, so a walker 2-3 m away shows from the chest
 # down and is whole only beyond ~3.5 m. Every sample follows this layout; v2 keeps a lower, closer along camera as the
 # deliberate stress test of truncation in that view.
 def side_cam(xm, zm, side=-1.0, dx=0.8):
-    # aimed at -0.65 m on the mat's line: the top edge of the picture crosses the mat 1.65 m above the floor, so the
-    # neutral body's head top is just outside it there and the face shows when the walker dips (the real frame)
-    return {"W": RW, "H": RC, "yfov": 43.0, "eye": [xm + dx, 2.3, zm + side * 5.5], "target": [xm - 0.2, -0.65, zm]}
+    # 4.0 m from the mat's line (the mat spans ~60 % of the panel's width, as in the real frame) and aimed at -0.21 m
+    # on it: the top edge of the picture crosses the mat 1.55 m above the floor, so the walker's head is outside the
+    # frame along the mat and the face shows only when the walker dips or steps towards the camera (the real frame)
+    return {"W": RW, "H": RC, "yfov": 43.0, "eye": [xm + dx, 2.3, zm + side * 4.0], "target": [xm - 0.2, -0.21, zm]}
 def along_cam(mat_end, walk_end, direction, zm, height=1.0, back_mat=1.0, back_walk=1.2):
     """Camera beyond the mat's end `mat_end` and beyond the walker's turn point `walk_end` (whichever is further
     out, so a walk that overshoots the mat still turns in front of the lens), `height` m high, looking along the mat
@@ -59,7 +61,7 @@ def along_cam(mat_end, walk_end, direction, zm, height=1.0, back_mat=1.0, back_w
     ex = min(mat_end - back_mat, walk_end - back_walk) if direction > 0 else max(mat_end + back_mat, walk_end + back_walk)
     return {"W": LW, "H": LH, "yfov": 60.0, "eye": [ex, height, zm], "target": [ex + direction * 3.5, 0.0, zm]}
 def desk_seat(xm, zm, side=-1.0):
-    return [xm - 1.8, 0.0, zm + side * 3.6]                                       # the operators' desk between the side camera and the mat, low in its frame
+    return [xm - 1.8, 0.0, zm + side * 2.8]                                       # the operators' desk 1.2 m in front of the side camera, low in its frame
 
 
 def _smplx_compat_shims():
