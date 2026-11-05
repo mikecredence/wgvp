@@ -17,6 +17,7 @@ from .signals import match_signals, combined_lag_curve, parabolic_peak, FS_MATCH
 from .tracking import TrackSet, hip_vertical_signal, track_summary, VIS_FULL, VIS_PARTIAL
 
 DEFAULTS = {
+    "lag_ambiguity_max": 0.8,          # runner-up lag support ratio from which a light-less lag is only low confidence
     "min_track_s": 2.0,          # fragments shorter than this are attached by appearance only
     "accept_r": 0.30,            # fine correlation needed to accept a fragment at the shared lag ...
     "min_excess": 0.15,          # ... and it must exceed the empirical chance level of its overlap / lag window by this much
@@ -138,12 +139,28 @@ def _app_descriptor(frs: dict, tids) -> np.ndarray | None:
     return np.median(A, axis=0) if len(A) else None
 
 
-def joint_selection(views: dict, imu: dict, params: dict | None = None, log=print, prefer_lag: float | None = None, prefer_tol_s: float = 0.5) -> dict:
+def refine_lag(curves: list, L: float, win_s: float) -> float:
+    """The lag of the highest point of the combined correlation curve of `curves` within win_s of L (parabolic
+    sub-sample peak), or L itself when the curve has nothing finite there."""
+    axis, R = combined_lag_curve(curves)
+    w = np.abs(axis - L) <= win_s; Rw = np.where(w, R, np.nan)
+    if not np.isfinite(Rw).any():
+        return float(L)
+    i = int(np.nanargmax(Rw)); return float(axis[0] + parabolic_peak(np.nan_to_num(R, nan=-1), i) / FS_MATCH)
+
+
+def joint_selection(views: dict, imu: dict, params: dict | None = None, log=print, prefer_lag: float | None = None, prefer_tol_s: float = 0.5,
+                    prefer_refine_s: float = 0.1) -> dict:
     """views: {view_id: TrackSet}. Returns the shared lag, accepted fragments per view, confidence and coverage.
     With `prefer_lag` (an independent sync source such as the light contradicting the pelvis match's winner), the
     candidate within `prefer_tol_s` of it is taken, the light's own lag being added as a candidate if none is; a
     second person's gait can correlate with the recording at a wrong lag above the chance model (measured: a
-    co-walker's 15-s walk at r 0.78), and the light is the evidence that breaks that."""
+    co-walker's 15-s walk at r 0.78), and the light is the evidence that breaks that. A lag taken from the light is
+    refined on the correlation curve only within `prefer_refine_s` of it: the pelvis bob repeats every step
+    (0.45-0.65 s), so the wider refinement used for the match's own lag can slide onto the neighbouring step's
+    peak, half a step off the light (measured: 0.54 s on HC901). Without a light, a chosen lag whose runner-up
+    carries at least `lag_ambiguity_max` of its support (a periodic protocol repeats its bouts, and the subject's
+    own fragments correlate at a bout's shift) is reported with low confidence and `ambiguous_lag`."""
     p = {**DEFAULTS, **(params or {})}
     scored = {vid: score_fragments(ts, imu, p) for vid, ts in views.items()}
     out = {"method": "imu_xcorr_joint", "ok": False, "offset_s": None, "confidence": "none", "views": {}, "reason": "",
@@ -185,15 +202,13 @@ def joint_selection(views: dict, imu: dict, params: dict | None = None, log=prin
             L, support, acc = near[0]; out["lag_source"] = "light"
     out["lag_candidates"] = [{"offset_s": float(e[0]), "support": float(e[1])} for e in evals[:5]]
     out["lag_ambiguity"] = float(evals[1][1] / evals[0][1]) if len(evals) > 1 and evals[0][1] > 0 else 0.0
-    # refine the lag on the combined curve of all accepted fragments, then re-accept
+    # refine the lag on the combined curve of all accepted fragments, then re-accept (a light's lag: see the docstring)
+    win = prefer_refine_s if out["lag_source"] == "light" else 1.0
     for _ in range(2):
         curves = [(scored[vid][t]["match"]["lags_s"], scored[vid][t]["match"]["r_fine_fn"], scored[vid][t]["match"]["overlap_s"]) for vid in acc for t in acc[vid]]
         if not curves:
             break
-        axis, R = combined_lag_curve(curves)
-        w = np.abs(axis - L) <= 1.0; Rw = np.where(w, R, np.nan)
-        if np.isfinite(Rw).any():
-            i = int(np.nanargmax(Rw)); L = float(axis[0] + parabolic_peak(np.nan_to_num(R, nan=-1), i) / FS_MATCH)
+        L = refine_lag(curves, L, win)
         acc = {vid: _greedy_accept(s, L, p)[0] for vid, s in scored.items()}
     out["offset_s"] = L
     # per view: appearance attachment of unscored / short fragments, confidence, coverage
@@ -251,9 +266,7 @@ def joint_selection(views: dict, imu: dict, params: dict | None = None, log=prin
         view_off = None
         vc = [(s[t]["match"]["lags_s"], s[t]["match"]["r_fine_fn"], s[t]["match"]["overlap_s"]) for t in A]
         if vc:
-            ax, Rv = combined_lag_curve(vc); wv = np.abs(ax - L) <= 1.0; Rw = np.where(wv, Rv, np.nan)
-            if np.isfinite(Rw).any():
-                iv = int(np.nanargmax(Rw)); view_off = float(ax[0] + parabolic_peak(np.nan_to_num(Rv, nan=-1), iv) / FS_MATCH)
+            view_off = refine_lag(vc, L, win)                                  # the same window as the shared lag's refinement
         out["views"][vid] = {"track_ids": [int(t) for t in chosen], "accepted_by_xcorr": sorted(int(t) for t in A), "attached_by_appearance": sorted(int(t) for t in attached),
                              "r_fine": float(best_r), "excess": float(best_e), "second_best_excess": float(second), "margin": float(margin), "confidence": conf, "view_offset_s": view_off,
                              "consistency": mask_info, "frame_masks": masks,
@@ -265,6 +278,11 @@ def joint_selection(views: dict, imu: dict, params: dict | None = None, log=prin
                              "coverage": cov}
     out["ok"] = any_ok
     out["confidence"] = "high" if (overall_margin >= p["min_margin"] and overall_best >= p["min_r_primary"]) else ("low" if any_ok else "none")
+    out["ambiguous_lag"] = False
+    if out["confidence"] == "high" and out.get("lag_source") != "light" and out.get("lag_ambiguity", 0.0) >= p["lag_ambiguity_max"]:
+        out["confidence"] = "low"; out["ambiguous_lag"] = True
+        out["reason"] = (f"lag ambiguous: a second lag at {out['lag_candidates'][1]['offset_s']:.2f} s carries {100 * out['lag_ambiguity']:.0f} % of the "
+                         "support of the chosen one (a periodic protocol repeats its bouts); an independent sync source is needed to confirm it")
     out["r_fine"] = overall_best; out["margin"] = overall_margin
     if not any_ok:
         out["reason"] = f"no fragment reaches accept_r {p['accept_r']} against the IMU pelvis signal in any view"
