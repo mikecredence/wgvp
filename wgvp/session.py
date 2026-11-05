@@ -286,7 +286,7 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
         if progress:
             progress("session", ri, len(entry["recordings"]), f"{sid}: {rid}")
         try:
-            imu = load_recording(Path(rec["csv"]), work / "imu_ref", rid, rec["subject"])
+            imu = load_recording(Path(rec["csv"]), work / "imu_ref", rid, rec["subject"], params)
         except Exception as e:
             log(f"  [{rid}] FAIL reading recording CSV: {e}"); summ["recordings"][rid] = {"status": "FAIL", "error": str(e)}; summ["status"] = "FAIL"; continue
         rs = summarize_imu_ref(imu); rs["status"] = "PASS"; rs["flags"] = []

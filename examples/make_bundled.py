@@ -6,11 +6,14 @@ OWN01  the clip as recorded (phone, portrait, 13 s): one person walks away down 
        end and walks back. Re-encoded to 720 px wide, 30 fps. A fabricated recording CSV is built from the walker's
        own pelvis motion exactly as fetch_examples.py does (noise at a displacement SNR of 2, IMU t = 0 planted
        0.8 s into the clip).
-OWN02  a synthetic TWO-VIEW file made from OWN01: the clip cropped to its left 85 % as the left panel, and the clip
-       mirrored and cropped to its (original) right 85 % as the right panel, letterboxed differently and separated
-       by a black band, i.e. the layout of a tiled two-camera session video. It is not a second camera: it exists so
-       the panel detector, the joint two-view selection and the two-view reconciliation can be exercised without a
-       download. The same recording CSV as OWN01 applies (same frames, same timing).
+OWN02  a synthetic TWO-VIEW file made from OWN01, shaped like a tiled two-camera session video: the left panel is
+       the clip zoomed in a little (the middle 84 % of its width and 86 % of its height, scaled up), the right
+       panel is the clip MIRRORED and zoomed in more (the middle 62 % by 68 %, scaled to the same panel height, so
+       the walker is 1.3x larger and leaves the frame sooner when close), letterboxed differently and separated by
+       a black band. A mirrored second panel is the test the merge needs: its left leg is the walker's right leg,
+       and the merge must notice (`view_mirrored` in merged_smpl.npz) and reflect that view back before fusing;
+       the two zooms test the per-view scale and the usable-joint logic. It is still one camera, not two: the two
+       panels carry the same information. The same recording CSV as OWN01 applies (same frames, same timing).
 
 The data root's wgvp_config.json sets detector_imgsz = 960: at the default 640 the walker at the far end of the
 corridor (under a tenth of the frame height) drops out of detection for 2-3 s and the track splits into two 5-s
@@ -38,8 +41,11 @@ OFFSET_S = 0.8
 ABOUT1 = ("OWN01: one person (the author) walks away down an office corridor, turns at the far end and walks back; phone video, portrait, 13 s. "
           "OWN01_selfpace.csv is a FABRICATED recording: LowerBack_FreeAcc_U = the walker's own pelvis motion from the video plus noise, differentiated twice; "
           f"IMU t=0 at video {OFFSET_S} s.")
-ABOUT2 = ("OWN02: a synthetic two-view file made from OWN01 (left panel = the clip cropped to its left 85 %; right panel = the clip mirrored and cropped, "
-          "letterboxed, black separator), to exercise the two-view code path offline. Not a second camera. Same fabricated recording as OWN01.")
+ABOUT2 = ("OWN02: a synthetic two-view file made from OWN01 (left panel = the clip zoomed in a little, the middle 84 % x 86 %; right panel = the clip MIRRORED and "
+          "zoomed in more, the middle 62 % x 68 %, scaled to the same height; letterboxed differently; black separator), to exercise the two-view code path, the "
+          "mirror detection of the merge and two zoom levels offline. Not a second camera. Same fabricated recording as OWN01.")
+ZOOM_L = (0.84, 0.86)      # left panel: fraction of the clip's width and height kept (centred)
+ZOOM_R = (0.62, 0.68)      # right panel: the same for the mirrored panel
 
 
 def run(cmd):
@@ -68,23 +74,29 @@ def main():
             "imu_duration_s": float(rec["t"][-1]), "walk_s": rec["walk_s"], "subject_hint": hint, "subject_fragments_at_build": tids,
             "gt_frames": rec["gt_frames"], "gt_hip_px": rec["gt_hip_px"], "detector_imgsz": IMGSZ, "about": ABOUT1}
     (s1 / "expected.json").write_text(json.dumps(exp1)); (s1 / "README.txt").write_text(ABOUT1 + "\n")
-    # ---- OWN02: the mirror composite
-    info = probe_video(v1, with_hash=False); W, H = info["width"], info["height"]
-    pw = int(round(W * 0.85)) // 2 * 2; x_r = W - pw; pad = int(round(H * 0.06)) // 2 * 2; Hc = H + 2 * pad; sep = 6
+    # ---- OWN02: the mirrored, differently zoomed composite. Both panels end up PH pixels tall: the left crop scaled
+    # by PH / (0.86 H), the mirrored right crop by PH / (0.68 H); the right panel is letterboxed top and bottom.
+    info = probe_video(v1, with_hash=False); W, H = info["width"], info["height"]; PH = H; sep = 6
+    def crop_box(fx, fy):
+        cw = int(round(W * fx)) // 2 * 2; ch = int(round(H * fy)) // 2 * 2; return cw, ch, (W - cw) // 2, (H - ch) // 2
+    cwl, chl, xl, yl = crop_box(*ZOOM_L); cwr, chr_, xr, yr = crop_box(*ZOOM_R)
+    sl = PH / chl; pwl = int(round(cwl * sl)) // 2 * 2                                  # left panel: full height
+    pad = int(round(H * 0.05)) // 2 * 2; phr = PH - 2 * pad; sr = phr / chr_; pwr = int(round(cwr * sr)) // 2 * 2   # right panel: letterboxed
     s2 = out / "OWN02"; (s2 / "SP").mkdir(parents=True); v2 = s2 / "SP" / "OWN02_SP.mp4"
-    fc = (f"[0:v]crop={pw}:{H}:0:0,pad={pw}:{Hc}:0:0:black[l];"
-          f"[0:v]crop={pw}:{H}:{x_r}:0,hflip,pad={pw}:{Hc}:0:{pad}:black[r];"
-          f"color=black:s={sep}x{Hc}:r=30[s];[l][s][r]hstack=inputs=3:shortest=1[v]")      # shortest=1: the colour source is endless
+    fc = (f"[0:v]crop={cwl}:{chl}:{xl}:{yl},scale={pwl}:{PH}[l];"
+          f"[0:v]crop={cwr}:{chr_}:{xr}:{yr},hflip,scale={pwr}:{phr},pad={pwr}:{PH}:0:{pad}:black[r];"
+          f"color=black:s={sep}x{PH}:r=30[s];[l][s][r]hstack=inputs=3:shortest=1[v]")      # shortest=1: the colour source is endless
     run([ff, "-y", "-loglevel", "error", "-i", str(v1), "-filter_complex", fc, "-map", "[v]", "-shortest", "-c:v", "libx264", "-preset", "slow", "-crf", "24",
          "-pix_fmt", "yuv420p", "-an", "-movflags", "+faststart", str(v2)])
     shutil.copy(s1 / "OWN01_selfpace.csv", s2 / "OWN02_selfpace.csv")
-    gt_hip = [[x, y] for x, y in rec["gt_hip_px"]]                      # the left panel keeps the original pixel coordinates
+    gt_hip = [[(x - xl) * sl, (y - yl) * sl] for x, y in rec["gt_hip_px"]]           # the truth hips in the left panel's pixels
     exp2 = {"session_id": "OWN02", "recording_id": "OWN02_selfpace", "video": "SP/OWN02_SP.mp4", "fps": 30, "offset_s": OFFSET_S, "gt_view": "left",
-            "imu_duration_s": float(rec["t"][-1]), "walk_s": rec["walk_s"], "panels_true": {"left": [0, 0, pw, H], "right": [pw + sep, pad, 2 * pw + sep, pad + H]},
+            "imu_duration_s": float(rec["t"][-1]), "walk_s": rec["walk_s"], "panels_true": {"left": [0, 0, pwl, PH], "right": [pwl + sep, pad, pwl + sep + pwr, pad + phr]},
+            "zoom": {"left": {"crop_frac": list(ZOOM_L), "scale": sl}, "right": {"crop_frac": list(ZOOM_R), "scale": sr, "mirrored": True}},
             "gt_frames": rec["gt_frames"], "gt_hip_px": gt_hip, "detector_imgsz": IMGSZ, "about": ABOUT2}
     (s2 / "expected.json").write_text(json.dumps(exp2)); (s2 / "README.txt").write_text(ABOUT2 + "\n")
-    print(f"OWN02 video {v2.stat().st_size / 1e6:.1f} MB ({2 * pw + sep}x{Hc}; panels left {exp2['panels_true']['left']}, right {exp2['panels_true']['right']})")
-    (out / "wgvp_config.json").write_text(json.dumps({"_doc": "bundled offline examples: a portrait phone clip (OWN01) and a two-view mirror composite of it (OWN02); "
+    print(f"OWN02 video {v2.stat().st_size / 1e6:.1f} MB ({pwl + sep + pwr}x{PH}; panels left {exp2['panels_true']['left']} x{sl:.2f}, right {exp2['panels_true']['right']} x{sr:.2f} mirrored)")
+    (out / "wgvp_config.json").write_text(json.dumps({"_doc": "bundled offline examples: a portrait phone clip (OWN01) and a two-view composite of it (OWN02: zoomed | mirrored and zoomed more); "
                                                               "detector_imgsz 960 keeps the walker detected at the far end of the corridor",
                                                       "params": {"detector_imgsz": IMGSZ}}, indent=1))
     print(f"done -> {out}\nnext:  python -m wgvp run {out} --cpu-only   then   python examples/verify_examples.py --data {out}")
