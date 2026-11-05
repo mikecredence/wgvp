@@ -162,12 +162,16 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     # the aerial scene: with a truth, the sample's room (mat, cameras, operator, bystander) from expected.json; without one, the
     # reconstruction's own path in the reference view's world
     if G is not None:
-        x0m, x1m = exp.get("scene", {}).get("walk_extent_m", [-2.45, 2.45]); zm = float(np.median(G["transl"][:, 2])) if "transl" in G.files else 0.0
+        lay0 = exp.get("scene", {}).get("layout") or {}
+        if "mat_x" in lay0:                                                    # the room's mat as rendered (16 x 2 ft, centred on the walk)
+            x0m, x1m = [float(v) for v in lay0["mat_x"]]; zm = float(np.mean(lay0["mat_z"])); mat_half_w = 0.5 * float(lay0["mat_z"][1] - lay0["mat_z"][0]); mat_pad = 0.0
+        else:
+            x0m, x1m = exp.get("scene", {}).get("walk_extent_m", [-2.45, 2.45]); zm = float(np.median(G["transl"][:, 2])) if "transl" in G.files else 0.0; mat_half_w = 0.5; mat_pad = 0.8
         cams = {v: G[f"{v}_cam_pose"] for v in views if f"{v}_cam_pose" in G.files}; ext = np.zeros(3)
     else:
         okt = np.isfinite(transl_f).all(1); ctr = np.median(transl_f[okt], axis=0) if okt.any() else np.zeros(3)
         ext = np.nanmax(np.abs(transl_f[okt] - ctr), axis=0) if okt.any() else np.array([2.0, 0.0, 2.0])
-        x0m, x1m = float(ctr[0] - ext[0]), float(ctr[0] + ext[0]); zm = float(ctr[2]); cams = {}
+        x0m, x1m = float(ctr[0] - ext[0]), float(ctr[0] + ext[0]); zm = float(ctr[2]); cams = {}; mat_half_w = 0.5; mat_pad = 0.8
     xm_ = 0.5 * (x0m + x1m)
     lay = exp.get("scene", {}).get("layout") if G is not None else None
     def quad(pts, rgba):
@@ -176,7 +180,8 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     def add_floor_and_mat(sc, floor_y, cx, half_len, cz, big=12.0, mat=True):
         sc.add(quad([[cx - big, floor_y, cz - big], [cx + big, floor_y, cz - big], [cx + big, floor_y, cz + big], [cx - big, floor_y, cz + big]], [205, 200, 190, 255]))
         if mat:
-            sc.add(quad([[cx - half_len - 0.8, floor_y + 0.004, cz - 0.5], [cx + half_len + 0.8, floor_y + 0.004, cz - 0.5], [cx + half_len + 0.8, floor_y + 0.004, cz + 0.5], [cx - half_len - 0.8, floor_y + 0.004, cz + 0.5]], [45, 42, 44, 255]))
+            hl, hw = half_len + mat_pad, mat_half_w
+            sc.add(quad([[cx - hl, floor_y + 0.004, cz - hw], [cx + hl, floor_y + 0.004, cz - hw], [cx + hl, floor_y + 0.004, cz + hw], [cx - hl, floor_y + 0.004, cz + hw]], [45, 42, 44, 255]))
     def look_at(eye, target, up=(0, 1, 0)):
         eye = np.asarray(eye, float); fwd = eye - np.asarray(target, float); fwd /= np.linalg.norm(fwd)
         right = np.cross(np.asarray(up, float), fwd); right /= np.linalg.norm(right); up_ = np.cross(fwd, right)

@@ -72,7 +72,8 @@ def smooth_rotations(aa: np.ndarray, window: int) -> np.ndarray:
 
 
 def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np.ndarray], ramp: int = 15,
-              soft_lo: float = 30.0, soft_hi: float = 60.0, n_joints: int = 21, return_raw: bool = False):
+              soft_lo: float = 30.0, soft_hi: float = 60.0, n_joints: int = 21, return_raw: bool = False, cont_scale: float = 30.0,
+              human_turn_deg_s: float = 150.0, snap_scale_deg_s: float = 150.0, fps: float = 30.0):
     """Root orientation of the merge and each view's share of it. Inputs per view, all in one world frame (per-view
     heading offsets already removed): roots (T, 3), usable (T, J) bool, lifted (T,) bool. Returns the fused root
     (T, 3) axis-angle, NaN where no view lifted the frame, and the normalised weights (V, T); with return_raw also
@@ -84,8 +85,15 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
     sees 5 of 21 joints carries 6 % of the weight of one that sees them all. When the roots disagree by more than
     soft_lo degrees one of them is wrong (two good lifts of the same walker agree to within ~10 deg), so the weights
     are sharpened towards the heaviest view, fully by soft_hi; the sharpening is a continuous function of the weights
-    and the disagreement, so nothing here introduces a discontinuity that is not in the inputs. The weighted mean is
-    taken on unit quaternions, hemisphere-aligned to the heaviest view.
+    and the disagreement, so nothing here introduces a discontinuity that is not in the inputs. When the views
+    disagree by more than soft_lo, two continuity terms arbitrate before the sharpening (a monocular lifter takes a
+    180-degree turn the wrong way round in one view by snapping through the front/back ambiguity, after which the
+    two headings are far apart and their mean is meaningless): a view's weight is divided by 1 + ((its own turning
+    rate since its previous frame - human_turn_deg_s)+ / snap_scale_deg_s)^2, which discounts the snap itself (a
+    person turns at up to about 150 deg/s, a snapping lift at 500 or more) and leaves a turn at a human rate alone,
+    and by 1 + (its angle to the previous fused output / cont_scale)^2, which keeps the output with the view it was
+    following until the views agree again. The weighted mean is taken on unit quaternions, hemisphere-aligned to
+    the heaviest view.
 
     The share is also the right weight for the view's body joints: a lifter that got the root's pitch wrong (the
     along view of the sample at close range: +40 deg) has hips that compensate for it, and the rest of its body
@@ -96,19 +104,29 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
     frac = np.stack([_moving_average(np.asarray(u, bool).sum(1) / float(n_joints), ramp) for u in usable])
     w = pres * frac ** 2; w[~L] = 0.0
     Q = np.stack([np.where(np.isfinite(r).all(1)[:, None], R.from_rotvec(np.nan_to_num(r)).as_quat(), np.nan) for r in roots])
-    out = np.full((T, 3), np.nan); share = np.zeros((V, T))
+    out = np.full((T, 3), np.nan); share = np.zeros((V, T)); prev = None; gap = 0
+    last_q = [None] * V; last_t = np.full(V, -10 ** 9); r0 = human_turn_deg_s / max(fps, 1e-6); rs = snap_scale_deg_s / max(fps, 1e-6)   # deg per frame
+    def ang(a, b): return np.degrees(2.0 * np.arccos(np.clip(np.abs(a @ b), 0.0, 1.0)))
     for t in range(T):
         idx = np.flatnonzero(L[:, t] & np.isfinite(Q[:, t]).all(1))
         if not len(idx):
-            continue
+            gap += 1; continue
         ww = w[idx, t].copy()
         if ww.sum() <= 1e-9:                                   # lifted but nothing usable in any view (bridged frames): plain mean
             ww[:] = 1.0
         k = int(np.argmax(ww)); q = Q[idx, t].copy(); q *= np.sign(q @ q[k] + 1e-12)[:, None]
-        d = np.degrees(2.0 * np.arccos(np.clip(np.abs(q @ q[k]), 0.0, 1.0)))                               # each root's angle to the heaviest
+        d = ang(q, q[k])                                                                                     # each root's angle to the heaviest
+        if len(idx) > 1 and d.max() > soft_lo:                                                              # disagreement: continuity arbitrates
+            rate = np.array([ang(Q[i, t], last_q[i]) / max(t - last_t[i], 1) if (last_q[i] is not None and t - last_t[i] <= ramp) else 0.0 for i in idx])
+            ww = ww / (1.0 + (np.maximum(rate - r0, 0.0) / rs) ** 2)
+            if prev is not None and gap <= ramp:
+                ww = ww / (1.0 + (ang(q, prev) / cont_scale) ** 2)
+            k = int(np.argmax(ww)); q *= np.sign(q @ q[k] + 1e-12)[:, None]; d = ang(q, q[k])
         p = 8.0 * np.clip((d - soft_lo) / (soft_hi - soft_lo), 0.0, 1.0)                                    # 0 below soft_lo, 8 at soft_hi
         ww = ww * (ww / ww[k]) ** p; share[idx, t] = ww / ww.sum()
-        m = (ww[:, None] * q).sum(0); out[t] = R.from_quat(m / np.linalg.norm(m)).as_rotvec()
+        m = (ww[:, None] * q).sum(0); m /= np.linalg.norm(m); out[t] = R.from_quat(m).as_rotvec(); prev = m; gap = 0
+        for i in idx:
+            last_q[i] = Q[i, t]; last_t[i] = t
     return (out, share, w) if return_raw else (out, share)
 
 

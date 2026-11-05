@@ -328,7 +328,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                 off_sc = np.median(transl_sc[ref, li][mm] - tv[mm], axis=0) if mm.sum() >= 3 else np.array(a["offset_m"])
                 transl_al_sc[i, li] = tv + off_sc; a["offset_scaled_m"] = [float(x) for x in off_sc]
     # ---- root, translation
-    root_f, share, raw = fuse_root([root_al[i] for i in range(V)], [usable[i] for i in range(V)], [lifted[i] for i in range(V)], ramp=ramp, return_raw=True)
+    root_f, share, raw = fuse_root([root_al[i] for i in range(V)], [usable[i] for i in range(V)], [lifted[i] for i in range(V)], ramp=ramp, return_raw=True, fps=fps)
     for i, v in enumerate(views):
         a = align[i]
         if i != ref and a["root_residual_deg"] is not None and a["root_residual_deg"] > 20:
@@ -431,6 +431,11 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
         flags.append(f"the export keeps only {exp_frac:.0%} of the lifted frames")
     if np.isfinite(root_step["p99_deg"]) and root_step["p99_deg"] > 15:
         flags.append(f"merged root steps {root_step['p99_deg']:.0f} deg between frames at the 99th percentile")
+    okr_ = np.isfinite(root_f).all(1); n_flip = 0
+    if okr_.sum() > 1:
+        rr = root_f[okr_]; n_flip = int((np.degrees((R.from_rotvec(rr[:-1]).inv() * R.from_rotvec(rr[1:])).magnitude()) > 90.0).sum())
+    if n_flip:
+        flags.append(f"merged root turns more than 90 deg between consecutive frames {n_flip} time(s) (a view's lift flipping; see the demo's heading)")
     if t_mismatch > 0.002:
         flags.append(f"the views' IMU times for the same frame differ by up to {t_mismatch * 1000:.0f} ms")
     status = "WARN" if flags else "PASS"
@@ -441,7 +446,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                                                                  "mean_usable_fraction": float(frac[i][lifted[i]].mean()) if lifted[i].any() else 0.0,
                                                                  "legs_usable_frac": float(usable[i][:, LEGS].all(1).mean()), "root_share_mean": float(share[i].mean()),
                                                                  "alignment": align[i]} for i, v in enumerate(views)},
-               "continuity": {"body_step_p99_deg": body_step["p99_deg"], "body_steps_over_20deg_frac": body_step["frac_over_20"], "root_step_p99_deg": root_step["p99_deg"]},
+               "continuity": {"body_step_p99_deg": body_step["p99_deg"], "body_steps_over_20deg_frac": body_step["frac_over_20"], "root_step_p99_deg": root_step["p99_deg"], "root_flips_over_90deg": n_flip},
                "weight": {"mean_over_export": float(weight[export_ok].mean()) if export_ok.any() else 0.0, "frac_cells_over_0_5": float((weight > 0.5).mean()),
                           "root_weight_mean": float(root_weight.mean()), "transl_weight_mean": float(transl_weight.mean())},
                "translation": {"views_disagree_median_m": (float(np.nanmedian(transl_dis)) if np.isfinite(transl_dis).any() else None),

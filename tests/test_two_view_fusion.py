@@ -111,3 +111,25 @@ def test_side_consistent_undoes_a_left_right_flip_for_display():
     assert np.allclose(fixed[:, [11, 13, 15], :2], kp[:, [11, 13, 15], :2]) and np.allclose(fixed[:, [12, 14, 16], :2], kp[:, [12, 14, 16], :2])
     assert np.allclose(fixed[:, 0], kp[:, 0]) and np.allclose(fixed[:, [5, 7, 9]], flipped[:, [5, 7, 9]], equal_nan=True)
     assert np.allclose(side_consistent(kp), kp, equal_nan=True)              # a consistent sequence is unchanged
+
+
+def test_fuse_root_follows_continuity_when_one_view_turns_the_wrong_way():
+    """A 180-degree turn: one view's lift turns with the truth at a human rate; the other snaps through the
+    front/back ambiguity to the far side in a few frames and then sits 120 deg from the truth until the turn is
+    over. With equal weights their mean would be meaningless; the fusion must discount the snap and stay with the
+    view it was following, so the fused heading tracks the truth with no jump."""
+    from scipy.spatial.transform import Rotation as R
+    from wgvp.fusion import fuse_root, heading_yaw_deg
+    T = 300; t = np.arange(T) / 30.0; turn = np.clip((t - 5.0) / 1.5, 0.0, 1.0)                    # the turn runs from 5.0 to 6.5 s
+    h_truth = 20.0 + 180.0 * turn; h_wrong = 20.0 - 180.0 * turn                                   # the mirror path: the same end point, the other way round
+    snap = np.clip((t - 5.4) / 0.13, 0.0, 1.0)                                                       # at 5.4 s the lift snaps from the true path onto the mirror path in 4 frames
+    h_snap = h_truth + (h_wrong - h_truth) * snap
+    rng = np.random.default_rng(0)
+    def roots(h): return np.stack([(R.from_euler("y", hh, degrees=True) * R.from_euler("x", 5.0 + rng.normal(0, 1.0), degrees=True)).as_rotvec() for hh in h])
+    a, b = roots(h_truth), roots(h_snap); usable = [np.ones((T, 21), bool), np.ones((T, 21), bool)]; lifted = [np.ones(T, bool), np.ones(T, bool)]
+    fused, share = fuse_root([a, b], usable, lifted, ramp=15)
+    hf = heading_yaw_deg(fused); err = np.abs(((hf - h_truth + 180) % 360) - 180); step = np.abs(((np.diff(hf) + 180) % 360) - 180)
+    assert err.max() < 25.0, err.max()
+    assert step.max() < 30.0, step.max()
+    assert share[0][(t > 5.55) & (t < 6.2)].mean() > 0.9                                              # the view that continues the motion carries the turn
+    assert abs(share[0][t > 7.5].mean() - 0.5) < 0.1                                                  # once the views agree again, both count
