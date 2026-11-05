@@ -648,6 +648,26 @@ short pieces reach 0.9 only at lags of a second or more. What this cue cannot do
 from the subject (the correlation of a 0.8-s-delayed copy of a 20-s cycle is 0.97), which is what the pelvis match
 did with its sub-frame lag; such a case is flagged by the margin and left to the thumbnails or a pick.
 
+**The same cue on all six, and the co-walker's gait.** On the full run root the first version of the cross-view
+cue (hip column against log body width) resolved only HC900's side view; the hurried-pace, HC902 and mat-walk side
+views read 0.71, 0.35 and 0.59, because the along view's body width is a poor progress signal once the shoulders
+leave the frame (each part's width was centred on its own frames). Two changes: one consistent body scale (the hip
+width, the knee or shoulder width brought onto it by their median ratio on shared frames) and a third signal, the
+feet's row, which in an along view is the distance itself. The feet-row-against-hip-column pairing then reads
+0.98 (HC900), 0.90 (hurried pace) and 0.95 (mat walk) with margins of 0.27-0.81, and HC901's low along camera,
+whose own pelvis match fails by design, takes its subject from the side view at 0.95 with a 295-frame identity
+switch masked out (coverage 96 %). HC902 showed the other failure: its along view accepted the co-walker (hc100's
+walk, 15 s) at r 0.78 at a lag of 7.3 s, support 6.1 against 2.2 for the true lag, which the strong-light rule
+flagged. The sync light is now evidence as well as a check: when such a step contradicts the pelvis match's
+winner, `joint_selection` is re-run preferring the candidate within 0.5 s of the light (adding the light's lag as
+a candidate if no fragment proposed it), and HC902 comes back at 3.008 s with the walker's fragments (r 0.70, high
+confidence) and the side view confirmed by cross-view. A cross-view reference now also counts when the pelvis
+match's confidence is low but the light validated its lag (HC901's side view: r 0.32). The dry run's identity
+check asks whether the truth hip lies inside the chosen box rather than within 36 px of the detector's hip
+keypoint, since that keypoint sits about 30 px high while the head is cut at the top edge (placement, not
+identity). Two detector input sizes were tried for the small walker: 1280 px does not rescue the pelvis bob and
+fragments the along view (7 pieces for 1), so 640 stays the default.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
