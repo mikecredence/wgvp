@@ -2,7 +2,7 @@
 tasks per subject), to test the folder scan and run the whole pipeline on more than one subject and task:
 
     <dest>/Sub 001/Video/SP_combo.mp4, TUG_combo.mp4 + Sub 001/IMU/Sub001_selfpace.csv, Sub001_tug.csv   (HC900 + HC903)
-    <dest>/Sub 002/Video/SP_combo.mp4 ...                                                                  (HC901; its operator pick is copied along)
+    <dest>/Sub 002/Video/SP_combo.mp4 ...                                                                  (HC901, the low along camera)
     <dest>/Sub 003/Video/SP_combo.mp4, HP_combo.mp4 ...                                                    (HC902 + HC904, hurried pace)
     <dest>/Sub 004/Video/SPM_combo.mp4 + Sub 004/IMU/Sub004_selfpace_mat.csv                             (HC905, on the mat: the walkway's cells in the CSV)
 
@@ -42,7 +42,7 @@ def main(dest: str) -> int:
             d = json.loads(pick.read_text()); d["recording_id"] = rid
             cdir = dest / "wgvp_output" / sub / "config"; cdir.mkdir(parents=True, exist_ok=True)
             (cdir / f"pick_{d['camera_id']}_{rid}.json").write_text(json.dumps(d, indent=1))
-        print(f"{sub}/{ttok}_combo.mp4 <- {sid}" + (" (+ operator pick)" if pick is not None else ""))
+        print(f"{sub}/{ttok}_combo.mp4 <- {sid}" + (" (+ operator pick)" if pick is not None and pick.exists() else ""))
     print(f"-> {dest}: run `python -m wgvp scan \"{dest}\"` then `python -m wgvp run \"{dest}\" --cpu-only`")
     return 0
 

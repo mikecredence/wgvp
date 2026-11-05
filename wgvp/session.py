@@ -324,6 +324,14 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
         sheet = rec.get("sheet_start_frames", {}); sheet_frame = sheet.get("*") or next(iter(sheet.values()), None)
         ts0 = next(iter(views.values()))
         sync = combine_sync(prim, flash_all, lab, sheet_frame, ts0.frame_idx, ts0.pts_ms, fps_meas, tol_frames=params["tol_frames"], imu_duration_s=imu["duration_s"])
+        dl = (sync.get("agreement") or {}).get("strong_light_step_minus_xcorr_s")
+        if dl is not None and prim.get("offset_s") is not None:                   # a strong sync light contradicts the pelvis match: let it pick among the lag candidates
+            prim2 = joint_selection(views, imu, selp, log=log, prefer_lag=float(prim["offset_s"] + dl))
+            if prim2.get("ok") and prim2.get("lag_source") == "light":
+                prim = prim2; sync = combine_sync(prim, flash_all, lab, sheet_frame, ts0.frame_idx, ts0.pts_ms, fps_meas, tol_frames=params["tol_frames"], imu_duration_s=imu["duration_s"])
+                sync["flags"].append("the pelvis match's best lag contradicted the sync light; the candidate lag at the light was taken (another person's gait correlated at the first)")
+                rec_item["flags"].append("lag chosen by the sync light over the pelvis match's first choice")
+                log(f"    [{rid}] re-selected at the light's lag: offset {prim.get('offset_s'):.3f} s, conf {prim.get('confidence')}, r {prim.get('r_fine', 0):.3f}")
         log(f"    [{rid}] sync {sync['status']} via {sync['source']} offset {None if sync['offset_s'] is None else round(sync['offset_s'], 3)} s (frame {sync['offset_frame']}) {sync['flags']}")
         d_rec = deliver / rid; d_rec.mkdir(parents=True, exist_ok=True)
         dump_json(sync, d_rec / "sync.json"); dump_json({**prim, "views": {vk: {kk: vv for kk, vv in vv_.items() if kk != "frame_masks"} for vk, vv_ in prim["views"].items()}}, d_rec / "selection_joint.json")
@@ -341,11 +349,12 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
             decs[vid] = [decide_view(pv, prim.get("confidence", "none"), roi, pick), pv, roi, pick]
         # second pass: a view with no subject takes it from a view whose subject the pelvis match confirmed, by their
         # motion along the walk on the shared video clock (a walker small in a room-wide view has no usable pelvis bob)
-        confirmed = [v for v, (d, pv, _, _) in decs.items() if d["track_ids"] and d["source"].startswith("imu_xcorr") and prim.get("confidence") == "high"]
+        validated = "validated" in str(sync.get("source", ""))                   # the lag confirmed by the light, the labels or the sheet
+        confirmed = [v for v, (d, pv, _, _) in decs.items() if d["track_ids"] and d["source"].startswith("imu_xcorr") and (prim.get("confidence") == "high" or validated)]
         for vid, (dec, pv, roi, pick) in decs.items():
             if dec["track_ids"] or not confirmed:
                 continue
-            refv = confirmed[0]; rdec, rpv = decs[refv][0], decs[refv][1]
+            ts = views[vid]; refv = confirmed[0]; rdec, rpv = decs[refv][0], decs[refv][1]
             ref_tr = merged_subject_track(views[refv], rdec["track_ids"], (rpv or {}).get("frame_masks") if rdec["source"].startswith("imu_xcorr") else None)
             xv = cross_view_selection(ts, ref_tr, fps_meas, selp); dec["cross_view"] = xv
             if xv["ok"]:

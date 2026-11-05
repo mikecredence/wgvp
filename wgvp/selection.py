@@ -138,8 +138,12 @@ def _app_descriptor(frs: dict, tids) -> np.ndarray | None:
     return np.median(A, axis=0) if len(A) else None
 
 
-def joint_selection(views: dict, imu: dict, params: dict | None = None, log=print) -> dict:
-    """views: {view_id: TrackSet}. Returns the shared lag, accepted fragments per view, confidence and coverage."""
+def joint_selection(views: dict, imu: dict, params: dict | None = None, log=print, prefer_lag: float | None = None, prefer_tol_s: float = 0.5) -> dict:
+    """views: {view_id: TrackSet}. Returns the shared lag, accepted fragments per view, confidence and coverage.
+    With `prefer_lag` (an independent sync source such as the light contradicting the pelvis match's winner), the
+    candidate within `prefer_tol_s` of it is taken, the light's own lag being added as a candidate if none is; a
+    second person's gait can correlate with the recording at a wrong lag above the chance model (measured: a
+    co-walker's 15-s walk at r 0.78), and the light is the evidence that breaks that."""
     p = {**DEFAULTS, **(params or {})}
     scored = {vid: score_fragments(ts, imu, p) for vid, ts in views.items()}
     out = {"method": "imu_xcorr_joint", "ok": False, "offset_s": None, "confidence": "none", "views": {}, "reason": "",
@@ -168,8 +172,17 @@ def joint_selection(views: dict, imu: dict, params: dict | None = None, log=prin
         for vid, s in scored.items():
             a, sup = _greedy_accept(s, L, p); acc[vid] = a; support += sup
         evals.append((L, support, acc))
+    if prefer_lag is not None and not any(abs(prefer_lag - e[0]) <= prefer_tol_s for e in evals):
+        support = 0.0; acc = {}
+        for vid, s in scored.items():
+            a, sup = _greedy_accept(s, float(prefer_lag), p); acc[vid] = a; support += sup
+        evals.append((float(prefer_lag), support, acc))
     evals.sort(key=lambda e: -e[1])
-    L, support, acc = evals[0]
+    L, support, acc = evals[0]; out["lag_source"] = "pelvis_xcorr"
+    if prefer_lag is not None:
+        near = [e for e in evals if abs(e[0] - prefer_lag) <= prefer_tol_s and e[1] > 0]
+        if near:
+            L, support, acc = near[0]; out["lag_source"] = "light"
     out["lag_candidates"] = [{"offset_s": float(e[0]), "support": float(e[1])} for e in evals[:5]]
     out["lag_ambiguity"] = float(evals[1][1] / evals[0][1]) if len(evals) > 1 and evals[0][1] > 0 else 0.0
     # refine the lag on the combined curve of all accepted fragments, then re-accept
@@ -437,17 +450,23 @@ def progress_signals(tr: dict, n_frames: int, fps: float, smooth_s: float = 0.3)
         return np.where(m > k / 2, c / np.maximum(m, 1e-9), np.nan)
     hips_ok = (kp[:, 11, 2] >= 0.3) & (kp[:, 12, 2] >= 0.3)
     x = np.full(n_frames, np.nan); x[idx] = np.where(hips_ok, kp[:, [11, 12], 0].mean(1), np.nan)
-    vals = []
-    for a, b in ((5, 6), (11, 12), (13, 14)):
-        ok = (kp[:, a, 2] >= 0.3) & (kp[:, b, 2] >= 0.3); w = np.abs(kp[:, a, 0] - kp[:, b, 0])
-        v = np.where(ok & (w > 2), np.log(np.maximum(w, 1e-3)), np.nan)
-        if np.isfinite(v).sum() >= 5:
-            vals.append(v - np.nanmedian(v))
-    sc = np.full(n_frames, np.nan)
-    if vals:
-        with np.errstate(all="ignore"):
-            sc[idx] = np.nanmean(np.stack(vals), 0)
-    return {"x": smooth(x), "scale": smooth(sc)}
+    # body scale: the log hip width where the hips are seen, else the knee or shoulder width brought onto the hip
+    # width's scale by the median ratio on frames that show both (a fixed per-track offset in log, so a part leaving
+    # the frame does not step the signal)
+    logs = {}
+    for a, b in ((11, 12), (13, 14), (5, 6)):
+        ok = (kp[:, a, 2] >= 0.3) & (kp[:, b, 2] >= 0.3); w = np.abs(kp[:, a, 0] - kp[:, b, 0]); logs[a] = np.where(ok & (w > 2), np.log(np.maximum(w, 1e-3)), np.nan)
+    sc_t = logs[11].copy()
+    for a in (13, 5):
+        both = np.isfinite(sc_t) & np.isfinite(logs[a]); fill = ~np.isfinite(sc_t) & np.isfinite(logs[a])
+        if both.sum() >= 5 and fill.any():
+            sc_t[fill] = logs[a][fill] + np.nanmedian(sc_t[both] - logs[a][both])
+    sc = np.full(n_frames, np.nan); sc[idx] = sc_t
+    feet_ok = (kp[:, 15, 2] >= 0.3) | (kp[:, 16, 2] >= 0.3); fy = np.where(kp[:, 15, 2] >= 0.3, kp[:, 15, 1], np.nan); fy2 = np.where(kp[:, 16, 2] >= 0.3, kp[:, 16, 1], np.nan)
+    with np.errstate(all="ignore"):
+        feet = np.where(feet_ok, np.nanmean(np.c_[fy, fy2], 1), np.nan)
+    yf = np.full(n_frames, np.nan); yf[idx] = feet                                    # an along view: the feet's row is the distance
+    return {"x": smooth(x), "scale": smooth(sc), "y_feet": smooth(yf)}
 
 
 def cross_view_selection(ts: TrackSet, ref_tr: dict, fps: float, params: dict | None = None) -> dict:
@@ -456,7 +475,8 @@ def cross_view_selection(ts: TrackSet, ref_tr: dict, fps: float, params: dict | 
     under a pixel, below the keypoint noise, so the IMU match cannot see them; their progress along the walk is
     hundreds of pixels, and the two views share one clock, so the fragment whose progress signal correlates with the
     other view's subject at ZERO lag is the same person. Each fragment's 'x' and 'scale' signals are correlated with
-    the reference's two over their shared frames; the best |r| counts (the sign depends on the cameras). Fragments
+    the reference's over their shared frames (hip column, log body width, feet row: the best pairing's |r| counts,
+    the sign depending on the cameras). Fragments
     with |r| >= xview_min_r over >= xview_min_overlap_s are accepted best first without temporal overlap. The margin
     is the best accepted |r| minus the best |r| of a rejected fragment overlapping it in time: someone walking in
     step with the subject correlates nearly as well at this time scale (a 0.8-s delay on a 20-s walk cycle), and is
