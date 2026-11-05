@@ -702,6 +702,22 @@ against 662 of 881 before, and the high-frequency deviation of the leg keypoints
 extent against 0.47-0.73 %. Every sample was rendered and lifted a third time with this camera; the numbers in
 the README are from that run.
 
+**The light's lag, refined half a step off.** The CPU pass on the third render synced Sub 002 (HC901, the
+legs-only along camera) 0.54 s late. The pelvis match's own winner was 9.48 s, a bout later than the truth (the
+self-paced walk repeats its bouts every ~6.5 s, and the subject's own fragments correlate at a bout's shift: 9.48,
+-3.04 and 26.4 s at r 0.48-0.77, none at 3.0); the light's candidate, 3.0 s, was taken as designed, and then the
+refinement step, which looks for the highest point of the combined correlation curve within 1 s of the chosen
+lag, slid onto the neighbouring step's peak at 3.54 s: the pelvis bob repeats every step (0.45-0.65 s), so a
+1-s window always holds the two neighbouring peaks, and at r 0.5 against 0.4 the wrong one won, with "high"
+confidence and a flash-disagrees flag. Two changes in `joint_selection`: a lag taken from the light is refined
+within 0.1 s of it only (`prefer_refine_s`; the per-view lag estimate behind the inter-view agreement check uses
+the same window, or it reported the views 0.56 s apart), and, light or not, a chosen lag whose runner-up carries at
+least 80 % of its support (`lag_ambiguity_max`) is reported with low confidence and `ambiguous_lag`: on the six
+rendered recordings the right lags' runners-up carried 0-26 % (one light-chosen case 69 %), the wrong ones' 88 and
+91 %, so a periodic protocol without a light now says so instead of syncing a bout off with confidence. Re-run,
+Sub 002 syncs at 2.981 s, validated by the light, the along view confirmed by the cross-view cue, reconcile PASS.
+Its lift from the chain's first pass (at the wrong lag) was redone.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

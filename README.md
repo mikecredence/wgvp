@@ -199,7 +199,15 @@ stand / walk / turn pattern, which is the easy regime. Two sanity rules stand be
 rendered walker who paced within a metre with a 5-mm pelvis bob produced a "high"-confidence lag 30 s off
 (section 2.8 of the design notes): the offset must leave at least 60 % of the recording inside the video, and a
 strong persistent light-like brightness step more than 3 s from the offset is raised as a disagreement even though
-it was not used. Either turns the sync into a WARN with the reason in `sync_flags`.
+it was not used. Either turns the sync into a WARN with the reason in `sync_flags`. When such a light contradicts
+the pelvis match's winner, the lag candidate at the light is taken instead (a co-walker's gait, or the subject's own
+walk one bout later, can correlate above chance at a wrong lag; the light is the evidence that breaks that), and
+that lag is then refined on the correlation curve only within a tenth of a second of the light: the pelvis bob
+repeats every step, so the wider refinement used for the match's own lag slid onto the neighbouring step's peak,
+0.54 s off, on one rendered session. Without a light, a chosen lag whose runner-up carries at least 80 % of its
+support is reported with low confidence and `ambiguous_lag` (on the rendered self-paced walks the subject's own
+fragments correlate at a bout's shift, 6.5 s, at r 0.5-0.8; a right lag's runner-up carried 0-26 % of its
+support, the wrong ones' 88-91 %).
 
 ## Where tracking goes wrong, and what the pipeline does about it
 

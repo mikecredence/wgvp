@@ -72,3 +72,19 @@ def test_cross_view_without_the_co_walker_is_clean():
                          "det_kp": side.det_kp[keep], "det_app": side.det_app[keep], "det_vis": side.det_vis[keep]})
     xv = cross_view_selection(side2, along.track(1), FPS)
     assert xv["ok"] and xv["track_ids"] == [3] and xv["margin"] > 0.4 and xv["reason"] == ""
+
+
+def test_refine_lag_stays_on_the_lights_peak():
+    """A lag taken from the sync light is refined only within a tenth of a second: the pelvis bob repeats every
+    step, and the wider window used for the match's own lag slides onto the neighbouring step's stronger peak,
+    half a step off the light (0.54 s on HC901)."""
+    from wgvp.selection import refine_lag
+    from wgvp.signals import FS_MATCH
+    axis = np.arange(-5.0, 5.0, 1.0 / FS_MATCH)
+    def bump(c, h): return h * np.exp(-0.5 * ((axis - c) / 0.08) ** 2)
+    R = bump(3.0, 0.35) + bump(3.55, 0.50) + bump(2.45, 0.45)                     # the light's peak and the two neighbouring steps
+    curves = [(axis, R, 30.0)]                                                  # (lags, r on those lags, weight)
+    wide = refine_lag(curves, 3.0, 1.0); narrow = refine_lag(curves, 3.0, 0.1)
+    assert abs(wide - 3.55) < 0.02, wide                                         # what the old refinement did
+    assert abs(narrow - 3.0) < 0.02, narrow
+    assert refine_lag(curves, 3.0, 0.0) == 3.0 or abs(refine_lag(curves, 3.0, 0.0) - 3.0) < 0.02
