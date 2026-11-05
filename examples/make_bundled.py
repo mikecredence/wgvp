@@ -8,8 +8,8 @@ OWN01  the clip as recorded (phone, portrait, 13 s): one person walks away down 
        0.8 s into the clip).
 OWN02  a synthetic TWO-VIEW file made from OWN01, shaped like a tiled two-camera session video: the left panel is
        the clip zoomed in a little (the middle 84 % of its width and 86 % of its height, scaled up), the right
-       panel is the clip MIRRORED and zoomed in more (the middle 62 % by 68 %, scaled to the same panel height, so
-       the walker is 1.3x larger and leaves the frame sooner when close), letterboxed differently and separated by
+       panel is the clip MIRRORED and zoomed in hard (the middle 50 % by 55 %, scaled to the same panel height, so
+       the walker is 1.6x larger and head and feet leave the frame when close), letterboxed differently and separated by
        a black band. A mirrored second panel is the test the merge needs: its left leg is the walker's right leg,
        and the merge must notice (`view_mirrored` in merged_smpl.npz) and reflect that view back before fusing;
        the two zooms test the per-view scale and the usable-joint logic. It is still one camera, not two: the two
@@ -42,10 +42,10 @@ ABOUT1 = ("OWN01: one person (the author) walks away down an office corridor, tu
           "OWN01_selfpace.csv is a FABRICATED recording: LowerBack_FreeAcc_U = the walker's own pelvis motion from the video plus noise, differentiated twice; "
           f"IMU t=0 at video {OFFSET_S} s.")
 ABOUT2 = ("OWN02: a synthetic two-view file made from OWN01 (left panel = the clip zoomed in a little, the middle 84 % x 86 %; right panel = the clip MIRRORED and "
-          "zoomed in more, the middle 62 % x 68 %, scaled to the same height; letterboxed differently; black separator), to exercise the two-view code path, the "
-          "mirror detection of the merge and two zoom levels offline. Not a second camera. Same fabricated recording as OWN01.")
+          "zoomed in hard, the middle 50 % x 55 %, scaled to the same height, so head and feet are cut when the walker is close; letterboxed differently; black separator), "
+          "to exercise the two-view code path, the mirror detection of the merge, two zoom levels and truncation offline. Not a second camera. Same fabricated recording as OWN01.")
 ZOOM_L = (0.84, 0.86)      # left panel: fraction of the clip's width and height kept (centred)
-ZOOM_R = (0.62, 0.68)      # right panel: the same for the mirrored panel
+ZOOM_R = (0.50, 0.55)      # right panel: the mirrored panel, zoomed in hard enough that the walker is cut when close
 
 
 def run(cmd):

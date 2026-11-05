@@ -173,12 +173,16 @@ VARIANTS = {
            # the along camera faces the chair from beyond the turn-around point, as a TUG is usually filmed
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 3.0, 1.0, zm + 0.1], "target": [x1 - 2.0, 0.5, zm]},
                                            "right": {"W": RW, "H": RC, "yfov": 30.0, "eye": [xm + 1.0, 2.0, zm - 4.0], "target": [xm - 0.4, 0.5, zm + 0.4]}}},
-    # v5: a hurried-pace walk (sample_v5/, session HC904, task HP): hc105 at speed, with hc100 as the co-walker, in v2's
-    # compromised views.
+    # v5: a hurried-pace walk (sample_v5/, session HC904, task HP): hc105 at speed, with hc100 as the co-walker. The
+    # along view is v2's low camera past the near end (feet and mat, head cut when close); the side view is laid out
+    # like the real session's: elevated (2.2 m), 7 m back, wide (40 deg vertical, 66 deg across), the whole room and
+    # mat in frame with the operators' desk in the foreground, so the walker is never out of this view and leaves
+    # it only at the top edge, if at all. (The first render used v2's narrow side camera, which lost the walker for
+    # 58 % of the recording; the real side view sees the entire room.)
     "v5": {"sid": "HC904", "subdir": "sample_v5", "decoy": True, "subject": "hc105_hurriedpace", "decoy_name": "hc100_hurriedpace", "decoy_dz": 1.5, "task": {"csv": "hurriedpace", "dir": "HP", "token": "HP"},
-           "seat": lambda xm, zm: [xm + 2.4, 0.0, zm - 1.2],
+           "seat": lambda xm, zm: [xm - 2.0, 0.0, zm - 3.2], "bystander": lambda x0, x1, xm, zm: [x1 + 1.5, 0.0, zm + 2.5],
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.5, 0.6, zm + 0.05], "target": [x0 + 1.2, 0.0, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 22.0, "eye": [xm, 1.0, zm - 6.0], "target": [xm, 0.35, zm]}}},
+                                           "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm, 2.2, zm - 7.0], "target": [xm, 0.0, zm]}}},
     # v6: a self-paced walk ON the instrumented mat (sample_v6/, session HC905, task SPM = selfpace_mat) with the walkway
     # columns of the recording CSV FABRICATED from the rendered truth in the export's own form: at every IMU sample the
     # loaded cells of the mat (Walkway_X/Y cell indices, WalkwayFoot labels, WalkwayPressureLevel) under each foot that

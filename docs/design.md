@@ -559,6 +559,20 @@ the lifter is nevertheless at its best, 7.8 deg), and the lifter's leg error on 
 close-ups on real video no longer draw a mat (floor only; the mat belongs to the rendered rooms). The recording
 reference's schema is now v2 (stances), and a cached reference is rebuilt when the schema or the cell size changes.
 
+**On the renders themselves (a question asked while viewing).** The synthetic sessions are rendered from one 3D
+scene with two perspective cameras placed where the aerial panel shows them; pyrender (OpenGL) draws each camera's
+picture, the camera poses and intrinsics are saved with the truth, and the 2D truth joints are projections through
+those cameras. Nothing about the views is composited or drawn by hand, so a camera's height, tilt and field of view
+decide what is truncated. A game engine (Unity, Unreal) would add appearance, not geometry: textures, clothes,
+lighting, lens distortion, motion blur, i.e. a harder test for the 2D detectors, which the real-footage examples
+cover instead. Two layout corrections followed from the same viewing: the side camera of a real session sees the
+entire room (the Video Labeler frame: elevated, wide, the whole mat with the operators' desk in the foreground, the
+walker complete most of the time), so the hurried-pace sample's side camera was re-laid out that way (2.2 m high,
+7 m back, 40 deg vertical, 66 deg across) and the first render's narrow side view (v2's, which lost the walker for
+58 % of the recording) is kept only in HC901 as the deliberate stress test; and the user's two-panel composite
+got a harder zoom on its mirrored panel (the middle 50 x 55 % of the clip, 1.64x) so that head and feet are cut
+when the walker is close, as in the along-walkway view of a real session.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
