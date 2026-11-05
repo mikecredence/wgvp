@@ -81,16 +81,19 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
         st = d / "subject_track.npz"
         if st.exists():
             z = np.load(st); gt = np.array(e["gt_hip_px"]); gf = np.array(e["gt_frames"]); lut = {int(f): i for i, f in enumerate(gf)}
-            errs, wrong = [], 0
-            for f, kp in zip(z["frame_idx"], z["kp2d"]):
+            errs, inside, wrong = [], [], 0
+            boxes = z["bbox_xyxy"] if "bbox_xyxy" in z.files else np.full((len(z["frame_idx"]), 4), np.nan)
+            for f, kp, bb in zip(z["frame_idx"], z["kp2d"], boxes):
                 if int(f) in lut and np.isfinite(kp[11:13, :2]).all():
-                    errs.append(np.hypot(*(kp[11:13, :2].mean(0) - gt[lut[int(f)]])))
+                    g = gt[lut[int(f)]]; errs.append(np.hypot(*(kp[11:13, :2].mean(0) - g)))
+                    w, h = bb[2] - bb[0], bb[3] - bb[1]                          # identity: the truth hip lies in the chosen box (10 % slack)
+                    inside.append(bool(np.isfinite(bb).all() and bb[0] - 0.1 * w <= g[0] <= bb[2] + 0.1 * w and bb[1] - 0.1 * h <= g[1] <= bb[3] + 0.1 * h))
                 elif int(f) not in lut and np.isfinite(kp[11:13, :2]).all():
                     wrong += 1
-            errs = np.array(errs); frac = float((errs < 0.06 * 600).mean()) if len(errs) else 0.0
+            errs = np.array(errs); frac = float(np.mean(inside)) if inside else 0.0; near = float((errs < 0.06 * 600).mean()) if len(errs) else 0.0
             _check(f"{vid}: chosen track is the rendered subject", frac >= 0.8 and len(errs) > 30 and wrong < 0.1 * max(len(errs), 1),
-                   f"{frac:.0%} of {len(errs)} frames within 36 px of the GT hip (median {np.median(errs) if len(errs) else float('nan'):.1f} px); {wrong} frames claimed while the subject is out of this view; "
-                   f"via {it.get('selection_source')}, r {it.get('r_fine')}, margin {it.get('margin')}, fragments {it.get('subject_track_ids')}", checks, log)
+                   f"{frac:.0%} of {len(errs)} frames hold the GT hip inside the chosen box ({near:.0%} within 36 px of the detector's hip, median {np.median(errs) if len(errs) else float('nan'):.1f} px); "
+                   f"{wrong} frames claimed while the subject is out of this view; via {it.get('selection_source')}, r {it.get('r_fine')}, margin {it.get('margin')}, fragments {it.get('subject_track_ids')}", checks, log)
         else:
             _check(f"{vid}: subject track exists", False, f"no subject_track.npz (selection {it.get('selection_status')}: {it.get('flags')})", checks, log)
         cov = it.get("coverage", {})

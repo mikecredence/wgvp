@@ -29,6 +29,11 @@ DEFAULTS = {
     "app_ratio": 0.7,            # ... and only if closer than app_ratio x its distance to the nearest other person
     "roi_min_cross": 0.3,
     "gap_min_s": 0.5,
+    "xview_min_r": 0.8,          # cross-view confirmation: |correlation| at zero lag between a fragment's progress along the walk and the other view's subject's
+    "xview_min_overlap_s": 5.0,  # ... over at least this much shared time ...
+    "xview_min_margin": 0.1,     # ... and this far above any other person moving with the subject, else WARN
+    "xview_window_s": 5.0,       # inside an accepted fragment, windows of this length whose correlation falls under ...
+    "xview_window_r": 0.5,       # ... this are dropped (the tracker handed the id to someone passing behind)
 }
 
 
@@ -419,6 +424,96 @@ def decide_view(primary_view: dict | None, primary_conf: str, roi: dict, pick: d
            "WARN": "subject chosen but not confirmed by an independent method, or absent from this view - check the skeleton thumbnails; an operator pick (`wgvp pick-subject`) overrides",
            "FAIL": "no subject could be chosen: run `wgvp pick-subject` on a skeleton-only frame, or set a walkway ROI (`wgvp set-roi`)"}[status]
     return {"track_ids": chosen, "source": src, "status": status, "agreement": agree, "message": msg, "primary": pv, "walkway_roi": roi, "operator_pick": pick}
+
+
+def progress_signals(tr: dict, n_frames: int, fps: float, smooth_s: float = 0.3) -> dict:
+    """Signals that follow a person's progress along a straight walk in a 2D view, on the video's frame grid (NaN where
+    the person is absent), smoothed over `smooth_s`: 'x', the hip midpoint's column (a side view: progress is left-right),
+    and 'scale', the log of the body's pixel width (an along view: progress is depth; the mean of the centred log
+    shoulder, hip and knee widths, whichever are visible)."""
+    kp = tr["kp"]; k = max(int(round(smooth_s * fps)), 1); idx = tr["frame_idx"].astype(int)
+    def smooth(x):
+        ok = np.isfinite(x); y = np.where(ok, x, 0.0); c = np.convolve(y, np.ones(k), "same"); m = np.convolve(ok.astype(float), np.ones(k), "same")
+        return np.where(m > k / 2, c / np.maximum(m, 1e-9), np.nan)
+    hips_ok = (kp[:, 11, 2] >= 0.3) & (kp[:, 12, 2] >= 0.3)
+    x = np.full(n_frames, np.nan); x[idx] = np.where(hips_ok, kp[:, [11, 12], 0].mean(1), np.nan)
+    vals = []
+    for a, b in ((5, 6), (11, 12), (13, 14)):
+        ok = (kp[:, a, 2] >= 0.3) & (kp[:, b, 2] >= 0.3); w = np.abs(kp[:, a, 0] - kp[:, b, 0])
+        v = np.where(ok & (w > 2), np.log(np.maximum(w, 1e-3)), np.nan)
+        if np.isfinite(v).sum() >= 5:
+            vals.append(v - np.nanmedian(v))
+    sc = np.full(n_frames, np.nan)
+    if vals:
+        with np.errstate(all="ignore"):
+            sc[idx] = np.nanmean(np.stack(vals), 0)
+    return {"x": smooth(x), "scale": smooth(sc)}
+
+
+def cross_view_selection(ts: TrackSet, ref_tr: dict, fps: float, params: dict | None = None) -> dict:
+    """The subject of a view where the pelvis match found nothing, taken from the confirmed subject of another view
+    of the same video. In a room-wide side view the walker is a hundred pixels tall and the vertical pelvis bob is
+    under a pixel, below the keypoint noise, so the IMU match cannot see them; their progress along the walk is
+    hundreds of pixels, and the two views share one clock, so the fragment whose progress signal correlates with the
+    other view's subject at ZERO lag is the same person. Each fragment's 'x' and 'scale' signals are correlated with
+    the reference's two over their shared frames; the best |r| counts (the sign depends on the cameras). Fragments
+    with |r| >= xview_min_r over >= xview_min_overlap_s are accepted best first without temporal overlap. The margin
+    is the best accepted |r| minus the best |r| of a rejected fragment overlapping it in time: someone walking in
+    step with the subject correlates nearly as well at this time scale (a 0.8-s delay on a 20-s walk cycle), and is
+    flagged rather than resolved."""
+    p = {**DEFAULTS, **(params or {})}
+    out = {"method": "cross_view", "ok": False, "track_ids": [], "r": None, "margin": None, "candidates": {}, "reason": ""}
+    if ref_tr is None or len(ref_tr.get("frame_idx", [])) == 0:
+        out["reason"] = "no confirmed subject in another view"; return out
+    n = int(max(ts.frame_idx.max(), ref_tr["frame_idx"].max())) + 1; ref = progress_signals(ref_tr, n, fps); need = int(p["xview_min_overlap_s"] * fps)
+    tracks = {}
+    for tid in ts.track_ids():
+        tr = ts.track(int(tid)); tracks[int(tid)] = tr
+        if len(tr["frame_idx"]) < need:
+            continue
+        sig = progress_signals(tr, n, fps); best = None
+        for ra, a in ref.items():
+            for rb, b in sig.items():
+                ok = np.isfinite(a) & np.isfinite(b)
+                if ok.sum() < need or np.nanstd(a[ok]) < 1e-6 or np.nanstd(b[ok]) < 1e-6:
+                    continue
+                r = float(np.corrcoef(a[ok], b[ok])[0, 1])
+                if np.isfinite(r) and (best is None or abs(r) > abs(best[0])):
+                    best = (r, f"{ra}~{rb}", int(ok.sum()))
+        if best is not None:
+            out["candidates"][int(tid)] = {"r": best[0], "pair": best[1], "overlap_s": best[2] / fps, "first_frame": int(tr["frame_idx"][0]), "last_frame": int(tr["frame_idx"][-1])}
+    if not out["candidates"]:
+        out["reason"] = f"no fragment shares {p['xview_min_overlap_s']:.0f} s with the other view's subject"; return out
+    accepted, rejected = [], []
+    for tid, c in sorted(out["candidates"].items(), key=lambda kv: -abs(kv[1]["r"])):
+        if abs(c["r"]) < p["xview_min_r"] or any(_overlap(tracks[tid], tracks[t2]) > 0 for t2 in accepted):
+            rejected.append(tid); continue
+        accepted.append(tid)
+    if not accepted:
+        out["reason"] = f"no fragment's progress along the walk correlates with the other view's subject at |r| >= {p['xview_min_r']} (best {max(abs(c['r']) for c in out['candidates'].values()):.2f})"; return out
+    best_r = abs(out["candidates"][accepted[0]]["r"])
+    rival = max([abs(out["candidates"][t]["r"]) for t in rejected if any(_overlap(tracks[t], tracks[a]) > 0 for a in accepted)] + [0.0])
+    # within each accepted fragment, windows whose progress stops following the reference are an identity switch
+    # (the tracker handing the id to someone passing behind): mask them out, as the pelvis match does with its lag
+    masks = {}; win = int(p["xview_window_s"] * fps); hop = max(win // 2, 1)
+    for tid in accepted:
+        tr = tracks[tid]; c = out["candidates"][tid]; ra, rb = c["pair"].split("~"); a = ref[ra]; b = progress_signals(tr, n, fps)[rb]; sign = np.sign(c["r"]) or 1.0
+        idx = tr["frame_idx"].astype(int); keep = np.zeros(len(idx), bool); votes = np.zeros(len(idx), int)
+        for s0 in range(0, max(len(idx) - win, 0) + 1, hop):
+            sl = idx[s0:s0 + win]; ok = np.isfinite(a[sl]) & np.isfinite(b[sl])
+            if ok.sum() < win // 2 or np.nanstd(a[sl][ok]) < 1e-6 or np.nanstd(b[sl][ok]) < 1e-6:
+                keep[s0:s0 + win] |= True; votes[s0:s0 + win] += 1; continue             # too little motion to judge: keep
+            r = sign * np.corrcoef(a[sl][ok], b[sl][ok])[0, 1]
+            if r >= p["xview_window_r"]:
+                keep[s0:s0 + win] |= True
+            votes[s0:s0 + win] += 1
+        keep |= votes == 0
+        if (~keep).any():
+            masks[tid] = keep; out["candidates"][tid]["frames_dropped"] = int((~keep).sum())
+    out.update(ok=True, track_ids=sorted(accepted), r=float(best_r), margin=float(best_r - rival), rival_r=float(rival), frame_masks=masks)
+    if best_r - rival < p["xview_min_margin"]:
+        out["reason"] = f"another person moves with the subject (|r| {rival:.2f} against {best_r:.2f}): check the thumbnails"
+    return out
 
 
 def merged_subject_track(ts: TrackSet, tids: list[int], masks: dict | None = None) -> dict:
