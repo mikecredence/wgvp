@@ -356,8 +356,15 @@ of the reconstruction whenever the along view's count changed, a visible rocking
 root is now the quaternion mean of the views' roots, each weighted by its presence (ramped over 0.5 s at the edges
 of its lifted runs) times the square of the fraction of joints it finds usable (averaged over the same 0.5 s),
 sharpened towards the heavier view when the two roots disagree by more than 30 deg: two good lifts of one walker
-agree to about 10 deg, so a larger gap means one of them is wrong. Every term is continuous, so nothing in the
-rule can step the root (`tools/two_view_fusion.fuse_root`). The same share then scales that view's weight for all
+agree to about 10 deg, so a larger gap means one of them is wrong. When they disagree and weigh the same, two
+continuity terms decide first: a view whose root turned faster than a person can (over 150 deg/s) since its
+previous frame is discounted, and so is a view far from the previous fused root. That is the case of a 180-degree
+turn that one view's lift takes the wrong way round, snapping through the front/back ambiguity: on the TUG sample
+the side view's heading jumped 120 deg in a quarter of a second while the chair-facing view turned with the truth,
+and the plain mean of two opposite headings had snapped the reconstruction instead of turning it; with the
+continuity terms the merged heading stays within 5 deg of the truth through the turn (2.5 deg median over the
+recording, no step over 90 deg; `merge.json` counts such steps). Every term is continuous, so nothing in the
+rule can step the root (`wgvp.fusion.fuse_root`). The same share then scales that view's weight for all
 of its body joints, since a lifter that got the gravity frame wrong solved the whole body in it. This takes the
 fused root to 6.6 deg (the views: 49.6 and 7.3) with a frame step at the 99th percentile of 5.4 deg (the side
 view alone 7.3), and the merge below the better view in every column: legs 10.0 deg, outliers 8 %, all 21 joints

@@ -39,7 +39,25 @@ IMU = Path(os.environ.get("WGVP_SAMPLE_IMU_DIR", Path.home() / "data/WearGait/IM
 BM = os.environ.get("WGVP_SAMPLE_BODY_MODELS", str(Path.home() / "data/WearGait/body_models"))
 FPS = 30
 LW, LH = 520, 600            # along-walkway panel
-RW, RH, RC = 900, 600, 500   # side panel (content height RC, letterboxed to RH)
+RW, RH, RC = 900, 600, 375   # side panel (content height RC, letterboxed to RH): the real side view is a wide strip, 2.4:1
+MAT_L, MAT_W = 4.88, 0.61    # the instrumented mat: 16 x 2 ft (GAITRite), centred on the walk; self-paced and hurried walks step off its ends to turn
+
+# The two cameras of a real session (from the Video Labeler frame of NLS036): the SIDE view is elevated (~2.3 m), ~5.5 m
+# from the mat's centre line, very wide (the whole room and mat in frame, the operators' desk in the foreground) and aimed
+# low, so a walker on the mat reaches the top edge with the head and loses it when tall, bouncing or nearer the camera;
+# the ALONG view sits at the mat's end about 1 m high looking down the mat, so a walker 2-3 m away shows from the chest
+# down and is whole only beyond ~3.5 m. Every sample follows this layout; v2 keeps a lower, closer along camera as the
+# deliberate stress test of truncation in that view.
+def side_cam(xm, zm, side=-1.0, dx=0.8):
+    return {"W": RW, "H": RC, "yfov": 43.0, "eye": [xm + dx, 2.3, zm + side * 5.5], "target": [xm - 0.2, -0.42, zm]}
+def along_cam(mat_end, walk_end, direction, zm, height=1.0, back_mat=1.0, back_walk=1.2):
+    """Camera beyond the mat's end `mat_end` and beyond the walker's turn point `walk_end` (whichever is further
+    out, so a walk that overshoots the mat still turns in front of the lens), `height` m high, looking along the mat
+    in `direction` (+1 towards +x)."""
+    ex = min(mat_end - back_mat, walk_end - back_walk) if direction > 0 else max(mat_end + back_mat, walk_end + back_walk)
+    return {"W": LW, "H": LH, "yfov": 60.0, "eye": [ex, height, zm], "target": [ex + direction * 3.5, 0.0, zm]}
+def desk_seat(xm, zm, side=-1.0):
+    return [xm - 1.8, 0.0, zm + side * 3.6]                                       # the operators' desk between the side camera and the mat, low in its frame
 
 
 def _smplx_compat_shims():
@@ -142,37 +160,34 @@ def project(P, cam_pose, fx, fy, cx, cy):
 VARIANTS = {
     # v1: the dry-run sample. Along view: camera low at the walkway end (head cut when close); side view: oblique,
     # elevated, narrow (subject exits at both ends); a co-walker, a seated operator, a bystander.
-    "v1": {"sid": "HC900", "subdir": "sample", "decoy": True, "seat": lambda xm, zm: [xm - 0.35, 0.0, zm - 1.55],
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 55.0, "eye": [x0 - 1.6, 0.9, zm + 0.1], "target": [x0 + 2.2, 0.0, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 30.0, "eye": [xm + 1.0, 2.0, zm - 4.0], "target": [xm - 0.4, 0.5, zm + 0.4]}}},
+    "v1": {"sid": "HC900", "subdir": "sample", "decoy": True, "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm + 1.5, 0.0, zm + 3.0],
+           "cams": lambda x0, x1, xm, zm: {"left": along_cam(xm - 0.5 * MAT_L, x0, +1, zm), "right": side_cam(xm, zm)}},
     # v2: two deliberately compromised views of one walk, after the real session layout. Along view: camera 0.5 m
     # beyond the near end, 0.6 m high, looking down the mat: the whole body only at the far end, head and shoulders
     # gone mid-way, shins only at the near end (the pose is lost there). Side view: 6 m back, 1 m high, narrow and
     # tilted at the hips: the whole mat is in frame but the head is above the top edge for the entire pass and the
     # shoulders sit at it; the walker leaves the frame only at the very ends. No co-walker: the point of this sample
     # is reconstruction from two truncated views, and the ground-truth 3D pose is saved beside it.
-    "v2": {"sid": "HC901", "subdir": "sample_v2", "decoy": False, "seat": lambda xm, zm: [xm + 2.4, 0.0, zm - 1.2],    # beside the far end, outside the side view's frustum: no occlusion of the mat
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.5, 0.6, zm + 0.05], "target": [x0 + 1.2, 0.0, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 22.0, "eye": [xm, 1.0, zm - 6.0], "target": [xm, 0.35, zm]}}},
+    "v2": {"sid": "HC901", "subdir": "sample_v2", "decoy": False, "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm + 1.5, 0.0, zm + 3.0],
+           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [min(xm - 0.5 * MAT_L, x0) - 0.3, 0.6, zm + 0.05], "target": [min(xm - 0.5 * MAT_L, x0) + 1.4, 0.0, zm]},   # the stress test: low and close, shins only when near
+                                           "right": side_cam(xm, zm)}},
     # v3: a third room (sample_v3/, session HC902): a different walker (hc105: 6.3 m of walkway, the largest pelvis bob of
     # the public set) with hc100 as the co-walker on the far
     # side of the mat. The along camera stands at the FAR end and higher (1.5 m), so when the walker is close it is
     # the legs that leave its frame, not the head; the side camera is on the other side of the room, higher and
     # turned towards one end, so the walker leaves it at the other end only, where the along camera sees the whole
     # body. The operator sits close to the side camera, lower right; the bystander stands at the far wall.
-    "v3": {"sid": "HC902", "subdir": "sample_v3", "decoy": True, "subject": "hc105_selfpace", "decoy_name": "hc100_selfpace", "decoy_dz": -1.5,
-           "seat": lambda xm, zm: [xm + 0.6, 0.0, zm + 2.2], "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm - 2.0],
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 1.3, 1.5, zm - 0.15], "target": [x1 - 2.0, 0.4, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm - 1.6, 2.2, zm + 3.5], "target": [xm + 1.0, 0.5, zm - 0.3]}}},   # inside the back wall (z = zm + 4)
+    "v3": {"sid": "HC902", "subdir": "sample_v3", "decoy": True, "subject": "hc105_selfpace", "decoy_name": "hc100_selfpace", "decoy_dz": 1.5,
+           "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm + 3.0],
+           "cams": lambda x0, x1, xm, zm: {"left": along_cam(xm + 0.5 * MAT_L, x1, -1, zm), "right": side_cam(xm, zm, dx=-0.8)}},    # the along camera at the other end
     # v4: a Timed Up and Go (sample_v4/, session HC903, task TUG): hc142's repetitions of sit, stand, walk 3 m, turn,
     # walk back, turn and sit, with a chair at the start; v1's room, the along camera facing the chair, no co-walker. Short walks, a
     # large sit-to-stand excursion and a seated start are what a TUG asks of the selection and the sync. (hc100's TUG,
     # used first, has its left ankle 163 deg off in the inertial fit: a visibly wrong foot in the rendered truth.)
     "v4": {"sid": "HC903", "subdir": "sample_v4", "decoy": False, "subject": "hc142_tug", "task": {"csv": "tug", "dir": "TUG", "token": "TUG"}, "chair": True,
-           "seat": lambda xm, zm: [xm - 0.35, 0.0, zm - 1.55],
+           "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm + 1.5, 0.0, zm + 3.0],
            # the along camera faces the chair from beyond the turn-around point, as a TUG is usually filmed
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 3.0, 1.0, zm + 0.1], "target": [x1 - 2.0, 0.5, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 30.0, "eye": [xm + 1.0, 2.0, zm - 4.0], "target": [xm - 0.4, 0.5, zm + 0.4]}}},
+           "cams": lambda x0, x1, xm, zm: {"left": along_cam(x1 + 0.5, x1, -1, zm), "right": side_cam(xm, zm)}},
     # v5: a hurried-pace walk (sample_v5/, session HC904, task HP): hc105 at speed, with hc100 as the co-walker. The
     # along view is v2's low camera past the near end (feet and mat, head cut when close); the side view is laid out
     # like the real session's: elevated (2.2 m), 7 m back, wide (40 deg vertical, 66 deg across), the whole room and
@@ -180,9 +195,8 @@ VARIANTS = {
     # it only at the top edge, if at all. (The first render used v2's narrow side camera, which lost the walker for
     # 58 % of the recording; the real side view sees the entire room.)
     "v5": {"sid": "HC904", "subdir": "sample_v5", "decoy": True, "subject": "hc105_hurriedpace", "decoy_name": "hc100_hurriedpace", "decoy_dz": 1.5, "task": {"csv": "hurriedpace", "dir": "HP", "token": "HP"},
-           "seat": lambda xm, zm: [xm - 2.0, 0.0, zm - 3.2], "bystander": lambda x0, x1, xm, zm: [x1 + 1.5, 0.0, zm + 2.5],
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.5, 0.6, zm + 0.05], "target": [x0 + 1.2, 0.0, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm, 2.2, zm - 7.0], "target": [xm, 0.0, zm]}}},
+           "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [x1 + 1.5, 0.0, zm + 3.0],
+           "cams": lambda x0, x1, xm, zm: {"left": along_cam(xm - 0.5 * MAT_L, x0, +1, zm), "right": side_cam(xm, zm)}},
     # v6: a self-paced walk ON the instrumented mat (sample_v6/, session HC905, task SPM = selfpace_mat) with the walkway
     # columns of the recording CSV FABRICATED from the rendered truth in the export's own form: at every IMU sample the
     # loaded cells of the mat (Walkway_X/Y cell indices, WalkwayFoot labels, WalkwayPressureLevel) under each foot that
@@ -190,9 +204,8 @@ VARIANTS = {
     # NOT used: the render walks the neutral SMPL body along a stance-pinned path 22 % shorter than the real one, so
     # the real footprints would contradict the video.) v3's room.
     "v6": {"sid": "HC905", "subdir": "sample_v6", "decoy": False, "subject": "hc105_selfpace_mat", "task": {"csv": "selfpace_mat", "dir": "SPM", "token": "SPM"}, "walkway_from_truth": True,
-           "seat": lambda xm, zm: [xm + 0.6, 0.0, zm + 2.2], "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm - 2.0],
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 1.3, 1.5, zm - 0.15], "target": [x1 - 2.0, 0.4, zm]},
-                                           "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm - 1.6, 2.2, zm + 3.5], "target": [xm + 1.0, 0.5, zm - 0.3]}}},
+           "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm + 3.0],
+           "cams": lambda x0, x1, xm, zm: {"left": along_cam(xm + 0.5 * MAT_L, x1, -1, zm), "right": side_cam(xm, zm, dx=-0.8)}},
 }
 
 
@@ -217,7 +230,7 @@ def recording_csv_subset(var: dict, subj_name: str, J_s: np.ndarray, T_s: int, x
     # the rendered truth's foot centre (midpoint of ankle and toe joints) for every sample its contact flag is on,
     # heel-weighted early in the stance and toe-weighted late, pressure levels 2-9
     tcsv_s = np.array([float(str(v).split()[0]) for v in dfc["Time"]]); n = len(dfc)
-    mat_frame = {"x0": float(xm - 0.5 * MAT_CELLS[0] * MAT_CELL_M), "z0": float(zm - 0.5 * MAT_CELLS[1] * MAT_CELL_M), "cell_m": MAT_CELL_M, "cells": list(MAT_CELLS),
+    mat_frame = {"x0": float(xm - 0.5 * MAT_L), "z0": float(zm - 0.5 * MAT_W), "cell_m": MAT_CELL_M, "cells": list(MAT_CELLS),
                  "about": "cell (0,0) corner in the render's world; Walkway_X = (x - x0) / cell_m along the walk, Walkway_Y = (z - z0) / cell_m across"}
     X = [""] * n; Y = [""] * n; P = [""] * n; F = [""] * n; rng_w = np.random.default_rng(1); n_rows = 0
     for col, lab, ja, jf in (("L Foot Contact", "L", 7, 10), ("R Foot Contact", "R", 8, 11)):
@@ -322,7 +335,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
         tv = np.concatenate(tiles); tf = np.concatenate([ff + 4 * i for i in range(len(tiles))])
         tl = trimesh.Trimesh(tv, tf, process=False); tl.visual = trimesh.visual.ColorVisuals(mesh=tl, face_colors=np.tile([128, 120, 108, 255], (len(tf), 1)))
         sc.add(pyrender.Mesh.from_trimesh(tl, smooth=False))
-        mv = np.array([[x0 - 0.8, 0.006, zm - 0.5], [x1 + 0.8, 0.006, zm - 0.5], [x1 + 0.8, 0.006, zm + 0.5], [x0 - 0.8, 0.006, zm + 0.5]], np.float32)
+        mv = np.array([[xm - 0.5 * MAT_L, 0.006, zm - 0.5 * MAT_W], [xm + 0.5 * MAT_L, 0.006, zm - 0.5 * MAT_W], [xm + 0.5 * MAT_L, 0.006, zm + 0.5 * MAT_W], [xm - 0.5 * MAT_L, 0.006, zm + 0.5 * MAT_W]], np.float32)
         mt = trimesh.Trimesh(mv, ff, process=False); mt.visual = trimesh.visual.ColorVisuals(mesh=mt, face_colors=np.tile([45, 42, 44, 255], (2, 1)))
         sc.add(pyrender.Mesh.from_trimesh(mt, smooth=False))
         for wv in (np.array([[x1 + 4.0, 0, zm - 8], [x1 + 4.0, 3.0, zm - 8], [x1 + 4.0, 3.0, zm + 8], [x1 + 4.0, 0, zm + 8]], np.float32),
@@ -417,7 +430,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
                 "views": {cid: {"gt_frames": gt[cid]["frames"], "gt_hip_px": gt[cid]["hip"], "n_visible": len(gt[cid]["frames"]),
                                 "vis_counts": {str(k): int(sum(1 for v in gt[cid]["vis"] if v == k)) for k in (0, 1, 2)}, "decoy_hip_px": gt[cid]["decoy"]} for cid in cams},
                 "scene": {"subject": f"{subj_name} IK (public WearGait); pelvis vertical motion = double-integrated LowerBack_FreeAcc_U of the same recording", "decoy": (f"{deco_name} {decoy_dz:+.1f} m, +0.8 s (its own IMU vertical motion)" if has_decoy else None), "operator": "seated near side camera", "bystander": "hc101 standing loop",
-                          "layout": {"mat_x": [float(x0 - 0.8), float(x1 + 0.8)], "mat_z": [float(zm - 0.5), float(zm + 0.5)], "operator_seat_xyz": [float(v) for v in seat_pos], "operator_yaw_deg": 25.0,
+                          "layout": {"mat_x": [float(xm - 0.5 * MAT_L), float(xm + 0.5 * MAT_L)], "mat_z": [float(zm - 0.5 * MAT_W), float(zm + 0.5 * MAT_W)], "mat_size_m": [MAT_L, MAT_W], "operator_seat_xyz": [float(v) for v in seat_pos], "operator_yaw_deg": 25.0,
                                      "desk_center_xyz": [float(seat_pos[0]), 0.74, float(seat_pos[2] - 0.75)], "desk_extents_xyz": [1.8, 0.05, 0.7],
                                      "bystander_xyz": [float(tr_b[0, 0]), 0.0, float(tr_b[0, 2])], "walls": [{"x": float(x1 + 4.0), "z": [float(zm - 8), float(zm + 8)]}, {"z": float(zm + 4.0), "x": [float(x0 - 8), float(x1 + 8)]}],
                                      "cameras": {cid: {"eye": [float(v) for v in c["eye"]], "target": [float(v) for v in c["target"]], "yfov_deg": float(c["yfov"])} for cid, c in cams.items()}},

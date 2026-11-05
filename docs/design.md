@@ -71,7 +71,10 @@ Per video (CPU, one decode pass, cached by file hash):
    (`fusion.usable_joints_rt`). The view with more usable joints is the reference; the other view's GVHMR world is
    turned onto it by one yaw (circular median of the two roots' heading difference) and one offset (median
    translation difference), fitted on frames where both views see most of the body, with the residuals reported.
-   Root: `fusion.fuse_root` (presence-ramped, usable-fraction-weighted, sharpened when the roots disagree);
+   Root: `fusion.fuse_root` (presence-ramped, usable-fraction-weighted; when the roots disagree by more than
+   30 deg, a view turning faster than 150 deg/s since its previous frame and a view far from the previous fused
+   root are discounted first (2026-11-05: a lift taking a 180-degree turn the wrong way round), then the weights
+   are sharpened towards the heavier view);
    translation averaged with the same shares and smoothed over 5 frames inside runs. Body: per joint the view(s)
    that vouch for it, cross-faded over 0.5 s at segment edges, each view weighted by its root share, nothing where
    no view saw the joint, smoothed over 5 frames. Export: every leg joint output in runs of at least 0.5 s. For
@@ -590,6 +593,37 @@ lifter extrapolates it; the two views' agreement factor is the guard that remain
 `pose_agreement_<a>_<b>.npz` from the reconcile stage compares the views AS LIFTED (before the merge's reflection),
 so on a mirrored pair it reads 20-40 deg while the merge's own agreement is 5 deg; the demo's chart uses the
 merge's reflected bodies.
+
+### 2.11 Round four: the turn that snapped, and the room laid out after the real one for every sample (2026-11-05)
+
+**The TUG's turn.** At 0:40 of Sub 005's demo the reconstruction flipped instead of turning. The per-view headings
+tell why: through the 180-degree turn (1.5 s) the chair-facing view follows the truth (149, 180, -145, -124 deg at
+quarter-second steps), the side view's lift takes the turn the other way round and snaps through the front/back
+ambiguity (140, 18, -8, -27: 120 deg in 0.25 s), and with the two views at equal share the quaternion mean of two
+opposite headings is meaningless, so the merge jumped from 144 to -77 in one frame. `fuse_root` now arbitrates
+disagreements over 30 deg before sharpening: a view whose root turned faster than 150 deg/s since its previous
+frame is discounted by 1 + ((rate - 150) / 150)^2 (a person turns at up to about 150 deg/s, a snapping lift at
+500 or more), and a view far from the previous fused root by 1 + (angle / 30 deg)^2, which keeps the output with
+the view it was following until the two agree again. Re-merged, Sub 005's heading stays within 5 deg of the truth
+through the turn, 2.5 deg median and 14.5 max over the recording, with no step over 90 deg (`merge.json` now counts
+them under `continuity.root_flips_over_90deg` and flags any). A first version that used only the distance to the
+previous output failed its own test: before the snap the output had been the mean of the two diverging views, so
+neither was nearer to it; the rate term is what breaks that tie. A frozen lift versus a turning one remains
+undecidable by these terms, and the test plants a view that tracks until it snaps, as the real one did.
+
+**The room, again.** Two more corrections from the user's viewing of the real Video Labeler frame: the side view
+sees the entire room, elevated, very wide, the mat in the lower middle with the operators' desk in the foreground,
+and aimed low enough that a walker's head sits at the top edge and leaves it when tall, bouncing or nearer the
+camera; the along view sits at the mat's end about a metre high, so a walker two to three metres away shows from
+the chest down (the first version's camera 0.6 m high and 0.5 m past the end gave shins only, and its 2D skeleton
+jumped about when the walker was close). The mat is 16 x 2 ft (4.88 x 0.61 m, the GAITRite, exactly the 384 x 48
+cell grid of section 2.10), centred on the walk: self-paced and hurried walks step off its ends to turn, the mat
+tasks turn on it. Every sample now follows this layout (`side_cam`, `along_cam` in `tools/make_sample.py`: side
+camera 2.3 m high, 5.5 m from the mat's centre line, 43 deg vertical in a 2.4:1 strip, aimed at -0.42 m on the
+mat's line so the top edge at the mat is 1.75 m above the floor; along camera 1.0 m high, 1 m beyond the mat's end
+and 1.2 m beyond the walker's turn point, 60 deg), with HC901 keeping the low, close along camera as the stress test.
+The old HC901 operator pick belonged to the old camera and was removed; the user's reading of the layout is that
+most of the information will come from the side view, the along view supplementing it.
 
 ## 3. What has not been tested on real clinic recordings
 
