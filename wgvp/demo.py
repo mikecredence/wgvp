@@ -227,8 +227,8 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     # ---- layout
     PH = 320; vbox = {v: [int(x) for x in K[v]["view_box"]] for v in views}
     pw = {v: int(round(PH * (vbox[v][2] - vbox[v][0]) / (vbox[v][3] - vbox[v][1]))) for v in views}
-    n_mid = (3 if G is not None else 2)
-    W = max(sum(pw.values()) + 30 * (V - 1) + 20, n_mid * RW + (n_mid + 1) * 20 + AW + 20); TLH = 330
+    n_mid = (3 if G is not None else (2 + (V if V >= 2 else 0)))           # truth | reconstruction | export, or each view's own lift | reconstruction | export
+    W = max(sum(pw.values()) + 30 * (V - 1) + 20, n_mid * RW + (n_mid + 1) * 20 + AW + 20); TLH = 330 + (70 if (G is None and V >= 2) else 0)
     light_rect = exp.get("light_rect")
     def label(img, txt, xy, col=(255, 255, 255), scale=0.55, th=1, bg=(0, 0, 0)):
         (tw, tht), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, scale, th); x, y = xy
@@ -237,8 +237,17 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     dpi = 100; fig = plt.figure(figsize=(W / dpi, TLH / dpi), dpi=dpi, facecolor=(0.11, 0.11, 0.11))
     L_, R_ = 0.06, 0.99
-    axs = [fig.add_axes([L_, 0.80, R_ - L_, 0.13]), fig.add_axes([L_, 0.44, R_ - L_, 0.33]), fig.add_axes([L_, 0.08, R_ - L_, 0.33])]
+    if G is None and V >= 2:
+        axs = [fig.add_axes([L_, 0.86, R_ - L_, 0.09]), fig.add_axes([L_, 0.56, R_ - L_, 0.26]), fig.add_axes([L_, 0.27, R_ - L_, 0.26]), fig.add_axes([L_, 0.06, R_ - L_, 0.16])]
+    else:
+        axs = [fig.add_axes([L_, 0.80, R_ - L_, 0.13]), fig.add_axes([L_, 0.44, R_ - L_, 0.33]), fig.add_axes([L_, 0.08, R_ - L_, 0.33])]
     tt = t_all; win = (tt >= t0) & (tt <= t1)
+    dis = None
+    if V >= 2:                                                                # where both views vouch for a leg joint: how far apart their rotations are
+        a_, b_ = views[0], views[1]; both = usable[a_][:, LEGS] & usable[b_][:, LEGS]
+        d_ = geodesic(body[a_][:, LEGS], body[b_][:, LEGS]); d_[~both] = np.nan
+        with np.errstate(all="ignore"):
+            dis = np.nanmedian(d_, axis=1)
     for i, v in enumerate(views):
         y = V - 1 - i
         axs[0].fill_between(tt[win], y - 0.4, y + 0.4, where=leg_ok[v][win], color=VIEW_MPL[i], step="mid", lw=0, alpha=0.9)
@@ -251,11 +260,18 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         ax.plot(tt[win], kn["merge"][win, j], color="#3fd13f", lw=2.0, label="merge (merged_smpl.npz)")
         ax.set_ylabel(name, fontsize=7, color="w"); ax.set_ylim(0, 90)
     axs[1].legend(fontsize=7, ncol=4, loc="upper left", facecolor=(0.2, 0.2, 0.2), labelcolor="w", framealpha=0.8)
+    if len(axs) == 4:
+        axs[3].plot(tt[win], dis[win], color="#d0d0d0", lw=0.9); axs[3].fill_between(tt[win], 0, dis[win], color="#d0d0d0", alpha=0.25, lw=0)
+        axs[3].set_ylim(0, 45); axs[3].set_ylabel("views disagree (deg)", fontsize=7, color="w")
+        axs[3].set_title("leg joints: how far apart the two views' rotations are where both see them (no truth here: this is the available check)", fontsize=7.5, color="w", loc="left", pad=2)
     for ax in axs:
         ax.set_xlim(t0, t1); ax.set_facecolor((0.15, 0.15, 0.15)); ax.tick_params(colors="w", labelsize=7)
         for sp in ax.spines.values():
             sp.set_color("0.5")
-    axs[0].set_xticklabels([]); axs[1].set_xticklabels([]); axs[2].set_xlabel("IMU time (s)", fontsize=8, color="w")
+    axs[0].set_xticklabels([]); axs[1].set_xticklabels([])
+    if len(axs) == 4:
+        axs[2].set_xticklabels([])
+    axs[-1].set_xlabel("IMU time (s)", fontsize=8, color="w")
     tmpdir = Path(tempfile.mkdtemp()); fig.savefig(tmpdir / "timeline.png", dpi=dpi, facecolor=fig.get_facecolor()); plt.close(fig)
     timeline = cv2.imread(str(tmpdir / "timeline.png")); timeline = cv2.resize(timeline, (W, TLH))
     def cursor_x(t): return int(L_ * W + (t - t0) / max(t1 - t0, 1e-6) * (R_ - L_) * W)
@@ -331,11 +347,21 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
             cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
             status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge")))
             label(canvas, f"{v} view: {status}", (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
-        yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20                               # middle: (truth), reconstruction, export, aerial
+        yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20                               # middle: (truth | each view alone), reconstruction, export, aerial
         if G is not None:
             if gi_f is not None:
                 aa = G["pose_aa"][gi_f]; Vt = verts(aa[:3], aa[3:66]); canvas[yb:yb + RH, 20:20 + RW] = render(Vt, np.tile(COL["truth"], (len(Vt), 1)))
             label(canvas, "rendered truth", (28, yb + RH - 12)); xr = 20 + RW + 20
+        elif V >= 2:
+            for i, v in enumerate(views):
+                if lifted[v][f] and vis[v][f] and np.isfinite(root_al[v][f]).all():
+                    Vv = verts(root_al[v][f], np.nan_to_num(body[v][f])); cv = np.tile(COL["ok"], (len(Vv), 1)); cv[np.isin(dom, np.flatnonzero(~usable[v][f]) + 1)] = COL["missing"]
+                    canvas[yb:yb + RH, xr:xr + RW] = render(Vv, cv)
+                else:
+                    canvas[yb:yb + RH, xr:xr + RW] = render(None, None)
+                    label(canvas, "not tracked here" if not lifted[v][f] else "bridged frame", (xr + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
+                label(canvas, f"{v} view alone  ({int(usable[v][f].sum())}/21 usable)", (xr + 8, yb + RH - 12), col=VIEW_BGR[i][::-1] if False else (255, 255, 255))
+                cv2.rectangle(canvas, (xr, yb), (xr + RW - 1, yb + RH - 1), VIEW_BGR[i], 2); xr += RW + 20
         if not any_lifted[f]:
             label(canvas, "no data: the subject is tracked in no view", (xr + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
         elif none[f].all() or not np.isfinite(root_fused[f]).all():

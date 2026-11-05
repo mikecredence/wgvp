@@ -13,12 +13,14 @@ Panels: LEFT = along-walkway view 520x600 (camera at the walkway end, low: the h
 Files: HC900/SP/HC900_SP_DeID.mp4 + HC900/hc900_selfpace.csv (column subset of the public hc100_selfpace.csv) and
 expected.json with the single sync offset, the panel boxes, and the subject's ground-truth hip projection per view.
 
-    python tools/make_sample.py [--variant v1|v2|v3]   (needs smplx, trimesh, pyrender, imageio[pyav], pandas and the inputs named below)
+    python tools/make_sample.py [--variant v1|v2|v3|v4|v5|v6]   (needs smplx, trimesh, pyrender, imageio[pyav], pandas and the inputs named below)
 v2 (sample_v2/, session HC901) renders the same walk from two deliberately compromised views, after the real
 session layout: the along view loses everything above the hips when the walker is close, the side view never
 shows the head; the walker's ground-truth SMPL pose and 3D joints are saved beside it for the two-view
 reconstruction experiment (tools/two_view_fusion.py). v3 (sample_v3/, session HC902) is a third room with another
 walker (hc105), a co-walker, the along camera at the far end (legs cut when close) and the side camera on the other side.
+v4 (HC903) is a Timed Up and Go with a chair, v5 (HC904) a hurried-pace walk, v6 (HC905) a self-paced walk on the mat
+whose recording CSV carries walkway footfall positions fabricated from the truth (the public export has none).
 """
 from __future__ import annotations
 
@@ -162,17 +164,39 @@ VARIANTS = {
            "seat": lambda xm, zm: [xm + 0.6, 0.0, zm + 2.2], "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm - 2.0],
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 1.3, 1.5, zm - 0.15], "target": [x1 - 2.0, 0.4, zm]},
                                            "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm - 1.6, 2.2, zm + 3.5], "target": [xm + 1.0, 0.5, zm - 0.3]}}},   # inside the back wall (z = zm + 4)
+    # v4: a Timed Up and Go (sample_v4/, session HC903, task TUG): hc100's three repetitions of sit, stand, walk 3 m,
+    # turn, walk back, turn and sit, with a chair at the start; v1's room, the along camera facing the chair, no co-walker. Short walks, a
+    # large sit-to-stand excursion and a seated start are what a TUG asks of the selection and the sync.
+    "v4": {"sid": "HC903", "subdir": "sample_v4", "decoy": False, "subject": "hc100_tug", "task": {"csv": "tug", "dir": "TUG", "token": "TUG"}, "chair": True,
+           "seat": lambda xm, zm: [xm - 0.35, 0.0, zm - 1.55],
+           # the along camera faces the chair from beyond the turn-around point, as a TUG is usually filmed
+           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 3.0, 1.0, zm + 0.1], "target": [x1 - 2.0, 0.5, zm]},
+                                           "right": {"W": RW, "H": RC, "yfov": 30.0, "eye": [xm + 1.0, 2.0, zm - 4.0], "target": [xm - 0.4, 0.5, zm + 0.4]}}},
+    # v5: a hurried-pace walk (sample_v5/, session HC904, task HP): hc105 at speed, with hc100 as the co-walker, in v2's
+    # compromised views.
+    "v5": {"sid": "HC904", "subdir": "sample_v5", "decoy": True, "subject": "hc105_hurriedpace", "decoy_name": "hc100_hurriedpace", "decoy_dz": 1.5, "task": {"csv": "hurriedpace", "dir": "HP", "token": "HP"},
+           "seat": lambda xm, zm: [xm + 2.4, 0.0, zm - 1.2],
+           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [x0 - 0.5, 0.6, zm + 0.05], "target": [x0 + 1.2, 0.0, zm]},
+                                           "right": {"W": RW, "H": RC, "yfov": 22.0, "eye": [xm, 1.0, zm - 6.0], "target": [xm, 0.35, zm]}}},
+    # v6: a self-paced walk ON the instrumented mat (sample_v6/, session HC905, task SPM = selfpace_mat) with the walkway
+    # columns of the recording CSV FABRICATED from the rendered truth (the public export leaves them empty): a row at
+    # every footfall with the foot's position on the mat in cm, as a pressure walkway reports it. v3's room.
+    "v6": {"sid": "HC905", "subdir": "sample_v6", "decoy": False, "subject": "hc105_selfpace_mat", "task": {"csv": "selfpace_mat", "dir": "SPM", "token": "SPM"}, "walkway_from_truth": True,
+           "seat": lambda xm, zm: [xm + 0.6, 0.0, zm + 2.2], "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm - 2.0],
+           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 50.0, "eye": [x1 + 1.3, 1.5, zm - 0.15], "target": [x1 - 2.0, 0.4, zm]},
+                                           "right": {"W": RW, "H": RC, "yfov": 40.0, "eye": [xm - 1.6, 2.2, zm + 3.5], "target": [xm + 1.0, 0.5, zm - 0.3]}}},
 }
 
 
 def main(out_dir: str | None = None, variant: str = "v1"):
     var = VARIANTS[variant]; sid = var["sid"]; has_decoy = var["decoy"]
     subj_name = var.get("subject", "hc100_selfpace"); deco_name = var.get("decoy_name", "hc102_selfpace"); decoy_dz = var.get("decoy_dz", 1.5)
+    task = var.get("task", {"csv": "selfpace", "dir": "SP", "token": "SP"}); tdir, ttok, tcsv = task["dir"], task["token"], task["csv"]
     _smplx_compat_shims(); os.environ.pop("PYOPENGL_PLATFORM", None)
     import smplx, trimesh, pyrender, imageio.v3 as iio
     from scipy.spatial.transform import Rotation as Rt
     out = Path(out_dir) if out_dir else PKG / var["subdir"]
-    sess = out / "data" / sid; (sess / "SP").mkdir(parents=True, exist_ok=True)
+    sess = out / "data" / sid; (sess / tdir).mkdir(parents=True, exist_ok=True)
     smpl = smplx.create(BM, model_type="smpl", gender="neutral", batch_size=1); faces = smpl.faces.astype(np.int32)
     rng = np.random.default_rng(0)
 
@@ -231,9 +255,18 @@ def main(out_dir: str | None = None, variant: str = "v1"):
         desk = trimesh.creation.box(extents=(1.8, 0.05, 0.7)); desk.apply_translation([seat_pos[0], 0.74, seat_pos[2] - 0.75])
         desk.visual = trimesh.visual.ColorVisuals(mesh=desk, face_colors=np.tile([150, 120, 90, 255], (len(desk.faces), 1)))
         sc.add(pyrender.Mesh.from_trimesh(desk, smooth=False))
+        if var.get("chair"):                 # a chair under the walker's seated start (TUG): seat pan, four legs, a back behind the hips
+            hx, hz = float(tr_s[0, 0]), float(tr_s[0, 2]); seat_h = float(J_s[0, 0, 1]) - 0.08
+            parts = [trimesh.creation.box(extents=(0.46, 0.05, 0.46)).apply_translation([hx, seat_h, hz]),
+                     trimesh.creation.box(extents=(0.46, 0.45, 0.05)).apply_translation([hx - 0.22 if tr_s[30, 0] > hx else hx + 0.22, seat_h + 0.25, hz]).apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0], [hx, 0, hz]))]
+            for sx in (-0.2, 0.2):
+                for sz in (-0.2, 0.2):
+                    parts.append(trimesh.creation.box(extents=(0.04, seat_h, 0.04)).apply_translation([hx + sx, seat_h / 2, hz + sz]))
+            for prt in parts:
+                prt.visual = trimesh.visual.ColorVisuals(mesh=prt, face_colors=np.tile([90, 70, 60, 255], (len(prt.faces), 1))); sc.add(pyrender.Mesh.from_trimesh(prt, smooth=False))
         scenes[cid] = sc
     colors = {"s": [140, 150, 180], "d": [180, 150, 140], "b": [150, 175, 150], "o": [120, 120, 160]}
-    writer = iio.imopen(str(sess / "SP" / f"{sid}_SP_DeID.mp4"), "w", plugin="pyav"); writer.init_video_stream("h264", fps=FPS)
+    writer = iio.imopen(str(sess / tdir / f"{sid}_{ttok}_DeID.mp4"), "w", plugin="pyav"); writer.init_video_stream("h264", fps=FPS)
     gt = {cid: {"frames": [], "hip": [], "vis": [], "decoy": [], "joints2d": [], "joints_in": []} for cid in cams}
     nodes = {cid: [] for cid in cams}
     FW, FH = LW + RW, LH
@@ -288,10 +321,29 @@ def main(out_dir: str | None = None, variant: str = "v1"):
         r.delete()
     import pandas as pd
     cols = ["Time", "GeneralEvent", "ClinicalEvent", "L Foot Contact", "R Foot Contact", "Walkway_X", "Walkway_Y", "LowerBack_FreeAcc_E", "LowerBack_FreeAcc_N", "LowerBack_FreeAcc_U"]
-    pd.read_csv(IMU / f"{subj_name}.csv", usecols=lambda c: c in cols).to_csv(sess / f"{sid.lower()}_selfpace.csv", index=False)
+    dfc = pd.read_csv(IMU / f"{subj_name}.csv", usecols=lambda c: c in cols, low_memory=False)
+    mat_frame = None
+    if var.get("walkway_from_truth"):
+        # a pressure walkway reports one row per footfall: the position of the foot that just landed, in cm, X along the
+        # mat from its near end, Y across from its near edge. Footfalls = onsets of the recording's own Foot Contact
+        # flags during Walk; the position comes from the rendered truth's foot joint, with 1 cm of noise.
+        tcsv_s = np.array([float(str(v).split()[0]) for v in dfc["Time"]]); mat_frame = {"x0": float(x0 - 0.8), "z0": float(zm - 0.5)}
+        wx = np.full(len(dfc), np.nan); wy = np.full(len(dfc), np.nan); rng_w = np.random.default_rng(1)
+        for col, jnt in (("L Foot Contact", 10), ("R Foot Contact", 11)):
+            c = pd.to_numeric(dfc[col], errors="coerce").to_numpy(float); on = np.flatnonzero((np.nan_to_num(c) > 0.5) & ~(np.nan_to_num(np.r_[0.0, c[:-1]]) > 0.5))
+            for i in on:
+                fi = int(round(tcsv_s[i] * FPS))
+                if 0 <= fi < T_s and str(dfc["GeneralEvent"].iloc[i]) == "Walk":
+                    fx, fz = float(J_s[fi, jnt, 0]), float(J_s[fi, jnt, 2])
+                    if x0 - 0.8 <= fx <= x1 + 0.8 and abs(fz - zm) <= 0.5:
+                        wx[i] = round(100.0 * (fx - mat_frame["x0"]) + rng_w.normal(0, 1.0)); wy[i] = round(100.0 * (fz - mat_frame["z0"]) + rng_w.normal(0, 1.0))
+        dfc["Walkway_X"] = wx; dfc["Walkway_Y"] = wy
+        print(f"walkway rows fabricated: {int(np.isfinite(wx).sum())} footfalls, X {np.nanmin(wx):.0f}-{np.nanmax(wx):.0f} cm, Y {np.nanmin(wy):.0f}-{np.nanmax(wy):.0f} cm")
+    dfc.to_csv(sess / f"{sid.lower()}_{tcsv}.csv", index=False)
     (sess / "README.txt").write_text(f"Synthetic session {sid} (rendered SMPL meshes, no real video): one combined two-view video\n"
-                                     f"SP/{sid}_SP_DeID.mp4 (left = along-walkway view 520x600, right = side view 900x500 letterboxed)" + (" with a co-walker,\n" if has_decoy else ",\n") +
-                                     f"a seated operator near the side camera and a bystander; {sid.lower()}_selfpace.csv = column subset of the public {subj_name}.csv.\n")
+                                     f"{tdir}/{sid}_{ttok}_DeID.mp4 (left = along-walkway view 520x600, right = side view 900x500 letterboxed)" + (" with a co-walker,\n" if has_decoy else ",\n") +
+                                     f"a seated operator near the side camera and a bystander; {sid.lower()}_{tcsv}.csv = column subset of the public {subj_name}.csv"
+                                     + (" with the walkway columns fabricated from the rendered truth (one row per footfall, cm on the mat).\n" if mat_frame else ".\n"))
     # ground truth of the walker for the reconstruction experiment: SMPL pose, root trajectory, 3D joints, and per
     # view the image position and in-frame flag of every joint (no pixels)
     np.savez_compressed(out / f"{sid}_gt.npz", frame_idx=np.arange(pre, pre + T_s), imu_t_s=np.arange(T_s) / FPS, pose_aa=subj.astype(np.float32), transl=tr_s.astype(np.float32),
@@ -300,7 +352,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
                         **{f"{cid}_cam_pose": cam_poses[cid].astype(np.float32) for cid in cams}, **{f"{cid}_intrinsics": np.array(intr[cid], np.float32) for cid in cams},
                         **{f"{cid}_panel": np.array([0, 0, LW, LH] if cid == "left" else [LW, 0, LW + RW, RC]) for cid in cams},
                         note="SMPL (24 joints, axis-angle, neutral shape) in the render's world frame (y up); joints2d in full-frame pixels of the combined video")
-    expected = {"session_id": sid, "recording_id": f"{sid.lower()}_selfpace", "video": f"SP/{sid}_SP_DeID.mp4", "fps": FPS, "n_frames": n_frames, "variant": variant, "gt_npz": f"{sid}_gt.npz",
+    expected = {"session_id": sid, "recording_id": f"{sid.lower()}_{tcsv}", "video": f"{tdir}/{sid}_{ttok}_DeID.mp4", "task": task, "mat_frame": mat_frame, "fps": FPS, "n_frames": n_frames, "variant": variant, "gt_npz": f"{sid}_gt.npz",
                 "offset_s": pre / FPS, "offset_frame": pre, "light_rect": light[:2] + [light[2], light[2]], "imu_duration_s": T_s / FPS, "n_frames_in_recording": T_s,
                 "panels": {"left": [0, 0, LW, LH], "right": [LW, 0, LW + RW, RC]}, "layout": "horizontal", "seam": LW,
                 "views": {cid: {"gt_frames": gt[cid]["frames"], "gt_hip_px": gt[cid]["hip"], "n_visible": len(gt[cid]["frames"]),
@@ -314,7 +366,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     (out / "expected.json").write_text(json.dumps(expected))
     for cid in cams:
         print(f"{cid}: subject frames with hip in view {len(gt[cid]['frames'])}/{T_s}, vis counts {expected['views'][cid]['vis_counts']}")
-    print(f"sample -> {out}: " + ", ".join(f"{p.name} {p.stat().st_size / 1e6:.1f} MB" for p in (sess / 'SP').iterdir()))
+    print(f"sample -> {out}: " + ", ".join(f"{p.name} {p.stat().st_size / 1e6:.1f} MB" for p in (sess / tdir).iterdir()))
     return 0
 
 

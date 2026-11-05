@@ -176,6 +176,37 @@ def chordal_mean(aa_list: list[np.ndarray], w: np.ndarray) -> np.ndarray:
     return out
 
 
+# SMPL-X body joints 0-21 of the neutral mean shape, rest pose, relative to the pelvis (metres; from the SMPL-X neutral
+# model: smplx.create(..., model_type="smplx").joints with zero pose and shape), and their parents. Enough for a
+# model-free forward kinematics of the merged pose when only joint POSITIONS of the mean body are needed (the feet
+# for the walkway calibration); the real body shape moves them by a few centimetres.
+SMPLX_PARENTS = [-1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14, 16, 17, 18, 19]
+SMPLX_REST_JOINTS = np.array([[0.0, 0.0, 0.0], [0.0582, -0.0928, -0.026], [-0.0633, -0.1039, -0.0213], [-0.0028, 0.1099, -0.0276], [0.1129, -0.4715, -0.0354],
+                              [-0.1075, -0.4663, -0.0381], [0.0067, 0.2417, -0.0336], [0.0694, -0.8746, -0.0673], [-0.0921, -0.877, -0.0583], [-0.0046, 0.294, -0.0051],
+                              [0.1167, -0.9326, 0.0509], [-0.1309, -0.9353, 0.0608], [-0.0168, 0.4591, -0.0367], [0.0417, 0.3789, -0.0123], [-0.0523, 0.3783, -0.0185],
+                              [0.008, 0.6196, -0.016], [0.161, 0.4367, -0.0278], [-0.1549, 0.4318, -0.0312], [0.4151, 0.3645, -0.0703], [-0.4261, 0.3953, -0.0576],
+                              [0.6671, 0.3877, -0.0727], [-0.6753, 0.3908, -0.073]])
+L_FOOT, R_FOOT, L_ANKLE, R_ANKLE = 10, 11, 7, 8
+
+
+def fk_joints(root_aa: np.ndarray, body_aa: np.ndarray, transl: np.ndarray) -> np.ndarray:
+    """World positions (T, 22, 3) of the SMPL-X body joints of the mean shape for root (T,3), body pose (T,21,3) and
+    translation (T,3); the pelvis sits at the translation. Rows with a NaN root or translation are NaN; a NaN body
+    joint is taken as identity (its children then hang in the rest direction of their parent)."""
+    T = root_aa.shape[0]; out = np.full((T, 22, 3), np.nan)
+    ok = np.isfinite(root_aa).all(1) & np.isfinite(transl).all(1)
+    if not ok.any():
+        return out
+    Rg = [None] * 22; pos = [None] * 22
+    with np.errstate(all="ignore"):
+        Rg[0] = R.from_rotvec(root_aa[ok]); pos[0] = transl[ok].astype(float)
+        for j in range(1, 22):
+            par = SMPLX_PARENTS[j]; loc = np.nan_to_num(body_aa[ok, j - 1])
+            pos[j] = pos[par] + Rg[par].apply(SMPLX_REST_JOINTS[j] - SMPLX_REST_JOINTS[par]); Rg[j] = Rg[par] * R.from_rotvec(loc)
+    out[ok] = np.stack(pos, axis=1)
+    return out
+
+
 def heading_yaw_deg(root_aa: np.ndarray) -> np.ndarray:
     """Heading of a root orientation (T, 3) axis-angle in a y-up world: the yaw of the pelvis forward axis (SMPL
     faces +z in its rest pose) projected on the floor, degrees in (-180, 180]; NaN rows stay NaN."""

@@ -46,7 +46,21 @@ def _parse_time(col) -> np.ndarray:
     return out
 
 
+def _safe_float(col) -> np.ndarray:
+    """Numbers where the cell is a number, NaN for anything else (empty, text, 'a|b|c' lists)."""
+    out = np.full(len(col), np.nan)
+    for i, v in enumerate(col):
+        if isinstance(v, (int, float, np.floating, np.integer)):
+            out[i] = float(v); continue
+        try:
+            out[i] = float(str(v).strip())
+        except ValueError:
+            pass
+    return out
+
+
 CONTACT_COLS = ["L Foot Contact", "R Foot Contact"]
+WALKWAY_COLS = ["Walkway_X", "Walkway_Y"]     # pressure-walkway footfall positions (cm on the mat), sparse rows; kept for the merge's translation calibration
 
 
 def _read_columns(csv_path: Path, wanted: list[str]) -> dict:
@@ -72,14 +86,14 @@ def _read_columns(csv_path: Path, wanted: list[str]) -> dict:
         if c in ("Time", "GeneralEvent", "ClinicalEvent"):
             out[c] = np.array(vals, dtype=object)
         else:
-            out[c] = np.array([float(v) if v not in ("", "nan", "NaN") else np.nan for v in vals], dtype=np.float64)
+            out[c] = _safe_float(vals)
     return out
 
 
 def make_imu_ref(csv_path: str | Path, out_path: str | Path, recording_id: str | None = None,
                  subject: str | None = None, fs: float = IMU_FS) -> dict:
     csv_path = Path(csv_path); out_path = Path(out_path)
-    cols = ["Time", "GeneralEvent", f"{PELVIS_SENSOR}_FreeAcc_U"] + CONTACT_COLS
+    cols = ["Time", "GeneralEvent", f"{PELVIS_SENSOR}_FreeAcc_U"] + CONTACT_COLS + WALKWAY_COLS
     data = _read_columns(csv_path, cols)
     if f"{PELVIS_SENSOR}_FreeAcc_U" not in data:
         raise ValueError(f"{csv_path.name}: no {PELVIS_SENSOR}_FreeAcc_U column (is this a WearGait recording export?)")
@@ -106,6 +120,19 @@ def make_imu_ref(csv_path: str | Path, out_path: str | Path, recording_id: str |
         okc = np.isfinite(anyc)
         if okc.sum() > 10:
             contact = np.interp(grid, t[okc], anyc[okc], left=np.nan, right=np.nan)
+    ww_t, ww_x, ww_y = np.zeros(0, np.float32), np.zeros(0, np.float32), np.zeros(0, np.float32); ww_foot = np.zeros(0, np.int8)
+    if all(c in data for c in WALKWAY_COLS):
+        wx = _safe_float(data[WALKWAY_COLS[0]]); wy = _safe_float(data[WALKWAY_COLS[1]])     # some exports put sensor-index lists ('28|29|63') in these columns
+        okw = np.isfinite(wx) & np.isfinite(wy) & np.isfinite(t)
+        ww_t, ww_x, ww_y = t[okw].astype(np.float32), (wx[okw] / 100.0).astype(np.float32), (wy[okw] / 100.0).astype(np.float32)   # metres
+        # which foot landed: the contact flag that turned on within 80 ms of the row (1 = left, 2 = right, 0 = unknown)
+        ww_foot = np.zeros(len(ww_t), np.int8)
+        if all(c in data for c in CONTACT_COLS):
+            for lab, col in ((1, CONTACT_COLS[0]), (2, CONTACT_COLS[1])):
+                cf = np.nan_to_num(_safe_float(data[col])) > 0.5; on_t = t[np.flatnonzero(cf & ~np.r_[False, cf[:-1]])]
+                if len(on_t):
+                    near = np.abs(ww_t[:, None] - on_t[None, :]).min(1) <= 0.08
+                    ww_foot[near & (ww_foot == 0)] = lab; ww_foot[near & (ww_foot != 0) & (ww_foot != lab)] = 0
     if "GeneralEvent" in data:
         g = np.array([str(v) for v in data["GeneralEvent"]])
         start = 0
@@ -119,12 +146,13 @@ def make_imu_ref(csv_path: str | Path, out_path: str | Path, recording_id: str |
                         disp_up=disp.astype(np.float32), env=env.astype(np.float32),
                         event_label=np.array(labels), event_t0=np.array(t0s, np.float32), event_t1=np.array(t1s, np.float32),
                         contact=contact.astype(np.float32), contact_fraction=float(np.nanmean(contact > 0)) if np.isfinite(contact).any() else -1.0,
+                        walkway_t=ww_t, walkway_x_m=ww_x, walkway_y_m=ww_y, walkway_foot=ww_foot,
                         duration_s=float(grid[-1]), n_rows=int(n_rows_file), nan_fraction=nan_fraction,
                         source_sha256=_sha256(csv_path), source_name=csv_path.name, recording_id=rec, subject=subj,
                         schema="wgvp.imu_ref.v1")
     walk_s = float(sum(b - a for l, a, b in zip(labels, t0s, t1s) if l == "Walk"))
     return {"recording_id": rec, "subject": subj, "duration_s": float(grid[-1]), "walk_s": walk_s,
-            "nan_fraction": nan_fraction, "out": str(out_path)}
+            "nan_fraction": nan_fraction, "n_walkway_rows": int(len(ww_t)), "out": str(out_path)}
 
 
 def load_imu_ref(path: str | Path) -> dict:

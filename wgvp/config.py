@@ -12,8 +12,10 @@ DEFAULT_CONFIG = {
         "_doc": "A session = a subject folder (e.g. NLS036, HC100, 'nls207 (control)'); the scan looks at every folder whose name matches. Recording CSVs and task sub-folders are searched inside it."
     },
     "tasks": {
-        "selfpace": {"csv_tokens": ["selfpace", "selfpace_mat", "selfpace_matturn"], "dir_names": ["SP", "selfpace", "self-paced", "self_paced", "selfpaced", "self paced"], "video_tokens": ["SP", "selfpace", "self-paced", "self_paced"]},
-        "_doc": "Task families to process. csv_tokens: the <task> part of <subject>_<task>.csv recording files that belong to the family; dir_names: sub-folder names holding that task's video(s); video_tokens: tokens in a video file name that mark the task. Add e.g. \"hurriedpace\": {...} to extend."
+        "selfpace": {"csv_tokens": ["selfpace", "selfpace_mat", "selfpace_matturn"], "dir_names": ["SP", "SPM", "SPMT", "selfpace", "self-paced", "self_paced", "selfpaced", "self paced"], "video_tokens": ["SP", "SPM", "SPMT", "selfpace", "self-paced", "self_paced"]},
+        "hurriedpace": {"csv_tokens": ["hurriedpace", "hurriedpace_mat"], "dir_names": ["HP", "HPM", "hurriedpace", "hurried-pace", "hurried_pace", "hurried", "fast"], "video_tokens": ["HP", "HPM", "hurriedpace", "hurried-pace", "hurried_pace", "hurried"]},
+        "tug": {"csv_tokens": ["tug"], "dir_names": ["TUG", "tug", "timed-up-and-go", "timedupandgo"], "video_tokens": ["TUG", "tug"]},
+        "_doc": "Task families to process (self-paced, hurried-pace and TUG by default; add e.g. \"tandemgait\": {...} to extend). csv_tokens: the <task> part of <subject>_<task>.csv recording files that belong to the family; dir_names: sub-folder names holding that task's video(s); video_tokens: tokens in a video file name that mark the task. Add e.g. \"hurriedpace\": {...} to extend."
     },
     "recording_csv": {
         "regex": r"^(?P<subject>[^_]+)_(?P<task>[A-Za-z]+(?:_[A-Za-z]+)*)\.csv$",
