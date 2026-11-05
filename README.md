@@ -136,21 +136,26 @@ It contains video frames, so it is written under `work/` and is not part of the 
      (optional) *annot*.csv         annotation sheet with a video start frame (sync cross-check)
 ```
 
-A simpler layout with one folder per subject, the video in a `Video` sub-folder and the recording export in an
-`IMU` sub-folder matches the default rules as well, and is the layout the three-subject run below used:
+A simpler layout with one folder per subject, the videos in a `Video` sub-folder and the recording exports in an
+`IMU` sub-folder matches the default rules as well, and is the layout the multi-subject runs below used:
 
 ```
 <data root>/
   Sub 001/
      Video/SP_combo.mp4             the task comes from the SP token in the file name
-     IMU/Sub001_selfpace.csv        the recording export; the pipeline needs it for the sync and the subject identity
+     Video/TUG_combo.mp4            another task of the same subject
+     IMU/Sub001_selfpace.csv        the recording exports; the pipeline needs them for the sync and the subject identity
+     IMU/Sub001_tug.csv
   Sub 002/ ...
 ```
 
-`python tools/make_partner_layout.py <dest>` builds this layout from the three bundled synthetic sessions.
+`python tools/make_partner_layout.py <dest>` builds this layout from the bundled synthetic sessions (self-paced,
+hurried-pace, TUG and a walk on the instrumented mat).
 
-Only the self-paced family is processed by default (`selfpace`, `selfpace_mat`, `selfpace_matturn`); add other
-tasks in `wgvp_config.json` under `tasks`. A video is paired with every recording CSV of its task family for that
+Three task families are processed by default: self-paced (`selfpace`, `selfpace_mat`, `selfpace_matturn`; video
+tokens `SP`, `SPM`, `SPMT`), hurried-pace (`hurriedpace`, `hurriedpace_mat`; `HP`) and the Timed Up and Go (`tug`;
+`TUG`). Add others (tandem gait, balance) in `wgvp_config.json` under `tasks`; a config written by an older version
+keeps its own token lists, so add `SPM` there by hand if a mat video goes unmatched. A video is paired with every recording CSV of its task family for that
 subject and the sync stage reports which recording the video actually holds, so one long video per visit and one
 video per trial both work. Single-view videos work too (`"views": {"layout": "single"}`).
 
@@ -365,6 +370,7 @@ input. And everything a learner needs to weigh the target is in the file.
 | `body_pose` (T, 63) | the merged SMPL-X body pose on the video's frames, NaN for a joint no view saw |
 | `global_orient`, `transl` (T, 3) | the merged root in the reference view's GVHMR world (y up); the other view is turned onto it by one yaw and one offset fitted on frames where both see most of the body |
 | `heading_yaw_deg`, `global_orient_heading_rel`, `root_vel_heading_rel_m_s` | the root split into the heading (what only the room knows) and the tilt and velocity in the heading frame (what the body can know): a sensor model is asked for the latter |
+| `transl_scaled`, `transl_mat` (T, 3), `walkway_scale` (V), `transl_calibrated` | the translation after the walkway calibration (equal to `transl` without walkway rows), the same in the mat frame, each view's path scale, and whether the fit ran; see the translation paragraph below |
 | `betas` (10) | one body shape for the recording, the median of GVHMR's per-frame estimates over whole-body frames of both views |
 | `export_ok` (T) | the export rule above |
 | `weight` (T, 21), `root_weight`, `transl_weight` (T) | per-joint, root and translation loss weights in [0, 1]: one confident view or two agreeing ones carry 1, two views that both vouched for a joint and disagree are discounted (0.5 at 25 deg), nothing outside the export |
@@ -379,8 +385,23 @@ HC900 (the dry-run session) exports every frame at 8.7 deg legs, 5.7 deg knee RM
 turned onto each other to within 5 deg and 3 cm. The weakest field is the translation: GVHMR's position is a
 monocular depth estimate, within 0.1 m near the middle of the walk and off by 1 to 3 m at the far ends of it in a
 view that sees the walker small (an assumed focal length). Where both views see the subject their disagreement
-exposes this (`transl_disagree_m`, discounted by `transl_weight`); a single far view does not. The walkway export
-in the same CSV carries the mat position and is the right scale reference for it; it is not used yet.
+exposes this (`transl_disagree_m`, discounted by `transl_weight`); a single far view does not. When the recording
+CSV carries walkway footfall positions (`Walkway_X`, `Walkway_Y`), the merge fits, per view, one scale factor of
+its path (about the path's own centre, with the mat's pose in that view's world) to the footfalls against the
+position of the foot that landed (a model-free forward kinematics of the mean body gives the feet), accepts the fit
+only when its residual stays under 0.5 m, and writes `transl_scaled`, `transl_mat` (metres in the mat frame) and
+`walkway_scale`; the heading-frame velocity then comes from the scaled translation. The public WearGait export has
+these columns but almost never fills them (7 of 1,577 files, a few dozen rows each; two task exports put
+sensor-index lists in them), so the calibration was tested on rendered sessions whose CSV carries footfalls
+fabricated from the truth. **It does not help much.** On the mat session (`sample_v6`) it fixes the path's length
+(+15 % too long before, 1 % short after) and the 90th-percentile error (0.85 to 0.61 m) but not the median error
+(0.19 to 0.23 m) or the walking speed (0.26 to 0.28 m/s RMSE), which are per-frame jitter; on HC900, whose side
+view stretched the walk from 4.9 to 7.5 m, both fits are rejected (residuals 0.64 and 0.72 m after the best
+similarity), because that path is distorted, not scaled. The reason is in the data: GVHMR's world path is
+integrated by its network, not projected from the camera (its camera-frame and world-frame translations differ by
+0.4 to 1.6 m RMS as a rigid pair), so neither a focal-length nor a body-scale correction applies. If a partner's
+export does carry footfalls, the useful thing to do with them is to take the position on the mat from the walkway
+itself and the pose from the video; that is a small addition, not done here.
 
 ![the training target](docs/figures/merged_target.png)
 
@@ -441,6 +462,50 @@ pelvis bob, and it produced the one confidently wrong result of these runs: the 
 own lags disagreed, and the joint lag landed 30 s off with a "high" confidence while the sync light sat uncompared
 3 s into the video. That is where the two sanity rules above come from; both fire on the case. The walker was
 replaced for the shipped sample, and the episode is written up in the design notes (section 2.8).
+
+### Other tasks, and a mat walk with walkway footfalls
+
+Three more sessions were rendered and run through the same folder: a **Timed Up and Go** (`sample_v4`, HC903: hc100's
+three repetitions of sit, stand, walk 3 m, turn, walk back and sit, with a chair; the along camera faces the chair
+from beyond the turn), a **hurried-pace walk** (`sample_v5`, HC904: hc105 at speed with a co-walker, in HC901's
+compromised views), and a **self-paced walk on the instrumented mat** (`sample_v6`, HC905: hc105 in HC902's room,
+with the recording's `Walkway_X/Y` rows fabricated from the truth, one per footfall). Tandem gait has no public IK
+sequence to render from. All three paired, synced and selected without a config edit (sync within 5 ms of the
+truth; the TUG's selection r = 0.82 in the view facing the chair, the hurried walk 0.82 and 0.71), and lifted and
+merged like the others:
+
+| session | export | legs (median) | knee-flexion RMSE | root | two views' leg disagreement |
+|---|---|---|---|---|---|
+| TUG (HC903) | 97 % | 26.1 deg (see text) | 9.3 deg | 8.4 deg | 9.3 deg |
+| hurried pace (HC904) | 82 % | 14.0 deg | 13.8 deg | 7.8 deg | 14.0 deg |
+| mat walk (HC905) | 100 % | 9.6 deg | 6.7 deg | 6.2 deg | 8.2 deg |
+
+The TUG row says something about the truth rather than the lift: the two views agree with each other on the legs
+to 9 deg and on the ankles to 10 deg, yet both sit 26 deg from the IK sequence the walker was rendered from, with
+its ankles 95 deg off in every phase (sitting, standing up, walking, turning alike). The TUG is the task on which
+that IK's calibration passes least often (41 % of recordings), so for this sample the per-joint error measures the
+truth; the knee-flexion RMSE and the two-view agreement are the usable numbers. The hurried walk is the hard case
+it was built to be: the side view holds the walker for 42 % of the recording in five pieces, the two views share
+130 frames, and the merge exports 82 %.
+
+### When there is no truth: a real clip
+
+Every panel above that says "truth" exists because the walker was rendered. On a real recording the demo drops
+them and shows what can be checked instead: each view's own lift beside the reconstruction and the export (so the
+hand-overs are visible), the path from above, and in place of the truth curve the two views' disagreement on the
+leg joints where both see them. The bundled example of our own clip (`examples/bundled`) is the test case for this
+mode, lifted on a T4 like the rest:
+
+![demo without a truth](docs/figures/demo_no_truth.png)
+
+*One frame of `wgvp demo` on the bundled phone clip (OWN01, one view: 393 frames, 95 % exported, two runs with a
+0.7-s gap where the walker turned at the far end). With one view the reconstruction and the view coincide, so the
+middle row is reconstruction, export and the path from above; the timelines carry the view's output and the merge.
+The two-view composite of the same clip (OWN02) exercises the two-view layout, and its per-view panels and
+disagreement chart show at once why it is a layout check and not a second camera: the right panel is a mirror
+image, so its left leg is the walker's right leg, the two "views" flex opposite knees at the same instant, and the
+merge of the two means nothing for the legs. A real second camera does not do that; the synthetic sessions above
+are the test of the merge itself.*
 
 ## Outputs
 

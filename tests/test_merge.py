@@ -113,3 +113,40 @@ def test_merge_single_view_and_gaps(tmp_path):
     assert not m["export_ok"][100:160].any() and not m["export_ok"][200:208].any() and m["export_ok"][:100].all() and m["export_ok"][208:].all()
     assert (m["weight"][100:160] == 0).all() and (m["source"][100:160, 3] == 0).all() and (m["source"][:100, 3] == 1).all()
     assert np.nanmedian(geodesic(bp, body)) < 1.0 and abs(float(m["view_alignment_yaw_deg"][0])) == 0.0
+
+
+def test_walkway_calibration_recovers_each_views_depth_scale(tmp_path):
+    """Two views whose GVHMR positions are wrong by a depth factor about each camera (1.3x and 0.8x), a recording CSV
+    reference with the landing foot's position on a mat that is rotated and shifted in the world (2 cm of noise):
+    the merge must recover the two scale factors, express the path in the mat frame, and leave a translation closer
+    to the truth than the raw one."""
+    rng = np.random.default_rng(3); T = 600; frames = np.arange(T); t = frames / 30.0 - 2.0
+    body, root, transl, heading = _truth(T, rng); transl = transl - transl.mean(0) + [0.0, 0.95, 0.0]; betas = np.zeros(10)
+    cams = {"left": (np.array([6.0, 1.0, 0.5]), 1.3), "right": (np.array([0.0, 2.0, -5.0]), 0.8)}
+    rec = tmp_path / "wgvp_output" / "S" / "deliver" / "s_selfpace_mat"; conf = np.full(T, 0.9)
+    for name, (c, kerr) in cams.items():
+        est = c + kerr * (transl - c)                                      # what a lifter with the wrong body scale reports
+        Rc = R.from_euler("y", {"left": 30.0, "right": -70.0}[name], degrees=True)   # an arbitrary camera orientation
+        _view(rec / name, name, frames, _noisy(body, 0.02, rng), root, est, betas, conf, np.ones(T, bool))
+        z = dict(np.load(rec / name / "smpl_global.npz"))
+        np.savez(rec / name / "smpl_incam.npz", transl=Rc.inv().apply(est - c).astype(np.float32), global_orient=z["global_orient"], body_pose=z["body_pose"], betas=z["betas"], frame_idx=frames)
+    # the walkway: footfalls every 0.55 s while walking, in a mat frame rotated 25 deg and shifted, with half-step scatter
+    from wgvp.merge import feet_positions
+    th = np.radians(25.0); o = np.array([1.2, -0.7]); tk = np.arange(0.3, t[-1] - 0.3, 0.55); foot = (np.arange(len(tk)) % 2) + 1          # alternate feet
+    Ft = feet_positions(root, body, transl); pk = np.stack([np.interp(tk, t, Ft[:, f - 1, d]) for f, d in zip(foot, [0] * len(tk))], 0)
+    pk = np.stack([np.array([np.interp(tk[i], t, Ft[:, foot[i] - 1, 0]) for i in range(len(tk))]), np.array([np.interp(tk[i], t, Ft[:, foot[i] - 1, 2]) for i in range(len(tk))])], 1)
+    pk = pk + rng.normal(0, 0.02, pk.shape); d = pk - o; X = np.cos(th) * d[:, 0] - np.sin(th) * d[:, 1]; Y = np.sin(th) * d[:, 0] + np.cos(th) * d[:, 1]   # world -> mat (inverse of the merge's map)
+    (tmp_path / "wgvp_output" / "S" / "work" / "imu_ref").mkdir(parents=True)
+    np.savez(tmp_path / "wgvp_output" / "S" / "work" / "imu_ref" / "s_selfpace_mat_imu_ref.npz", walkway_t=tk.astype(np.float32), walkway_x_m=X.astype(np.float32), walkway_y_m=Y.astype(np.float32), walkway_foot=foot.astype(np.int8))
+    s = merge_recording(rec, log=lambda *a: None); m = np.load(rec / "merged_smpl.npz"); fit = s["walkway"]["fit"]
+    assert fit and fit["ok"] and bool(m["transl_calibrated"])
+    want = {v: 1.0 / cams[v][1] for v in cams}
+    for v, k in zip([str(x) for x in m["views"]], m["walkway_scale"]):
+        assert abs(k - want[v]) / want[v] < 0.06, (v, k, want[v])
+    def err(tr):                                                       # after one constant offset (the mat / world origin is arbitrary)
+        okt = np.isfinite(tr).all(1); d = tr - transl; d = d - np.nanmedian(d[okt], axis=0); return np.linalg.norm(d, axis=1)
+    err_raw = err(m["transl"]); err_cal = err(m["transl_scaled"])
+    assert np.nanmedian(err_cal) < 0.5 * np.nanmedian(err_raw) and np.nanmedian(err_cal) < 0.06
+    assert abs(((fit["mat_yaw_deg"] - 25.0 + 180) % 360) - 180) < 3.0 and np.isfinite(m["transl_mat"]).all()
+    # the mat-frame path matches the fabricated reference up to the scatter
+    Xm = np.interp(tk, t, m["transl_mat"][:, 0]); assert np.corrcoef(Xm, X)[0, 1] > 0.9 and abs(np.std(Xm) / np.std(X) - 1) < 0.15   # the reference carries half a step of scatter

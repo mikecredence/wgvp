@@ -20,7 +20,14 @@ Per recording:
      (`global_orient_heading_rel`), and the root velocity is expressed in the heading frame; a sensor model is
      then asked for tilt, turning rate and velocity, never for the room's yaw.
   7. One shape per recording (`betas`): the median of GVHMR's per-frame betas over whole-body frames of all views.
-  8. Weights for a loss, each in [0, 1] and meaning "no evidence against this value": `weight` (T, 21) = the
+  8. Translation scale from the walkway (when the recording CSV carries Walkway_X/Y footfall rows): GVHMR's position
+     is a monocular depth estimate, wrong by a factor along each camera's line of sight. Each view's positions are
+     scaled about its camera centre (recovered from the camera-frame and world-frame outputs) by a factor fitted,
+     together with the mat's yaw and offset in the reference world, to the walkway footfalls against the root's
+     path (robust least squares; the footfall sits up to half a step from the root, which averages out over a
+     back-and-forth walk). Outputs `transl_scaled`, `transl_mat` (metres in the mat frame) and the per-view scales;
+     the heading-frame velocity is then taken from the scaled translation.
+  9. Weights for a loss, each in [0, 1] and meaning "no evidence against this value": `weight` (T, 21) = the
      summed view weights that produced the joint (one confident view or two agreeing ones: 1) times an agreement
      factor 1 / (1 + ((d - 5 deg)+ / 20 deg)^2) where two views both vouched for the joint and disagreed by d; zero
      outside the export. `root_weight` = the summed raw root weights (presence x usable fraction squared, <= 1);
@@ -35,8 +42,8 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from .fusion import (LEGS, chordal_mean, circular_median_deg, export_mask, fuse_root, geodesic, heading_yaw_deg, moving_average_in_runs,
-                     ramp_inside, smooth_rotations, step_stats, usable_joints_rt)
+from .fusion import (L_ANKLE, L_FOOT, LEGS, R_ANKLE, R_FOOT, chordal_mean, circular_median_deg, export_mask, fk_joints, fuse_root, geodesic, heading_yaw_deg,
+                     moving_average_in_runs, ramp_inside, smooth_rotations, step_stats, usable_joints_rt)
 from .reconcile import SMPLX_BODY_JOINTS
 
 RAMP_S = 0.5           # cross-fade at the edges of usable segments and of lifted runs
@@ -47,6 +54,7 @@ AGREE_SCALE_DEG = 20.0 # the agreement factor is 0.5 at AGREE_FREE_DEG + this
 TRANSL_FREE_M, TRANSL_SCALE_M = 0.10, 0.30   # the same for the two views' pelvis positions
 BETAS_DIFF_WARN = 3.0  # |betas_a - betas_b| above which the two views may not hold the same person
 ALIGN_MIN_FRAMES = 30
+WALKWAY_MIN_ROWS = 12  # footfall rows needed before the translation scale is fitted
 
 FIELDS_DOC = (
     "frame_idx: frame of the original combined video; imu_t_s: recording time (pts/1000 - offset); "
@@ -55,6 +63,9 @@ FIELDS_DOC = (
     "heading_yaw_deg (T): yaw of the pelvis forward axis in that world, unwrapped inside runs; heading_yaw_rate_deg_s (T): its rate; "
     "global_orient_heading_rel (T,3): the root with the heading yaw removed (tilt only: what body-worn sensors can know); "
     "root_vel_heading_rel_m_s (T,3): root velocity in the heading frame (x lateral, y up, z forward); "
+    "transl_scaled (T,3): the translation after the walkway calibration (equal to transl when no walkway data); "
+    "transl_mat (T,3): the same in the mat frame (X along the mat, height, Y across), metres; walkway_scale (V): each view's depth-scale factor (1 = unchanged); "
+    "transl_calibrated: whether the walkway fit ran; "
     "betas (10): one body shape for the recording; "
     "export_ok (T): frames the export keeps (every leg joint output, runs >= 0.5 s); "
     "weight (T,21): per-joint loss weight in [0,1] (0 outside the export or where the joint is NaN); root_weight (T): the same for the root orientation; "
@@ -78,6 +89,102 @@ def align_to_reference(root_ref, transl_ref, root_v, transl_v, mask) -> dict:
         tr = np.linalg.norm(transl_ref[mask] - (tv + off), axis=1)
     return {"yaw_deg": float(yaw), "offset_m": [float(x) for x in off], "n_frames": n,
             "root_residual_deg": float(np.nanmedian(rr)), "transl_residual_m": float(np.nanmedian(tr))}
+
+
+def camera_centre_world(transl_world: np.ndarray, transl_cam: np.ndarray):
+    """GVHMR's camera is static: world = R p_cam + c. Rigid (Kabsch) fit on the finite rows -> (c (3,), R (3,3), rms)."""
+    ok = np.isfinite(transl_world).all(1) & np.isfinite(transl_cam).all(1)
+    if ok.sum() < 10:
+        return None
+    P, Q = transl_cam[ok].astype(float), transl_world[ok].astype(float); pm, qm = P.mean(0), Q.mean(0)
+    H = (P - pm).T @ (Q - qm); U, _, Vt = np.linalg.svd(H); D = np.eye(3); D[2, 2] = np.sign(np.linalg.det(Vt.T @ U.T))
+    Rm = Vt.T @ D @ U.T; c = qm - Rm @ pm
+    rms = float(np.sqrt(np.mean(np.sum((Q - (P @ Rm.T + c)) ** 2, axis=1))))
+    return c, Rm, rms
+
+
+def _interp_runs(t_src: np.ndarray, x_src: np.ndarray, t_q: np.ndarray, max_gap_s: float = 0.1) -> np.ndarray:
+    """Linear interpolation of (T, D) rows that are finite, NaN where the query time is not inside a run of finite rows."""
+    ok = np.isfinite(x_src).all(1); out = np.full((len(t_q), x_src.shape[1]), np.nan)
+    if ok.sum() < 2:
+        return out
+    ts = t_src[ok]; xs = x_src[ok]
+    for d in range(xs.shape[1]):
+        out[:, d] = np.interp(t_q, ts, xs[:, d], left=np.nan, right=np.nan)
+    i = np.clip(np.searchsorted(ts, t_q), 1, len(ts) - 1); gap = ts[i] - ts[i - 1]
+    out[gap > max_gap_s] = np.nan
+    return out
+
+
+def _mat_to_world(th: float, o, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    cy, sy = np.cos(th), np.sin(th)
+    return np.c_[cy * X + sy * Y + o[0], -sy * X + cy * Y + o[1]]
+
+
+def fit_mat_pose(xz: np.ndarray, W: np.ndarray) -> tuple[float, np.ndarray, float]:
+    """Rigid 2D map (yaw, offset) taking walkway points W (N,2, metres on the mat) onto world positions xz (N,2):
+    a 1-degree yaw grid with the offset in closed form, refined by robust least squares. Returns (yaw_rad, offset, rms)."""
+    from scipy.optimize import least_squares
+    best = None
+    for th in np.radians(np.arange(-180.0, 180.0, 1.0)):
+        o = xz.mean(0) - _mat_to_world(th, np.zeros(2), W[:, 0], W[:, 1]).mean(0); e = np.sum((_mat_to_world(th, o, W[:, 0], W[:, 1]) - xz) ** 2)
+        if best is None or e < best[0]:
+            best = (e, th, o)
+    sol = least_squares(lambda q: (_mat_to_world(q[0], q[1:3], W[:, 0], W[:, 1]) - xz).ravel(), np.r_[best[1], best[2]], loss="soft_l1", f_scale=0.3)
+    rms = float(np.sqrt(np.mean(np.sum((_mat_to_world(sol.x[0], sol.x[1:3], W[:, 0], W[:, 1]) - xz) ** 2, axis=1))))
+    return float(sol.x[0]), sol.x[1:3].copy(), rms
+
+
+def feet_positions(root_aa: np.ndarray, body_aa: np.ndarray, transl: np.ndarray) -> np.ndarray:
+    """(T, 2, 3): the left and right foot of the mean body (midpoint of ankle and foot joints) in the frame of `transl`."""
+    J = fk_joints(root_aa, body_aa, transl)
+    return np.stack([0.5 * (J[:, L_ANKLE] + J[:, L_FOOT]), 0.5 * (J[:, R_ANKLE] + J[:, R_FOOT])], axis=1)
+
+
+def landed_foot_xz(feet_t: np.ndarray, foot_label: np.ndarray, W_world_guess=None) -> np.ndarray:
+    """Pick per row the foot the walkway saw: the labelled one, else (label 0) the lower of the two (the stance foot
+    is on the floor). feet_t (N, 2, 3) -> (N, 3)."""
+    lab = np.asarray(foot_label, int); lower = np.argmin(feet_t[:, :, 1], axis=1)
+    pick = np.where(lab == 1, 0, np.where(lab == 2, 1, lower))
+    return feet_t[np.arange(len(feet_t)), pick]
+
+
+def fit_view_depth_scale(root_aa: np.ndarray, body_aa: np.ndarray, transl_world: np.ndarray, t_view: np.ndarray, cam_c: np.ndarray,
+                         ww_t: np.ndarray, ww_xy: np.ndarray, ww_foot: np.ndarray, max_rms_m: float = 0.5) -> dict | None:
+    """One view on its own: the scale factor k of its world path about the path's own centre (p' = m + k (p - m),
+    applied to the whole body) that, with the mat's yaw and offset in this view's world, best explains the walkway
+    footfalls against the position of the foot that landed (forward kinematics of the mean body from this view's own
+    pose). GVHMR's world path is integrated by its network, not projected from the camera (the camera-frame and
+    world-frame translations are not a rigid pair: see `camera_fit_rms_m`), so the centre of the scaling is the path
+    itself, not the camera. Robust least squares; a fit is accepted only when its residual is under `max_rms_m`.
+    None without enough rows."""
+    from scipy.optimize import least_squares
+    F = feet_positions(root_aa, body_aa, transl_world)                                           # (T, 2, 3)
+    Fq = np.stack([_interp_runs(t_view, F[:, i], ww_t) for i in range(2)], axis=1)              # (N, 2, 3)
+    use = np.isfinite(Fq).all(axis=(1, 2))
+    if use.sum() < WALKWAY_MIN_ROWS:
+        return None
+    lab = np.asarray(ww_foot[use], int).copy(); Fu = Fq[use]; W = ww_xy[use]
+    cam_c = Fu.reshape(-1, 3).mean(0)                                                             # the centre of the scaling: the view's own footfall-time positions
+    def pos_of(feet, k): return (cam_c + k * (feet - cam_c))[:, [0, 2]]
+    def solve(lab_now, x_init):
+        P = landed_foot_xz(Fu, lab_now)
+        def resid(q): return (_mat_to_world(q[1], q[2:4], W[:, 0], W[:, 1]) - pos_of(P, np.exp(q[0]))).ravel()
+        sol = least_squares(resid, x_init, loss="soft_l1", f_scale=0.15, max_nfev=2000)
+        return sol, float(np.sqrt(np.mean(np.sum(resid(sol.x).reshape(-1, 2) ** 2, axis=1))))
+    th0, o0, rms0 = fit_mat_pose(pos_of(landed_foot_xz(Fu, lab), 1.0), W); x0 = np.r_[0.0, th0, o0]
+    sol, rms = solve(lab, x0)
+    free = lab == 0
+    for _ in range(3 if free.any() else 0):                      # unlabelled rows: re-associate each with the nearer foot under the current fit, refit
+        m = _mat_to_world(sol.x[1], sol.x[2:4], W[:, 0], W[:, 1]); k_ = np.exp(sol.x[0])
+        dl = np.linalg.norm(pos_of(Fu[:, 0], k_) - m, axis=1); dr = np.linalg.norm(pos_of(Fu[:, 1], k_) - m, axis=1)
+        new = np.where(free, np.where(dl <= dr, 1, 2), lab)
+        if np.array_equal(new, lab):
+            break
+        lab = new; sol, rms = solve(lab, sol.x)
+    k = float(np.exp(sol.x[0]))
+    return {"ok": bool(sol.success) and 0.5 < k < 2.0 and rms <= max_rms_m, "scale": k, "yaw_deg": float(np.degrees(sol.x[1])), "offset_m": [float(x) for x in sol.x[2:4]],
+            "centre_m": [float(x) for x in cam_c], "rms_before_m": rms0, "rms_after_m": rms, "n_rows": int(use.sum()), "n_labelled": int((ww_foot[use] > 0).sum())}
 
 
 def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write: bool = True) -> dict | None:
@@ -110,8 +217,30 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     ramp = max(1, int(round(RAMP_S * fps))); min_run = max(1, int(round(MIN_RUN_S * fps)))
     frac = usable.sum(2) / 21.0                                                                  # (V, T)
     ref = int(np.argmax(usable.sum(axis=(1, 2)))); flags = []
+    # ---- camera centres (each view's own world) and the walkway footfalls, if the recording has them
+    cam_c = []; cam_rms = []          # diagnostic only: how far GVHMR's world path is from a rigid image of its camera-frame path
+    for i, v in enumerate(views):
+        inc = rec_dir / v / "smpl_incam.npz"; fit = None
+        if inc.exists():
+            zc = np.load(inc); fit = camera_centre_world(Z[v]["transl"], zc["transl"]) if len(zc["transl"]) == len(Z[v]["transl"]) else None
+        cam_c.append(fit[0] if fit is not None else None); cam_rms.append(fit[2] if fit is not None else None)
+    ww = None; ref_npz = rec_dir.parent.parent / "work" / "imu_ref" / f"{rec_dir.name}_imu_ref.npz"
+    if ref_npz.exists():
+        zr = np.load(ref_npz, allow_pickle=False)
+        if "walkway_t" in zr.files and len(zr["walkway_t"]) >= WALKWAY_MIN_ROWS:
+            ww = (zr["walkway_t"].astype(float), np.c_[zr["walkway_x_m"], zr["walkway_y_m"]].astype(float),
+                  zr["walkway_foot"].astype(int) if "walkway_foot" in zr.files else np.zeros(len(zr["walkway_t"]), int))
+    wfits = [None] * V; wscale = np.ones(V); transl_sc = transl.copy()           # per view, in its own world, scaled about its own path centre
+    if ww is not None:
+        for i, v in enumerate(views):
+            wfits[i] = fit_view_depth_scale(root[i], body[i], transl[i], t_imu, None, ww[0], ww[1], ww[2])
+            if wfits[i] and wfits[i]["ok"]:
+                wscale[i] = wfits[i]["scale"]; li = lifted[i]; ctr = np.array(wfits[i]["centre_m"]); transl_sc[i, li] = ctr + wscale[i] * (transl[i, li] - ctr)
+            elif wfits[i]:
+                flags.append(f"{v}: walkway fit rejected (scale {wfits[i]['scale']:.2f}, residual {wfits[i]['rms_after_m']:.2f} m): its translation is left as lifted")
+    calibrated = ww is not None and any(f is not None and f["ok"] for f in wfits)
     # ---- one world frame
-    align = []; root_al = root.copy(); transl_al = transl.copy()
+    align = []; root_al = root.copy(); transl_al = transl.copy(); transl_al_sc = transl_sc.copy()
     for i, v in enumerate(views):
         if i == ref:
             align.append({"yaw_deg": 0.0, "offset_m": [0.0, 0.0, 0.0], "n_frames": int(lifted[i].sum()), "root_residual_deg": 0.0, "transl_residual_m": 0.0, "reference": True}); continue
@@ -129,6 +258,10 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
         Ry = R.from_euler("y", a["yaw_deg"], degrees=True); li = lifted[i]
         with np.errstate(all="ignore"):
             root_al[i, li] = (Ry * R.from_rotvec(root[i, li])).as_rotvec(); transl_al[i, li] = Ry.apply(transl[i, li]) + np.array(a["offset_m"])
+            if calibrated:                                   # the scaled positions get their own offset onto the (scaled) reference view
+                tv = Ry.apply(transl_sc[i, li]); mm = mask[li]
+                off_sc = np.median(transl_sc[ref, li][mm] - tv[mm], axis=0) if mm.sum() >= 3 else np.array(a["offset_m"])
+                transl_al_sc[i, li] = tv + off_sc; a["offset_scaled_m"] = [float(x) for x in off_sc]
     # ---- root, translation
     root_f, share, raw = fuse_root([root_al[i] for i in range(V)], [usable[i] for i in range(V)], [lifted[i] for i in range(V)], ramp=ramp, return_raw=True)
     for i, v in enumerate(views):
@@ -144,6 +277,24 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     body_raw = chordal_mean([body[i] for i in range(V)], w); none = ~usable.any(0); body_raw[none] = np.nan
     body_f = smooth_rotations(body_raw, SMOOTH_FRAMES)
     export_ok = export_mask(body_f, LEGS, min_run)
+    # ---- the walkway-calibrated translation: the scaled views fused with the same shares, then the mat frame
+    transl_scaled = transl_f.copy(); transl_mat = np.full((T, 3), np.nan); wfit = None
+    if calibrated:
+        ts = np.nansum(share[:, :, None] * np.nan_to_num(transl_al_sc), axis=0); ts[~lifted.any(0)] = np.nan
+        transl_scaled = moving_average_in_runs(ts, SMOOTH_FRAMES)
+        Fm = feet_positions(root_f, body_f, transl_scaled); Fq = np.stack([_interp_runs(t_imu, Fm[:, i], ww[0]) for i in range(2)], axis=1); okq = np.isfinite(Fq).all(axis=(1, 2))
+        if okq.sum() >= WALKWAY_MIN_ROWS:
+            th, o2, rms_m = fit_mat_pose(landed_foot_xz(Fq[okq], ww[2][okq])[:, [0, 2]], ww[1][okq]); cy, sy = np.cos(th), np.sin(th)
+            dx, dz = transl_scaled[:, 0] - o2[0], transl_scaled[:, 2] - o2[1]           # inverse of the mat -> world map
+            transl_mat = np.c_[cy * dx - sy * dz, transl_scaled[:, 1], sy * dx + cy * dz]
+            wfit = {"ok": True, "scale": [float(k) for k in wscale], "per_view": {v: wfits[i] for i, v in enumerate(views)}, "mat_yaw_deg": float(np.degrees(th)),
+                    "mat_offset_m": [float(x) for x in o2], "rms_m": rms_m, "n_rows": int(okq.sum())}
+            if max(abs(np.log(k)) for k in wscale) > np.log(1.5):
+                flags.append(f"walkway calibration scales a view's depth by {max(wscale):.2f}x / {min(wscale):.2f}x (fit rms {rms_m:.2f} m on {int(okq.sum())} footfalls)")
+        else:
+            calibrated = False
+    if ww is not None and not calibrated:
+        flags.append(f"walkway rows present ({len(ww[0])}) but the translation scale could not be fitted: " + str({v: wfits[i] for i, v in enumerate(views)})[:300])
     # ---- heading-relative root
     yaw = heading_yaw_deg(root_f); yaw_u = np.full(T, np.nan); ok = np.isfinite(yaw)
     edges = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
@@ -159,7 +310,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
             if b_ - a_ >= 2:
                 out[a_:b_] = np.gradient(x[a_:b_], t_imu[a_:b_], axis=0)
         return out
-    yaw_rate = rate(yaw_u); vel_w = rate(transl_f); vel_hr = np.full((T, 3), np.nan); okv = np.isfinite(vel_w).all(1) & ok
+    yaw_rate = rate(yaw_u); vel_w = rate(transl_scaled); vel_hr = np.full((T, 3), np.nan); okv = np.isfinite(vel_w).all(1) & ok
     with np.errstate(all="ignore"):
         vel_hr[okv] = R.from_euler("y", -yaw[okv], degrees=True).apply(vel_w[okv])
     # ---- one shape
@@ -219,11 +370,15 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                                "views_disagree_p90_m": (float(np.nanpercentile(transl_dis, 90)) if np.isfinite(transl_dis).any() else None),
                                "note": "GVHMR's translation is a monocular depth estimate; on the rendered session it is within 0.1 m near the mat centre and off by 1-3 m at the far ends of the walk, which the two views expose where both see the subject (transl_disagree_m) and transl_weight discounts"},
                "betas": {"recording": [float(x) for x in betas_rec], "per_view": betas_view, "n_frames_used": int(bsel.sum()), "view_difference_norm": d_b},
+               "walkway": ({"rows": int(len(ww[0])), "fit": wfit, "per_view": {v: wfits[i] for i, v in enumerate(views)}} if ww is not None else {"rows": 0, "fit": None, "note": "no Walkway_X/Y rows in the recording CSV"}),
+               "camera_fit_rms_m": {v: r_ for v, r_ in zip(views, cam_rms)},
                "imu_time_mismatch_s": t_mismatch, "files": ["merged_smpl.npz", "merge.json"],
                "note": "the body IMUs are not used anywhere in this file: the recording CSV serves the sync and the subject identity only"}
     if write:
         np.savez_compressed(rec_dir / "merged_smpl.npz", frame_idx=frames, imu_t_s=t_imu, body_pose=body_f.reshape(T, 63).astype(np.float32),
-                            global_orient=root_f.astype(np.float32), transl=transl_f.astype(np.float32), heading_yaw_deg=yaw_u.astype(np.float32),
+                            global_orient=root_f.astype(np.float32), transl=transl_f.astype(np.float32), transl_scaled=transl_scaled.astype(np.float32),
+                            transl_mat=transl_mat.astype(np.float32), walkway_scale=wscale.astype(np.float32), transl_calibrated=bool(calibrated),
+                            heading_yaw_deg=yaw_u.astype(np.float32),
                             heading_yaw_rate_deg_s=yaw_rate.astype(np.float32), global_orient_heading_rel=root_hr.astype(np.float32),
                             root_vel_heading_rel_m_s=vel_hr.astype(np.float32), betas=betas_rec.astype(np.float32), export_ok=export_ok,
                             weight=weight.astype(np.float32), root_weight=root_weight.astype(np.float32), transl_weight=transl_weight.astype(np.float32),

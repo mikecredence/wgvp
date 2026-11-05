@@ -21,14 +21,15 @@ def test_scan_conventions(tmp_path):
     ids = [s["session_id"] for s in man["sessions"]]
     assert ids == ["study__HC100", "study__NLS036"]
     nls = man["sessions"][1]; recs = {r["recording_id"]: r for r in nls["recordings"]}
-    assert set(recs) == {"NLS036_selfpace", "NLS036_selfpace_mat"}            # tug not in the task families
+    assert set(recs) == {"NLS036_selfpace", "NLS036_selfpace_mat", "NLS036_tug"}   # three default families: self-paced (incl. mat), hurried-pace, TUG
+    assert [Path(v["path"]).name for v in recs["NLS036_tug"]["videos"]] == ["NLS036_TUG_DeID_90.mp4"]
     assert [Path(v["path"]).name for v in recs["NLS036_selfpace"]["videos"]] == ["NLS036_SP_DeID_90.mp4"]
     assert recs["NLS036_selfpace"]["videos"][0]["tags"] == "DeID_90"
     assert [Path(x).name for x in nls["labels"]] == ["NLS036_SP_labels.csv"]
     hc = man["sessions"][0]
     assert hc["recordings"][0]["videos"] and Path(hc["recordings"][0]["videos"][0]["path"]).name == "visit1.mp4"   # task from the sub-folder name
     reasons = {u["path"]: u["reason"] for u in man["unmatched"]}
-    assert "stray.mp4" in reasons and any("TUG_DeID" in k for k in reasons)
+    assert "stray.mp4" in reasons and not any("TUG_DeID" in k for k in reasons)
 
 
 def test_config_roundtrip(tmp_path):
