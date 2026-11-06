@@ -88,3 +88,46 @@ def test_refine_lag_stays_on_the_lights_peak():
     assert abs(wide - 3.55) < 0.02, wide                                         # what the old refinement did
     assert abs(narrow - 3.0) < 0.02, narrow
     assert refine_lag(curves, 3.0, 0.0) == 3.0 or abs(refine_lag(curves, 3.0, 0.0) - 3.0) < 0.02
+
+
+def _standing_scene(seed=0, split_at=None, operator_x=1250.0, operator_y=400.0, overlap=0):
+    """The walker stands at the far end for the first 12 s, then walks the 20-s back-and-forth; the side view's subject
+    is one fragment, or split at `split_at` frames into a standing fragment and a walking one (a tracker that lost the
+    id when the walk began). The operator's track ends at the same frame, far from the junction."""
+    rng = np.random.default_rng(seed); F = 1500; t = np.arange(F) / FPS
+    d = np.where(t < 12.0, 4.5, 2.5 + 2.0 * np.cos(2 * np.pi * (t - 12.0) / 20.0))
+    frames = np.arange(F); w_along = 90.0 / d + rng.normal(0, 1.0, F)
+    along = _trackset("left", [0, 0, 520, 600], [(1, frames, _kp(np.full(F, 260.0) + rng.normal(0, 2, F), 300 + 20 * (2.5 - d), w_along))])
+    subj = _kp(700 + 80 * d + rng.normal(0, 1.5, F), np.full(F, 150.0) + rng.normal(0, 1.5, F), np.full(F, 20.0))
+    oper = _kp(np.full(F, operator_x) + rng.normal(0, 1.0, F), np.full(F, operator_y), np.full(F, 40.0))
+    if split_at is None:
+        people = [(3, frames, subj), (5, frames[:split_at] if split_at else frames, oper)]
+    else:
+        people = [(7, frames[:split_at + overlap], subj[:split_at + overlap]), (3, frames[split_at:], subj[split_at:]), (5, frames[:split_at], oper[:split_at])]
+    return along, _trackset("right", [520, 0, 1420, 375], people)
+
+
+def test_cross_view_keeps_the_standing_frames_of_an_attached_fragment():
+    """Twelve seconds of standing inside the subject's fragment: the window test must not read the correlation of two
+    standing people's keypoint noise as an identity switch and drop them."""
+    along, side = _standing_scene()
+    xv = cross_view_selection(side, along.track(1), FPS)
+    assert xv["ok"] and xv["track_ids"] == [3], xv
+    assert xv["candidates"][3].get("frames_dropped", 0) == 0, xv["candidates"][3]
+    assert 3 not in xv["frame_masks"]
+
+
+def test_cross_view_attaches_a_standing_fragment_by_continuity():
+    """The tracker split the subject when the walk began: the standing fragment has no progress to correlate, and is
+    attached because it ends where the walking fragment begins; the operator's track, ending at the same frame but
+    elsewhere in the panel, is not."""
+    along, side = _standing_scene(split_at=360)
+    xv = cross_view_selection(side, along.track(1), FPS)
+    assert xv["ok"] and xv["track_ids"] == [3, 7] and xv["attached_by_continuity"] == [7], xv
+    assert 7 not in xv["frame_masks"] and 3 not in xv["frame_masks"]
+    along2, side2 = _standing_scene(split_at=360, operator_x=1075.0, operator_y=150.0)   # two fragments fit the junction: attach neither
+    xv2 = cross_view_selection(side2, along2.track(1), FPS)
+    assert xv2["track_ids"] == [3] and xv2["attached_by_continuity"] == []
+    along3, side3 = _standing_scene(split_at=360, overlap=2)                         # the tracker handed the id over with two frames in common
+    xv3 = cross_view_selection(side3, along3.track(1), FPS)
+    assert xv3["track_ids"] == [3, 7] and xv3["attached_by_continuity"] == [7], xv3

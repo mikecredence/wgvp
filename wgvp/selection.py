@@ -34,7 +34,11 @@ DEFAULTS = {
     "xview_min_overlap_s": 5.0,  # ... over at least this much shared time ...
     "xview_min_margin": 0.1,     # ... and this far above any other person moving with the subject, else WARN
     "xview_window_s": 5.0,       # inside an accepted fragment, windows of this length whose correlation falls under ...
-    "xview_window_r": 0.5,       # ... this are dropped (the tracker handed the id to someone passing behind)
+    "xview_window_r": 0.5,       # ... this are dropped (the tracker handed the id to someone passing behind) ...
+    "xview_window_min_motion": 0.1,  # ... judged only where the reference moves at least this fraction of its range in the window (a standing walker is no evidence)
+    "xview_chain_gap_s": 2.0,    # a fragment ending within this of an attached one's start (or starting after its end) ...
+    "xview_chain_dist": 0.5,     # ... with its box centre within this many box heights of the junction is the same person (attached by continuity) ...
+    "xview_chain_overlap_s": 0.25,  # ... allowing this much shared time with the attached one (a tracker hands an id over with a frame or two in common)
 }
 
 
@@ -498,9 +502,18 @@ def cross_view_selection(ts: TrackSet, ref_tr: dict, fps: float, params: dict | 
     with |r| >= xview_min_r over >= xview_min_overlap_s are accepted best first without temporal overlap. The margin
     is the best accepted |r| minus the best |r| of a rejected fragment overlapping it in time: someone walking in
     step with the subject correlates nearly as well at this time scale (a 0.8-s delay on a 20-s walk cycle), and is
-    flagged rather than resolved."""
+    flagged rather than resolved.
+
+    Two things the correlation cannot see. A walker standing still (before the first bout, between bouts at the
+    end of the mat) has no progress for it to correlate, so a tracker fragment that holds only that is attached by
+    continuity: it ends within xview_chain_gap_s of an accepted fragment's start, or starts within it of an accepted
+    fragment's end (a frame or two in common allowed, xview_chain_overlap_s: that is how a tracker hands an id
+    over), with its box centre within xview_chain_dist box heights of the junction, and no other fragment fits the
+    same junction. And inside an attached fragment the window test judges a window only where the other
+    view's subject actually moves (xview_window_min_motion of its range): the correlation of two standing people's
+    keypoint noise is nothing, not an identity switch."""
     p = {**DEFAULTS, **(params or {})}
-    out = {"method": "cross_view", "ok": False, "track_ids": [], "r": None, "margin": None, "candidates": {}, "reason": ""}
+    out = {"method": "cross_view", "ok": False, "track_ids": [], "r": None, "margin": None, "candidates": {}, "reason": "", "attached_by_continuity": []}
     if ref_tr is None or len(ref_tr.get("frame_idx", [])) == 0:
         out["reason"] = "no confirmed subject in another view"; return out
     n = int(max(ts.frame_idx.max(), ref_tr["frame_idx"].max())) + 1; ref = progress_signals(ref_tr, n, fps); need = int(p["xview_min_overlap_s"] * fps)
@@ -531,24 +544,52 @@ def cross_view_selection(ts: TrackSet, ref_tr: dict, fps: float, params: dict | 
         out["reason"] = f"no fragment's progress along the walk correlates with the other view's subject at |r| >= {p['xview_min_r']} (best {max(abs(c['r']) for c in out['candidates'].values()):.2f})"; return out
     best_r = abs(out["candidates"][accepted[0]]["r"])
     rival = max([abs(out["candidates"][t]["r"]) for t in rejected if any(_overlap(tracks[t], tracks[a]) > 0 for a in accepted)] + [0.0])
-    # within each accepted fragment, windows whose progress stops following the reference are an identity switch
-    # (the tracker handing the id to someone passing behind): mask them out, as the pelvis match does with its lag
+    # continuity: fragments abutting an attached one at the same place are the same person whatever their motion
+    def ends(tr):
+        f = tr["frame_idx"].astype(int); bx = np.asarray(tr["box"], float); h = float(np.median(bx[:, 3] - bx[:, 1]))
+        return int(f[0]), int(f[-1]), 0.5 * (bx[0, :2] + bx[0, 2:]), 0.5 * (bx[-1, :2] + bx[-1, 2:]), h
+    chained = []; gap = int(p["xview_chain_gap_s"] * fps); ov = int(round(p["xview_chain_overlap_s"] * fps)); changed = True
+    while changed:
+        changed = False
+        for tid in list(accepted) + list(chained):
+            f0, f1, c0, c1, h = ends(tracks[tid])
+            for before, fj, cj in ((True, f0, c0), (False, f1, c1)):
+                fits = []
+                for t2, tr2 in tracks.items():
+                    if t2 in accepted or t2 in chained or any(_overlap(tr2, tracks[t3]) > ov for t3 in list(accepted) + list(chained)):
+                        continue
+                    g0, g1, d0, d1, h2 = ends(tr2)
+                    near_t = (-ov <= fj - g1 <= gap) if before else (-ov <= g0 - fj <= gap)
+                    dist = float(np.linalg.norm((d1 if before else d0) - cj))
+                    if near_t and dist <= p["xview_chain_dist"] * 0.5 * (h + h2):
+                        fits.append(t2)
+                if len(fits) == 1:
+                    chained.append(fits[0]); changed = True
+    # within each attached fragment, windows whose progress stops following the reference while the reference
+    # moves are an identity switch (the tracker handing the id to someone passing behind): mask them out, as the
+    # pelvis match does with its lag; where the reference stands still the window is no evidence and is kept
     masks = {}; win = int(p["xview_window_s"] * fps); hop = max(win // 2, 1)
-    for tid in accepted:
-        tr = tracks[tid]; c = out["candidates"][tid]; ra, rb = c["pair"].split("~"); a = ref[ra]; b = progress_signals(tr, n, fps)[rb]; sign = np.sign(c["r"]) or 1.0
+    span = {k: float(np.nanpercentile(v, 97.5) - np.nanpercentile(v, 2.5)) if np.isfinite(v).any() else 0.0 for k, v in ref.items()}
+    c0 = out["candidates"][accepted[0]]; pair0 = c0["pair"]; sign0 = np.sign(c0["r"]) or 1.0
+    for tid in list(accepted) + list(chained):
+        tr = tracks[tid]; c = out["candidates"].get(tid) if tid in accepted else None
+        pair = c["pair"] if c else pair0; sign = (np.sign(c["r"]) or 1.0) if c else sign0
+        ra, rb = pair.split("~"); a = ref[ra]; b = progress_signals(tr, n, fps)[rb]
         idx = tr["frame_idx"].astype(int); keep = np.zeros(len(idx), bool); votes = np.zeros(len(idx), int)
         for s0 in range(0, max(len(idx) - win, 0) + 1, hop):
             sl = idx[s0:s0 + win]; ok = np.isfinite(a[sl]) & np.isfinite(b[sl])
-            if ok.sum() < win // 2 or np.nanstd(a[sl][ok]) < 1e-6 or np.nanstd(b[sl][ok]) < 1e-6:
-                keep[s0:s0 + win] |= True; votes[s0:s0 + win] += 1; continue             # too little motion to judge: keep
+            moved = ok.sum() >= win // 2 and (np.nanpercentile(a[sl][ok], 95) - np.nanpercentile(a[sl][ok], 5)) >= p["xview_window_min_motion"] * span[ra]
+            if not moved or np.nanstd(b[sl][ok]) < 1e-6:
+                keep[s0:s0 + win] |= True; votes[s0:s0 + win] += 1; continue             # no evidence either way: keep
             r = sign * np.corrcoef(a[sl][ok], b[sl][ok])[0, 1]
             if r >= p["xview_window_r"]:
                 keep[s0:s0 + win] |= True
             votes[s0:s0 + win] += 1
         keep |= votes == 0
         if (~keep).any():
-            masks[tid] = keep; out["candidates"][tid]["frames_dropped"] = int((~keep).sum())
-    out.update(ok=True, track_ids=sorted(accepted), r=float(best_r), margin=float(best_r - rival), rival_r=float(rival), frame_masks=masks)
+            masks[tid] = keep; out["candidates"].setdefault(tid, {"r": None, "pair": pair0, "overlap_s": 0.0})["frames_dropped"] = int((~keep).sum())
+    out.update(ok=True, track_ids=sorted(set(accepted) | set(chained)), r=float(best_r), margin=float(best_r - rival), rival_r=float(rival), frame_masks=masks,
+               attached_by_continuity=sorted(chained))
     if best_r - rival < p["xview_min_margin"]:
         out["reason"] = f"another person moves with the subject (|r| {rival:.2f} against {best_r:.2f}): check the thumbnails"
     return out

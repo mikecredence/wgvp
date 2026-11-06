@@ -34,8 +34,11 @@ Per recording:
      (`view_mirrored`, fusion.mirror_body).
   9. Weights for a loss, each in [0, 1] and meaning "no evidence against this value": `weight` (T, 21) = the
      summed view weights that produced the joint (one confident view or two agreeing ones: 1) times an agreement
-     factor 1 / (1 + ((d - 5 deg)+ / 20 deg)^2) where two views both vouched for the joint and disagreed by d; zero
-     outside the export. `root_weight` = the summed raw root weights (presence x usable fraction squared, <= 1);
+     factor 1 / (1 + ((d - 5 deg)+ / 20 deg)^2) where two views both vouched for the joint and disagreed by d, d
+     scaled by twice the smaller view's share of the root, which is how much of the dissenting view the merged
+     joint contains (the whole disagreement at an even split, none of it when the root rule set that view aside:
+     a view in the wrong gravity frame that also solved the legs wrongly is not evidence against the other view's
+     legs); zero outside the export. `root_weight` = the summed raw root weights (presence x usable fraction squared, <= 1);
      `transl_weight` = root_weight times the same kind of factor on the two views' pelvis positions (10 cm free,
      0.5 at 40 cm). Translation from one far camera is the weakest field (see the README).
 """
@@ -411,7 +414,8 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     if V >= 2:
         pair = usable[0] & usable[1]
         if pair.any():
-            d = geodesic(body[0], body[1]); f = 1.0 / (1.0 + (np.maximum(np.nan_to_num(d, nan=0.0) - AGREE_FREE_DEG, 0.0) / AGREE_SCALE_DEG) ** 2); agree = np.where(pair, f, 1.0)
+            d = geodesic(body[0], body[1]) * np.clip(2.0 * np.minimum(share[0], share[1]), 0.0, 1.0)[:, None]     # the disagreement the merged joint contains: all of it at an even split, none when the root rule set a view aside
+            f = 1.0 / (1.0 + (np.maximum(np.nan_to_num(d, nan=0.0) - AGREE_FREE_DEG, 0.0) / AGREE_SCALE_DEG) ** 2); agree = np.where(pair, f, 1.0)
     weight = evidence * agree * export_ok[:, None]; weight[~np.isfinite(body_f).all(2)] = 0.0
     root_weight = np.clip(raw.sum(0), 0.0, 1.0); root_weight[~np.isfinite(root_f).all(1)] = 0.0
     transl_dis = np.full(T, np.nan)
