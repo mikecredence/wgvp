@@ -179,3 +179,26 @@ def test_mirrored_view_is_detected_and_reflected_back(tmp_path):
     _view(rec2 / "left", "left", frames, _noisy(body, 0.03, rng), root, transl, betas, conf, np.ones(T, bool))
     _view(rec2 / "right", "right", frames, _noisy(body, 0.03, rng), (Rl * R.from_rotvec(root)).as_rotvec(), Rl.apply(transl), betas, conf, np.ones(T, bool))
     s2 = merge_recording(rec2, log=lambda *a: None); assert s2["views_mirrored"] == [] and not s2["mirror_check"]["right"]["mirrored"]
+
+
+def test_agreement_factor_counts_a_dissenting_view_by_its_share(tmp_path):
+    """A view that the root rule set aside (its gravity frame wrong, few joints in frame) and whose legs are also
+    wrong on a stretch: the merged legs there are the other view's, and the loss weight must say so rather than
+    read the dissent as a full disagreement (the along camera of HC901 on a standing walker, legs-only crop)."""
+    rng = np.random.default_rng(3); T = 360; frames = np.arange(60, 60 + T)
+    body, root, transl, heading = _truth(T, rng); betas = np.zeros(10)
+    yaw_l, off_l = -40.0, np.array([1.5, 0.0, -2.0]); Rl = R.from_euler("y", yaw_l, degrees=True)
+    body_l = _noisy(body, 0.03, rng); body_l[220:250] = _noisy(body[220:250], 0.5, rng)                      # its legs wrong over 220-250
+    root_l = (Rl * R.from_rotvec(root)).as_rotvec()
+    root_l[220:250] = (Rl * R.from_euler("x", 30, degrees=True) * R.from_rotvec(root[220:250])).as_rotvec()  # and its gravity frame with them
+    transl_l = Rl.apply(transl) + off_l; conf = np.full(T, 0.9); rec = tmp_path / "deliver" / "s_selfpace"
+    _view(rec / "left", "left", frames, body_l, root_l, transl_l, betas, conf, np.ones(T, bool))
+    _view(rec / "right", "right", frames, _noisy(body, 0.03, rng), root, transl, betas, conf, np.ones(T, bool))
+    k = np.load(rec / "left" / "kp2d_vitpose.npz"); kp = k["kp2d"].copy(); kp[220:250, :11, 1] = -10_000.0        # head to wrists out of its panel there
+    np.savez(rec / "left" / "kp2d_vitpose.npz", kp2d=kp, bbox_xyxy=k["bbox_xyxy"], view_box=k["view_box"], frame_idx=frames)
+    merge_recording(rec, log=lambda *a: None); m = np.load(rec / "merged_smpl.npz")
+    share = m["share"][0][225:245]; w = m["weight"][225:245][:, [3, 4]]; err = geodesic(m["body_pose"].reshape(T, 21, 3), body)
+    assert share.mean() < 0.2, share.mean()                                                   # the root rule left it a tenth of the root
+    assert np.nanmedian(err[225:245, [3, 4]]) < 3.0, np.nanmedian(err[225:245, [3, 4]])      # the merged knees are the right view's
+    assert w.mean() > 0.9, w.mean()                                                            # and the weight says so (the views' knees differ by ~30 deg: read in full, the factor would be ~0.4)
+    assert m["weight"][20:100].mean() > 0.9 and np.nanmedian(err[20:100]) < 3.0                # two agreeing views elsewhere: unchanged

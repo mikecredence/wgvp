@@ -88,7 +88,11 @@ Per video (CPU, one decode pass, cached by file hash):
    learning from body-worn sensors the root is also written heading-relative (yaw removed; velocity in the heading
    frame) and one body shape per recording is taken as the median of GVHMR's betas over whole-body frames. Loss
    weights in [0, 1]: per joint, the summed view weights (one confident view or two agreeing ones: 1) times an
-   agreement factor 1 / (1 + ((d - 5 deg)+ / 20 deg)^2) on the two views' disagreement d; for the root, the summed
+   agreement factor 1 / (1 + ((d - 5 deg)+ / 20 deg)^2) on the two views' disagreement d, d scaled by twice the
+   smaller view's share of the root, which is how much of the dissenting view the merged joint contains (until
+   2026-11-05 the whole disagreement counted: on HC901 the along view's standing-phase fragment, set aside by the
+   root rule with its knees 50 deg wrong on a legs-only crop, pulled the knee weight of that phase to 0.2 while the
+   merged knee was the side view's; it is 1.0 now, and the export-mean weight 0.76 -> 0.92); for the root, the summed
    raw root weights; for the translation, the same discounted by the two views' pelvis-position disagreement
    (10 cm free, 0.5 at 40 cm). Mirrored view (2026-11-05): before the alignment, every other view is tested
    against the reference for being its mirror image (a camera's picture flipped by its software): on frames where
@@ -738,17 +742,21 @@ and the identity only, and a third use would want its own argument.
 **The side camera's gravity frame, and the shipped HC901.** With the camera 2.3 m up looking down at the mat,
 GVHMR's root for the side view is pitched 6-15 deg from the truth on every rendered session (median over the
 recording after a yaw fit; the along views 3-9 deg), the alignment between views is a yaw and an offset, so the
-pitch stays as the views' root residual (11-18 deg, against 5-8 with the earlier side cameras), and the merged root
-carries the tilt of the reference view: 5.6-7.7 deg where that is the along view, 14.5 (HC901) and 15.8 (the TUG)
-where it is the side view. The same camera costs the TUG's seated and rising phases, which it sees obliquely and
+pitch stays as the views' root residual (12-23 deg, against 5-8 with the earlier side cameras), and the merged root
+carries the views' tilts in proportion to their shares of it: 14.5 (HC901) and 15.8 (the TUG) where the side view
+holds most of the root, 7.0-7.7 on the other walks where it holds a quarter to a half (HC900 read 5.6 while its
+side view covered half the span; with the standing walker kept, that view holds 0.39 of the root and the merged
+root took on more of its tilt). The same camera costs the TUG's seated and rising phases, which it sees obliquely and
 close: the side view's own leg error there went from 17 and 21 to 19 and 24 deg (the walking frames unchanged at
 14), and the TUG's legs over 20 deg from 16 to 29 % of the exported frames, all of it in the chair. A
 full-rotation alignment of the views onto the more upright one would remove the residual and, choosing the
 reference by uprightness, most of the tilt; it is the open item of this round. The shipped HC901 itself, the
-reconstruction section's sample, now reads: along view alone 19.3 deg on the legs (50 % over 20; 15.6 and 11 %
-where its legs are in frame), side view 11.5 and 0 %, merge 11.3 and 0 % at 94 % export, below both views on the
-513 frames both have the legs (13.0 against 13.5 and 15.6), knee-flexion RMSE 5.9 (the side view 5.9, the along
-view 40 over all of its frames); the experiment's table in the README is from the first render and says so.
+reconstruction section's sample, now reads: along view alone 22.2 deg on the legs (65 % over 20, its standing-phase
+fragment included; 15.5 and 11 % where its legs are in frame), side view 11.5 and 0 %, merge 11.3 and 0 % at 94 %
+export, below both views on the 511 frames both have the legs (13.0 against 13.6 and 15.5), knee-flexion RMSE 6.9
+(the side view 5.9: eleven frames at the side view's return from its gap at 3.8 s, where the cross-fade hands the
+along view's 50-deg-wrong standing knees the weight; the along view 46 over all of its frames); the experiment's
+table in the README is from the first render and says so.
 
 **What the room-wide side view's track does not hold.** Checked against the truth's projected pelvis, the side
 view's subject track covers the walker on 100 % of its frames and never another person, but it misses the walker
@@ -762,8 +770,28 @@ other view's subject falls under 0.5 are dropped as an identity switch) drops it
 to judge" guard asks for a standard deviation under 1e-6 pixels, which keypoint noise on a standing person never
 is, and the correlation of two noise signals is nothing. The along view has every one of those frames and the
 export loses none, so the training target is whole; what is lost is the side view's lift of the standing phases.
-The fix is in the next round: the window test judges a window only where the reference actually moves (a tenth
-of its range), and a standing fragment is attached by continuity with an attached one.
+Two rules in `cross_view_selection` answer it: the window test judges a window only where the other view's subject
+moves at least a tenth of its range (the 5th-95th percentile span inside the window), and a fragment that ends
+within 2 s of an attached fragment's start, or starts within 2 s of its end, with its box centre within half a box
+height of the junction and no other fragment fitting it, is attached by continuity (`attached_by_continuity`),
+whatever its motion, a frame or two in common with the attached fragment allowed, since that is how a tracker
+hands an id over (the first version demanded no overlap and missed the sample's 81-frame turn fragment for one
+shared frame); all with tests (a standing-then-walking scene: the standing frames are kept, a standing fragment
+split off by the tracker is attached, with or without the shared frames, two fragments at one junction attach
+neither). On the CPU stage rerun, HC900's side view went from missing 51 % of the walker's in-panel frames to
+13 %, HC905's from 14 to 0 %, HC901's along view gained its standing-phase fragment (priced in the README's HC901
+section: eleven frames of a 50-deg knee at one hand-over); what remains missing is where the side view
+has no fragment at all, the walker standing half out of the panel's edge at the near end of the mat before the
+first bout (HC902, HC904; HC900's first five seconds, in pieces) and a detector gap at a turn there (HC900, 36.2-36.9 s), which is the
+detector's limit, not the selection's. The dry run's coverage check, which compared the chosen track with the
+scene (and failed once the room-wide camera never lost the walker), now judges the selection on what the tracker
+produced: the chosen track must hold at least 90 % of the frames in which some fragment's box holds the subject's
+hip, and the detector's own recall is reported beside it. The continuity rule lives in the cross-view path only:
+HC902's side view, taken by the IMU match at a weak margin, would gain 41 frames from it, and the TUG's along view,
+taken by the IMU match, lacks the seated phases (33 % of the walker's frames in that view, 71 % of what its tracker
+found: a seated subject's fragments never correlate with the pelvis acceleration, and nothing attaches them; the
+side view has every one of those frames). Every recording was re-lifted on that selection; the README's numbers are
+from that run.
 
 ## 3. What has not been tested on real clinic recordings
 
