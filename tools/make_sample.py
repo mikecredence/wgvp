@@ -8,8 +8,9 @@ Scene (rendered SMPL meshes, no real video):
   bystander hc101's standing frames looped at the far wall
   light     a small square in the side panel, bright while the IMU records (optional cross-check only)
 Panels: LEFT = along-walkway view 520x600 (camera at the walkway end, low: the head leaves the frame when close);
-        RIGHT = oblique side view 900x500 letterboxed in 900x600 (black band below) seeing only the middle of the
-        corridor, so the subject exits/re-enters that view at both ends. Combined frame 1420x600, 30 fps.
+        RIGHT = the room-wide side view 900x375 letterboxed in 900x600 (black band below): elevated, 4 m from the
+        mat with the operators' desk in the foreground, the walker's head outside its top edge on the mat, and the
+        walker out of it only beyond the mat's ends. Combined frame 1420x600, 30 fps.
 Files: HC900/SP/HC900_SP_DeID.mp4 + HC900/hc900_selfpace.csv (column subset of the public hc100_selfpace.csv) and
 expected.json with the single sync offset, the panel boxes, and the subject's ground-truth hip projection per view.
 
@@ -162,25 +163,25 @@ def project(P, cam_pose, fx, fy, cx, cy):
 
 
 VARIANTS = {
-    # v1: the dry-run sample. Along view: camera low at the walkway end (head cut when close); side view: oblique,
-    # elevated, narrow (subject exits at both ends); a co-walker, a seated operator, a bystander.
+    # v1: the dry-run sample. Along view: camera at the walkway end, 1 m high (chest down at 2-3 m, head cut when
+    # close); side view: the room-wide one (side_cam), the walker out of it only past the mat's ends; a co-walker, a
+    # seated operator, a bystander.
     "v1": {"sid": "HC900", "subdir": "sample", "decoy": True, "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm + 1.5, 0.0, zm + 3.0],
            "cams": lambda x0, x1, xm, zm: {"left": along_cam(xm - 0.5 * MAT_L, x0, +1, zm), "right": side_cam(xm, zm)}},
     # v2: two deliberately compromised views of one walk, after the real session layout. Along view: camera 0.5 m
     # beyond the near end, 0.6 m high, looking down the mat: the whole body only at the far end, head and shoulders
-    # gone mid-way, shins only at the near end (the pose is lost there). Side view: 6 m back, 1 m high, narrow and
-    # tilted at the hips: the whole mat is in frame but the head is above the top edge for the entire pass and the
-    # shoulders sit at it; the walker leaves the frame only at the very ends. No co-walker: the point of this sample
-    # is reconstruction from two truncated views, and the ground-truth 3D pose is saved beside it.
+    # gone mid-way, shins only at the near end (the pose is lost there). Side view: the room-wide one, the head
+    # above the top edge along the whole mat. No co-walker: the point of this sample is reconstruction from two
+    # truncated views, and the ground-truth 3D pose is saved beside it.
     "v2": {"sid": "HC901", "subdir": "sample_v2", "decoy": False, "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm + 1.5, 0.0, zm + 3.0],
            "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [min(xm - 0.5 * MAT_L, x0) - 0.3, 0.6, zm + 0.05], "target": [min(xm - 0.5 * MAT_L, x0) + 1.4, 0.0, zm]},   # the stress test: low and close, shins only when near
                                            "right": side_cam(xm, zm)}},
     # v3: a third room (sample_v3/, session HC902): a different walker (hc105: 6.3 m of walkway, the largest pelvis bob of
     # the public set) with hc100 as the co-walker on the far
-    # side of the mat. The along camera stands at the FAR end and higher (1.5 m), so when the walker is close it is
-    # the legs that leave its frame, not the head; the side camera is on the other side of the room, higher and
-    # turned towards one end, so the walker leaves it at the other end only, where the along camera sees the whole
-    # body. The operator sits close to the side camera, lower right; the bystander stands at the far wall.
+    # side of the mat. The along camera stands at the OTHER end of the mat (the walker comes towards it on the
+    # return) and the side camera on the other side of the room, the same room-wide framing mirrored, so the walker
+    # leaves it beyond the mat's end nearest the along camera. The operator sits close to the side camera, lower
+    # right; the bystander stands at the far wall.
     "v3": {"sid": "HC902", "subdir": "sample_v3", "decoy": True, "subject": "hc105_selfpace", "decoy_name": "hc100_selfpace", "decoy_dz": 1.5,
            "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm - 1.0, 0.0, zm + 3.0],
            "cams": lambda x0, x1, xm, zm: {"left": along_cam(xm + 0.5 * MAT_L, x1, -1, zm), "right": side_cam(xm, zm, dx=-0.8)}},    # the along camera at the other end
@@ -193,11 +194,9 @@ VARIANTS = {
            # the along camera faces the chair from beyond the turn-around point, as a TUG is usually filmed
            "cams": lambda x0, x1, xm, zm: {"left": along_cam(x1 + 0.5, x1, -1, zm), "right": side_cam(xm, zm)}},
     # v5: a hurried-pace walk (sample_v5/, session HC904, task HP): hc105 at speed, with hc100 as the co-walker. The
-    # along view is v2's low camera past the near end (feet and mat, head cut when close); the side view is laid out
-    # like the real session's: elevated (2.2 m), 7 m back, wide (40 deg vertical, 66 deg across), the whole room and
-    # mat in frame with the operators' desk in the foreground, so the walker is never out of this view and leaves
-    # it only at the top edge, if at all. (The first render used v2's narrow side camera, which lost the walker for
-    # 58 % of the recording; the real side view sees the entire room.)
+    # along view is v1's camera past the near end (feet and mat, head cut when close); the side view is the room-wide
+    # one every sample shares (side_cam: 2.3 m high, 4 m from the mat, the desk in the foreground); the hurried
+    # walker overshoots the mat far enough to leave it at the near end for a third of the recording.
     "v5": {"sid": "HC904", "subdir": "sample_v5", "decoy": True, "subject": "hc105_hurriedpace", "decoy_name": "hc100_hurriedpace", "decoy_dz": 1.5, "task": {"csv": "hurriedpace", "dir": "HP", "token": "HP"},
            "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [x1 + 1.5, 0.0, zm + 3.0],
            "cams": lambda x0, x1, xm, zm: {"left": along_cam(xm - 0.5 * MAT_L, x0, +1, zm), "right": side_cam(xm, zm)}},
@@ -307,7 +306,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     if has_decoy:
         V_d, J_d = fk(deco, smpl, tr_d)
     # cameras: along-walkway = low at the x0 end looking down the mat (bodies truncate at the top when close);
-    # side = oblique, elevated, narrow field so it sees only the middle of the corridor (exits at both ends)
+    # side = the room-wide camera (side_cam): elevated, 4 m from the mat, the walker out of it only past the mat's ends
     cams = var["cams"](x0, x1, xm, zm)
     # the seated operator sits close to the side camera, lower right of its view, facing the room (v2: beside the far
     # end of the mat instead, outside the side view, so no part of the walk is occluded in the reconstruction sample)

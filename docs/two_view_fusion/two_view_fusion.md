@@ -1,5 +1,7 @@
 # Two compromised views, one pose: HC901
 
+Measured on the first render of `sample_v2` (side camera aimed at hip height, head cut on 77 % of its frames). The shipped `sample_v2` has since taken the room-wide side camera of the other samples; the README's reconstruction section closes with its numbers.
+
 1395 frames with the truth and both views lifted. Errors are geodesic angles (deg) between GVHMR's joint rotation and the rendered truth; medians over frames.
 
 | estimate | output coverage | legs | legs p90 | legs > 20 deg | arms | spine | all 21 | knee-flexion RMSE | frame step p99 | steps > 20 deg |

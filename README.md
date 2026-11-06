@@ -42,8 +42,10 @@ For each session video (one file, two views tiled side by side or stacked, unequ
 ![two views](docs/figures/two_views_tracking.png)
 
 *Two frames of the synthetic session with the detected panels (green and orange boxes), every tracked person and,
-beside each, that person's pelvis correlation with the IMU at the shared lag. The subject reaches 0.72-0.77; the
-co-walker, who starts 0.8 s later, -0.01 to 0.14; the seated operator and the bystander about 0.05.*
+beside each, that person's pelvis correlation with the IMU at the shared lag. In the along view the subject
+reaches 0.70; at the side view's distance the pelvis bob is below the keypoint noise, everyone it scores stays at
+0.0-0.16, and its subject is attached by the cross-view cue, the motion along the mat against the along view's
+subject (|r| 0.96).*
 
 ## Quick start
 
@@ -184,9 +186,13 @@ views support. The same lag is the sync offset, to sub-frame precision.
 
 ![selection and sync](docs/figures/selection_and_sync.png)
 
-*A: inside a walk bout the subject's video pelvis signal (green, both views) follows the accelerometer (black); the
-co-walker's (red) does not. B: correlation versus lag for every scored person; the subject's fragments peak at the
-shared lag of 3.01 s (true 3.00 s). C: coverage per view on the IMU timeline; the side view's two exits become gaps.*
+*A: inside a walk bout the subject's video pelvis signal (green; the along view's closely, the side view's at the
+keypoint noise of its scale) follows the accelerometer (black); the co-walker's (red) does not. B: correlation
+versus lag for every scored person; the along view's subject peaks at the shared lag of 3.00 s (true 3.00 s), and
+the side view's subject (fragments 6 and 29) is attached by the cross-view cue rather than by a peak of its own.
+C: coverage per view on the IMU timeline; the side view's gaps are the standing walker before the first bout and
+the turn at the near end of the mat (36-39 s), frames of the subject the motion cue could not attach or the
+tracker did not hold; the along view has them.*
 
 Correlations are judged by their **excess over an empirical chance level**, not by their raw value. Short fragments
 reach high correlations by chance (a 4-s fragment reaches r = 0.73 over a full-range lag search; a 45-s one 0.30),
@@ -232,7 +238,7 @@ can see it happened.
 | The walker is small in a room-wide side view (a hundred pixels tall): the vertical pelvis bob is under a pixel, below the keypoint noise, and no fragment of that view correlates with the IMU at any lag | Once the other view's subject is confirmed (by the pelvis match, or by a lag the light validated), that view's fragments are tested by their **progress along the walk** against the confirmed subject at zero lag on the shared video clock (the hip column where the walk runs across the picture, the feet's row or the body's width where it runs into it; |r| >= 0.8 over >= 5 s, windows that stop following are dropped); someone walking in step correlates nearly as well at this time scale and is flagged, not resolved | `selection_source` `cross_view`, the candidates' correlations in `selection.json` |
 | A second person's gait correlates with the recording above the chance model at a wrong lag (a co-walker's 15-s walk reached r 0.78 at a lag 4 s off) | The sync light is used as evidence, not only as a check: when a strong light-like step contradicts the pelvis match's winner, the lag candidate at the light is taken (added if no fragment proposed it) and the fragments are re-accepted there | `sync.json` and the recording's flags say the lag was chosen by the light |
 | One camera's picture is mirrored (a webcam's "mirror preview" left on): its left leg is the walker's right | The merge compares the knees of the two views in the swing phase as lifted and with the sides swapped (as lifted 11-16 deg vs swapped 21-40 on the rendered sessions; 43 vs 7 on a mirrored panel of a real clip) and reflects the mirrored view back before fusing | `view_mirrored` in `merged_smpl.npz`, `mirror_check` and a flag in `merge.json` |
-| One view's lift takes a 180-degree turn the wrong way round (the monocular front/back ambiguity): the two headings end up opposite until that lift snaps back | The merged root stays with the view that turns like a person: while the views disagree, a view turning faster than 150 deg/s or far from the previous fused root is discounted, and, reading the whole recording, a view whose root turns more than 90 deg within a quarter of a second during a disagreement episode carries nothing over that episode (the snap is its own correction) | `merge.json` `continuity.root_flips_over_90deg`, a flag when any remain; the demo's heading trace |
+| One view's lift takes a 180-degree turn the wrong way round (the monocular front/back ambiguity): the two headings end up opposite until that lift snaps back | The merged root stays with the view that turns like a person: while the views disagree, a view turning faster than 150 deg/s or far from the previous fused root is discounted, and, reading the whole recording, a view whose root turns more than 90 deg within a quarter of a second during a disagreement episode, or whose coverage ends or begins inside one while the other view continues, carries nothing over that episode (the snap is its own correction; a departure leaves the disagreement unresolved) | `merge.json` `continuity.root_flips_over_90deg`, a flag when any remain; the demo's heading trace |
 
 Two of these rules were learned the hard way while testing (the perspective term in the pelvis signal, and the
 chance level of short fragments); [docs/design.md](docs/design.md) section 2.6 has the numbers before and after.
@@ -247,7 +253,7 @@ its output to NPZ on the IMU timeline, and then compares the two views, which sh
 ![agreement](docs/figures/gvhmr_two_views_agreement.png)
 
 *On the synthetic session, lifted on a Tesla T4: the two views' knee-flexion curves line up on the IMU timeline
-(residual lag -46 ms, within the 3-frame tolerance) and the leg joints disagree by a median of 5.9 degrees. Body
+(residual lag -36 ms, within the 3-frame tolerance) and the leg joints disagree by a median of 8.4 degrees. Body
 shape differs between views, as expected from a per-frame estimate when one view truncates the body.*
 
 GVHMR takes about 0.5 s per frame per view on a T4 (12-15 min for a 50-s view). Its weights and the SMPL / SMPL-X
@@ -258,8 +264,10 @@ is untested because our GPU box had no disk left for it.
 ## Partial bodies, exits and re-entries
 
 A gait-lab camera at the end of the walkway cuts the head off when the participant is close, and a side camera
-loses the participant at both ends of the walkway. A lifter run naively on such footage either crumples the body
-or jumps to whoever else is in frame. What the pipeline does, and what the synthetic session measured on a T4:
+loses the participant beyond the ends of the mat. A lifter run naively on such footage either crumples the body
+or jumps to whoever else is in frame. What the pipeline does, and what the synthetic session measured on a T4
+(its first render, whose narrow side camera lost the walker at both ends of the mat; the shipped render has the
+room-wide side camera described further down, and its numbers are in the sections that follow):
 
 * **Who gets lifted.** GVHMR is driven with the subject's own box track, so an exit never becomes a jump to a
   bystander; the measured per-frame joint-rotation step in the lifted output is 1-2 deg median, and the two frames
@@ -303,9 +311,10 @@ first real run can show.
 The real session layout is harsher than the dry-run sample: the along-walkway camera sits at the end of the mat,
 so the participant fills and overflows the frame when close, and the side camera's framing cuts the head. To ask
 whether two such views still give back one correct 3D pose, `sample_v2/` renders the same walk from an along view
-that keeps only the legs when the walker is near (hips out of frame 60 % of the time) and a side view aimed at
-hip height (head above the frame in 77 % of frames), and saves the walker's true SMPL pose and 3D joints beside
-it. `tools/two_view_fusion.py` then measures, against that truth, each view's GVHMR error per joint and by what
+that keeps only the legs when the walker is near (hips out of frame half of the time) and saves the walker's true
+SMPL pose and 3D joints beside it. The experiment below was run on its first render, whose side view was aimed at
+hip height (head above the frame in 77 % of frames); the shipped `sample_v2/` has since taken the room-wide side
+camera of every other sample, and its current numbers close this section. `tools/two_view_fusion.py` measures, against that truth, each view's GVHMR error per joint and by what
 the camera could see, and the error of three fused estimates (plain rotation mean, ViTPose-confidence-weighted
 mean, and an oracle per-joint pick as the upper bound). The rotations GVHMR returns are camera-independent apart
 from a constant heading offset between the two cameras' world frames, which the script fits and removes.
@@ -382,19 +391,36 @@ locked onto that heavier view, snapped with it). The merge runs offline, so a th
 first: within every episode of disagreement, a view whose own root turns more than 90 deg within a quarter of a
 second, during the episode or just after it, is the one that took the turn the wrong way (a person cannot; the
 snap is the lift's own correction), and it carries no weight over that episode, up to 4 s either side of its
-snap; when no view snaps, or more than one does, the rule is silent and the causal terms decide. That removed
-both flips. Every term is continuous in its inputs, so nothing in the rule can step the root
-(`wgvp.fusion.fuse_root`). The same share then scales that view's weight for all
-of its body joints, since a lifter that got the gravity frame wrong solved the whole body in it. This takes the
-fused root to 6.6 deg (the views: 49.6 and 7.3) with a frame step at the 99th percentile of 5.4 deg (the side
-view alone 7.3), and the merge below the better view in every column: legs 10.0 deg, outliers 8 %, all 21 joints
-11.4 deg, knee-flexion RMSE 7.4 against the side view's 8.2 (last segment-rule row of the table), at 98 %
-coverage and steps of 4.8 deg at the 99th percentile.
+snap. The same episode can also end without a snap when the wrong view's coverage simply runs out (the walker
+turns out of its frame at the end of the mat, as the hurried walker did in the side view): nothing resolves the
+disagreement, and at the hand-off the merged root would jump by the whole gap onto the surviving view, so a view
+whose coverage ends, or begins, inside an episode while another view continues through it is treated like a
+snapping one and carries nothing over that episode. When no view snaps or departs, or more than one does, the rule
+is silent and the causal terms decide. That removed every flip of the rendered set. Every term is continuous in
+its inputs, so nothing in the rule can step the root (`wgvp.fusion.fuse_root`). The same share then scales that view's weight for all
+of its body joints, since a lifter that got the gravity frame wrong solved the whole body in it. On the
+experiment's render this took the fused root to 6.6 deg (the views: 49.6 and 7.3) with a frame step at the 99th
+percentile of 5.4 deg (the side view alone 7.3), and the merge below the better view in every column: legs 10.0
+deg, outliers 8 %, all 21 joints 11.4 deg, knee-flexion RMSE 7.4 against the side view's 8.2 (last segment-rule
+row of the table), at 98 % coverage and steps of 4.8 deg at the 99th percentile.
+
+On the shipped render of HC901, with the room-wide side camera, the along view is the same stress case (legs usable
+on 35 % of the span, hips in frame on half of its frames; knee-flexion RMSE 40 deg over all of its frames and 11
+where its legs are in frame) and the side view now sees the whole walker but for the top of the head (legs usable
+95 %): alone it is at 11.5 deg on the legs with no outliers, 11.6 over all 21 joints, knee-flexion RMSE 5.9. The
+merge matches it (11.3 deg, 0 %, 11.5, 5.9) at 94 % export, and on the 513 frames where both views have the legs
+it is below either view (13.0 deg against 13.5 and 15.6; knee-flexion RMSE 7.4 against 7.6 and 10.9), the along
+view's share of the root being 6 %. Its root error, 14.5 deg, is not the along view's pitch this time but the side
+view's: lifted from a camera 2.3 m up looking down at the mat, GVHMR's gravity frame holds the pelvis pitched
+6-15 deg from the truth on every rendered session (the along views: 3-9 deg), the views are aligned by a yaw and an
+offset only, and the merged root carries the tilt of whichever view it takes as its reference: the side view here
+and in the TUG (root 14.5 and 15.8 deg), the along view elsewhere (5.6-7.7). A full-rotation alignment of the
+views onto the more upright one is the open item for that.
 
 What an export keeps is stricter than what the reconstruction shows. The red parts are filled only so the mesh
 can be drawn; the export (`export_mask`) keeps a frame only when every leg joint is output, in runs of at least
 0.5 s, and on those frames contains only the joints some view saw. On HC901 that is 94 % of the IMU span (the
-along view alone has the legs for 37 % of it, the side view for 91 %).
+along view alone has the legs for 35 % of it, the side view for 95 %).
 
 ### The training target: `merged_smpl.npz`
 
@@ -458,21 +484,22 @@ it exists and from `transl_scaled` elsewhere.
 ![the training target](docs/figures/merged_target.png)
 
 *The target of HC901 (`tools/make_target_figure.py`). A: what each view can vouch for, the export mask and the
-per-joint weight; the along view (blue) drops out of the legs for most of the walk and the weight follows. B: the
-heading and the heading-relative tilt. C: the root velocity in the heading frame against the rendered truth, with the
-frames of low root weight shaded; the velocity errors sit at the ends of the walk, where the translation is a far
-view's depth guess.*
+per-joint weight; the along view (blue) vouches for half of the joints at best, the legs, and the weight follows it
+only where the side view has a gap. B: the heading and the heading-relative tilt (the pitch sits 10 deg below zero
+while the walker stands: the side view's gravity frame, see the text). C: the root velocity in the heading frame
+against the rendered truth, with the frames of low root weight shaded: the side view's gaps, where only the far
+along view has the walker.*
 
 ![two-view demo](docs/figures/two_view_demo.gif)
 
-*Fourteen seconds of HC901 (`python -m wgvp demo`, full video in the results of the run). Top: the two views with
+*Fourteen seconds of HC901's walk, IMU 26-40 s (`python -m wgvp demo`, full video in the results of the run). Top: the two views with
 ViTPose's keypoints for the chosen subject (the lifter's input; the left/right labels of the arms and legs are
 kept consistent from frame to frame for the drawing, because 2D estimators flip sides on a side-on walker, and
 the 3D stage does not use them) and what each view can use; the bright square in the side view is the sample's
 sync light, lit while the IMU records, which the flash cross-check reads. Middle, left to right: the rendered
-truth on the mat; the reconstruction (red = a part no view could see, filled only so the mesh can be drawn; at
-35-38 s the along view holds only the legs and the upper body GVHMR invents from them is exactly what gets
-excluded); the export, in which such parts are absent and a dropped frame shows the empty mat; and the whole room
+truth on the mat; the reconstruction (red = a part no view could see, filled only so the mesh can be drawn; the along view
+holds only the legs when the walker is near, and the upper body GVHMR invents from them is exactly what gets
+excluded; at 35-39 s, the walker at its feet, it holds nothing); the export, in which such parts are absent and a dropped frame shows the empty mat; and the whole room
 from above: mat, walker, the operator at the desk, the bystander, the along camera (blue) and the side camera
 (orange). Without a ground truth (a partner's recording) the truth panel and row are absent and the aerial view
 shows the reconstruction on its own path. Bottom, the readout in two forms (`--readout strips|charts|both`): a filmstrip with a small render
@@ -480,7 +507,7 @@ every 2 s of what each view outputs (joints it cannot see in red), the merge and
 blocks marked at frame resolution by a bar under each row and a box around the consecutive thumbnails inside one
 block (a view: its legs usable; the merge: the frames the export keeps; thumbnails outside a block are dimmed);
 then the same as timelines on the shared IMU axis: each view's knee-flexion output (blue, orange), the merge
-(green, with gaps where no view saw the joint) and the truth (white). The side view leaves the frame at 29-32 s;
+(green, with gaps where no view saw the joint) and the truth (white). The side view has the walker throughout but for half a second at 36 s;
 the merge follows whichever view can see and hands over without a step.*
 
 ### Three subjects in a partner-style folder
@@ -488,26 +515,35 @@ the merge follows whichever view can see and hands over without a step.*
 To check that the package runs off a study folder rather than off its own samples, the three synthetic sessions
 were laid out as `Sub 001/Video/SP_combo.mp4` with the recording export under `Sub 001/IMU/` (the layout shown
 under "Expected input"; `tools/make_partner_layout.py` builds it), scanned with the default rules, run on the CPU,
-lifted on a T4, merged, and rendered with `wgvp demo`. The third session is a new room (`sample_v3/`, HC902):
-another walker, a co-walker on the far side of the mat, the along camera at the far end and high enough that the
-legs leave its frame when the walker is close, the side camera on the other side of the room and turned towards
-one end, so the walker leaves it at the other end for almost half of the recording.
+lifted on a T4, merged, and rendered with `wgvp demo`. Every sample's room follows the real session's, measured
+on a Video Labeler frame: the side camera elevated, about 4 m from the mat with the operators' desk in the
+foreground, so that the 16 x 2 ft mat spans some 60 % of its panel and a walker on it has the top of the head at
+the top edge; the along camera at one end of the mat about 1 m high, so that a walker 2-3 m away shows from the
+chest down (`sample_v2` keeps its lower, closer along camera as the truncation stress test). The self-paced and
+hurried walks step off the mat to turn, as in the clinic, and the side view keeps the walker through the turns;
+what its track does not hold is the walker standing still before the first bout, a tracker fragment with no
+motion for the cross-view cue to attach (the along view has those frames). The third session is a new room
+(`sample_v3/`, HC902): another walker (hc105), a co-walker on the far side of the mat, the along camera at the
+other end of the mat and the side camera on the other side of the room.
 
 The scan paired every video with its recording without a config edit. Against each session's rendered truth, on
 the exported frames:
 
 | session | export | legs (median) | knee-flexion RMSE | root | views turned onto each other to |
 |---|---|---|---|---|---|
-| Sub 001 (HC900) | 100 % | 8.7 deg | 5.9 deg | 4.7 deg | 5.3 deg, 3 cm |
-| Sub 002 (HC901) | 96 % | 10.0 deg | 7.5 deg | 6.6 deg | 2 cm (roots 54 deg apart: the along view's pitch, flagged) |
-| Sub 003 (HC902) | 100 % | 11.5 deg | 9.2 deg | 7.4 deg | 8 deg, 0.52 m (flagged) |
+| Sub 001 (HC900) | 100 % | 8.8 deg | 6.8 deg | 5.6 deg | 11 deg, 0.54 m (flagged) |
+| Sub 002 (HC901) | 94 % | 11.3 deg | 5.9 deg | 14.5 deg | 18 deg, 0.62 m (flagged) |
+| Sub 003 (HC902) | 100 % | 11.2 deg | 9.8 deg | 7.0 deg | 12 deg, 0.72 m (flagged) |
 
-Sub 003's flag is the translation again: the two views put the pelvis half a metre apart on the frames both see,
-each a monocular depth under an assumed focal length, and the merge says so (`transl_weight` averages 0.67 there
-against 0.9 for the pose weights). The side view confirmed the sync from the other view and attached its six
-fragments at that lag (a WARN, as designed: the walker is out of that view for half of the recording), and the
-whole run, scan to demos, took the CPU stages at about 80 s per session on a laptop and the lift at 8-10 minutes
-per session on a T4.
+Every flag is the translation: the two views put the pelvis half a metre apart on the frames both see, each a
+monocular depth under an assumed focal length, and the merge says so (`transl_weight` averages 0.3-0.6 against
+0.8-0.9 for the pose weights); the roots turn onto each other to 11-18 deg, which is the side view's pitch
+(above). Sub 002's side view confirmed the sync, which its along view cannot, and the light settled the lag (the
+pelvis match had locked onto the subject's own walk a bout later, the case written up under "How the subject is
+found and synced"); Sub 003's side view attached its fragment at the lag of the other view (a WARN, as designed:
+that view's track has the walker for 70 % of the recording, the standing start being unattached, and 98 % of the
+frames inside the walk bouts). The whole run, scan to demos, took the CPU stages at about 90 s per session on a
+laptop and the lift at about 10 minutes per recording on a T4.
 
 The first version of the third session used a walker whose sensor-derived path covered a single metre with a 5-mm
 pelvis bob, and it produced the one confidently wrong result of these runs: the side view fragmented, the fragments'
@@ -517,31 +553,34 @@ replaced for the shipped sample, and the episode is written up in the design not
 
 ### Other tasks, and a mat walk with the walkway
 
-Three more sessions were rendered and run through the same folder: a **Timed Up and Go** (`sample_v4`, HC903: hc100's
+Three more sessions were rendered and run through the same folder: a **Timed Up and Go** (`sample_v4`, HC903: hc142's
 three repetitions of sit, stand, walk 3 m, turn, walk back and sit, with a chair; the along camera faces the chair
-from beyond the turn), a **hurried-pace walk** (`sample_v5`, HC904: hc105 at speed with a co-walker; the
-first render used HC901's narrow side camera; the sample now has a side camera laid out like the real session's,
-elevated and wide, with the whole room and mat in frame), and a **self-paced walk on the instrumented mat** (`sample_v6`, HC905: hc105 in HC902's room,
+from beyond the turn), a **hurried-pace walk** (`sample_v5`, HC904: hc105 at speed with a co-walker, overshooting
+the mat at both ends) and a **self-paced walk on the instrumented mat** (`sample_v6`, HC905: hc105 in HC902's room,
 with the recording's walkway columns fabricated from the truth in the export's own form, see above). Tandem gait has no public IK
-sequence to render from. All three paired, synced and selected without a config edit (sync within 5 ms of the
-truth; the TUG's selection r = 0.82 in the view facing the chair, the hurried walk 0.82 and 0.71), and lifted and
-merged like the others:
+sequence to render from. All three paired, synced and selected without a config edit (sync within 7 ms of the
+truth; the TUG's selection r = 0.75 and 0.59, the hurried walk 0.54 in the along view with the side view attached
+by the cross-view cue, the mat walk 0.51 and the cue), and lifted and merged like the others:
 
 | session | export | legs (median) | knee-flexion RMSE | root | two views' leg disagreement |
 |---|---|---|---|---|---|
-| TUG (HC903, hc142) | 94 % | 14.3 deg | 8.1 deg | 12.8 deg | 7.6 deg |
-| hurried pace (HC904, room-wide side view) | 100 % | 12.0 deg | 10.5 deg | 8.8 deg | 10.5 deg |
-| mat walk (HC905) | 100 % | 9.6 deg | 6.7 deg | 6.2 deg | 8.2 deg |
+| TUG (HC903, hc142) | 100 % | 15.7 deg | 10.1 deg | 15.8 deg | 9.8 deg |
+| hurried pace (HC904) | 99 % | 10.4 deg | 7.4 deg | 7.7 deg | 9.7 deg |
+| mat walk (HC905) | 100 % | 10.3 deg | 7.3 deg | 7.4 deg | 8.5 deg |
 
 The TUG walker is hc142: the first render used hc100's TUG, whose inertial fit carries its left ankle 163 deg off (a
 visibly wrong foot in the rendered truth, and 26 deg of "error" that belonged to the truth), while hc142's fit
-passes the ankle check (median ankle angles 10 deg, knees to 85 deg when seated). The TUG's root error is the
-largest of the set (12.8 deg): the seated and turning phases, where the lifter's gravity frame is least
-constrained. Its sync lands at 3.004 s against 3.0 planted, validated by the light. The
-hurried walk is the hard case
-it was built to be in the along view, which sees feet and mat with the head cut when close (legs usable 52 % of
-its frames); the side view is laid out like the real session's and holds the walker throughout (legs usable
-100 %), so the merge exports every frame and the two views share 569 frames with their legs usable in both.
+passes the ankle check (median ankle angles 10 deg, knees to 85 deg when seated). The TUG's errors are the largest
+of the set and they sit in the chair: by phase, its walking frames are at 13.2 deg on the legs (1 % over 20 deg)
+and 9.3 on the root, like the walks, its seated and rising frames at 19-20 deg on the legs (38-55 % over 20) and
+24-26 on the root. The merge under-reads the seated knee by 5 deg, and the side view, which is the reference there
+(the along view has the seated legs in frame on half of those frames), sees the chair obliquely and close and
+carries the pitched gravity frame described above. The hurried walk is the hard case it was built to be: the side
+view's track holds the walker for two thirds of the recording (legs usable 67 %; the standing start is unattached,
+the walk bouts are covered but for 3 % of their frames), and at the final turn that view's lift turned the wrong
+way and ran out of frame mid-turn, the case that gave the root rule its departure clause; the along view holds the
+legs throughout (99 %), the merge exports 99 % of the frames and the two views share 730 frames with their legs
+usable in both.
 
 ### When there is no truth: a real clip
 

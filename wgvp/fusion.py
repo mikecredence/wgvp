@@ -104,8 +104,12 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
     whose own root turns by more than snap_deg within snap_window_s, during the episode or just after it, is the
     one that took the turn the wrong way (a person cannot turn 90 degrees in a quarter of a second; the snap is the
     lift's own correction, so that view was wrong on one side of it, inside the episode), and it carries no weight
-    over the episode, up to max_turn_s either side of its snap. When no view snaps, or more than one does, the
-    rule is silent and the causal terms decide.
+    over the episode, up to max_turn_s either side of its snap. The same episode can also end without a snap when the
+    wrong view's coverage simply runs out (the walker leaves its frame mid-turn): the disagreement is never resolved,
+    and at the hand-off the merged root would jump onto the surviving view. A view whose coverage ends, or begins,
+    inside an episode while another view continues through it is treated like a snapping one and carries no weight
+    over the episode. When no view snaps or departs, or more than one does, the rule is silent and the causal terms
+    decide.
 
     The share is also the right weight for the view's body joints: a lifter that got the root's pitch wrong (the
     along view of the sample at close range: +40 deg) has hips that compensate for it, and the rest of its body
@@ -146,7 +150,7 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
 def _drop_snapping_views(w: np.ndarray, Q: np.ndarray, L: np.ndarray, soft_lo: float, ramp: int, snap_deg: float,
                          snap_window_s: float, max_turn_s: float, fps: float) -> np.ndarray:
     """fuse_root's offline rule (see there). w, L (V, T); Q (V, T, 4) quaternions, NaN where absent. Returns w with
-    the snapping view zeroed over each disagreement episode it snaps in."""
+    the view that snaps, or whose coverage ends or begins, inside a disagreement episode zeroed over that episode."""
     V, T = w.shape; win = max(1, int(round(snap_window_s * fps))); mx = max(win, int(round(max_turn_s * fps)))
     ok = L & np.isfinite(Q).all(2)
     def ang(a, b): return np.degrees(2.0 * np.arccos(np.clip(np.abs(np.sum(a * b, axis=-1)), 0.0, 1.0)))
@@ -172,6 +176,13 @@ def _drop_snapping_views(w: np.ndarray, Q: np.ndarray, L: np.ndarray, soft_lo: f
         if len(tt):
             s[tt] = ang(Q[i, tt], Q[i, tt - win]) > snap_deg
         snaps += [(i, a_ - win, b_ - 1) for a_, b_ in runs(s)]
+    for i in range(V):                                                                               # coverage ending or beginning while another view continues
+        others = ok[np.arange(V) != i]
+        for a_, b_ in runs(ok[i]):
+            if b_ < T and others[:, b_:min(b_ + win, T)].any():
+                snaps.append((i, b_ - 1, b_ - 1))
+            if a_ > 0 and others[:, max(a_ - win, 0):a_].any():
+                snaps.append((i, a_, a_))
     w = w.copy()
     for a_, b_ in episodes:
         hits = [(i, s0, s1) for i, s0, s1 in snaps if s0 <= b_ + win and s1 >= a_ - 1]
