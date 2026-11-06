@@ -135,6 +135,32 @@ def test_fuse_root_follows_continuity_when_one_view_turns_the_wrong_way():
     assert abs(share[0][t > 7.5].mean() - 0.5) < 0.1                                                  # once the views agree again, both count
 
 
+def test_fuse_root_drops_the_view_whose_coverage_ends_inside_a_wrong_way_turn():
+    """The wrong-way turn that never snaps: the heavier view turns the wrong way round and then simply leaves
+    (the walker walks out of its frame mid-turn). Nothing resolves the disagreement, and at the hand-off the fused
+    heading would jump by the whole gap onto the surviving view. The rule treats a view whose coverage ends inside
+    an episode like one that snaps, so the surviving view carries the turn from the start of the episode."""
+    from scipy.spatial.transform import Rotation as R
+    from wgvp.fusion import fuse_root, heading_yaw_deg
+    T = 300; t = np.arange(T) / 30.0; turn = np.clip((t - 5.0) / 1.5, 0.0, 1.0)                    # the turn runs from 5.0 to 6.5 s
+    h_truth = 20.0 + 180.0 * turn; h_wrong = 20.0 - 90.0 * turn                                    # the wrong view turns the other way, slower
+    rng = np.random.default_rng(2)
+    def roots(h): return np.stack([(R.from_euler("y", hh, degrees=True) * R.from_euler("x", 5.0 + rng.normal(0, 1.0), degrees=True)).as_rotvec() for hh in h])
+    a, b = roots(h_truth), roots(h_wrong)
+    us_a = np.zeros((T, 21), bool); us_a[:, :14] = True; us_b = np.ones((T, 21), bool)               # the wrong view sees the whole body, the right one 14 joints
+    lifted_b = t < 6.0; b[~lifted_b] = np.nan; us_b[~lifted_b] = False                                # and its lift ends mid-turn, 150 degrees off
+    fused, share = fuse_root([a, b], [us_a, us_b], [np.ones(T, bool), lifted_b], ramp=15)
+    hf = heading_yaw_deg(fused); err = np.abs(((hf - h_truth + 180) % 360) - 180); step = np.abs(((np.diff(hf) + 180) % 360) - 180)
+    assert err.max() < 25.0, err.max()
+    assert step.max() < 30.0, step.max()
+    assert share[0][(t > 5.4) & (t < 6.0)].min() > 0.99                                             # the surviving view carries the turn before the hand-off too
+    assert np.allclose(share[0][t >= 6.0], 1.0)
+    c = roots(h_truth); c[~lifted_b] = np.nan                                                         # a view that leaves while agreeing: the rule is silent
+    fused2, share2 = fuse_root([a, c], [us_a, us_b], [np.ones(T, bool), lifted_b], ramp=15)
+    assert np.abs(((heading_yaw_deg(fused2) - h_truth + 180) % 360) - 180).max() < 3.0
+    assert share2[1][(t > 1.0) & (t < 5.0)].mean() > 0.6                                             # and the heavier view keeps its weight while it is there
+
+
 def test_fuse_root_drops_the_view_that_snaps_at_the_end_of_a_wrong_way_turn():
     """The other failure of a 180-degree turn: one view turns with the truth at a human rate, the other turns the
     wrong way round at a human rate too, so nothing distinguishes them while they turn, and only gives itself

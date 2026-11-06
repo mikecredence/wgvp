@@ -694,8 +694,10 @@ re-rendered side view was framed too far back: the mat spanned 44 % of the panel
 63 % (the walker's size was right, 125 px of 375, against 140 in the real frame), and the walker's head sat on the
 top edge rather than outside it, which is what the user had asked for. The camera moved from 5.5 to 4.0 m from
 the mat's centre line (the mat at ~60 % of the width), aimed at -0.21 m on the mat's line so the top edge crosses
-the mat 1.55 m above the floor: the head is outside the frame along the mat, the face shows when the walker dips or
-steps towards the camera, as in the real frame; the operators' desk moved with it, 1.2 m in front of the lens. The
+the mat 1.55 m above the floor: the top of the head is at or beyond the top edge along the mat while the face
+keypoints stay inside on most frames (the head joint is usable on 92-100 % of the side view's frames, 66 % on
+HC902), as in the real frame, where the head touches the top; the operators' desk moved with it, 1.2 m in front of
+the lens. The
 along view did not change; for the record, its 2D keypoints are steadier than the first version's low camera (the
 "jumping skeleton" of Sub 006): on the hurried walk all 1,101 along-view frames have confident leg keypoints
 against 662 of 881 before, and the high-frequency deviation of the leg keypoints is 0.35-0.46 % of the leg's
@@ -717,6 +719,51 @@ rendered recordings the right lags' runners-up carried 0-26 % (one light-chosen 
 91 %, so a periodic protocol without a light now says so instead of syncing a bout off with confidence. Re-run,
 Sub 002 syncs at 2.981 s, validated by the light, the along view confirmed by the cross-view cue, reconcile PASS.
 Its lift from the chain's first pass (at the wrong lag) was redone.
+
+**The turn that ran out of frame.** The third render's lifts, merged with the snap rule, left one flip, in the
+hurried walk (HC904) at its last half second: the walker turns at the end of the mat, the along view turns with
+the truth (4 deg off), the side view turns the wrong way (146 deg off at the end) and its lift simply ends at frame
+1185, the walker gone from its frame, before any snap; the merge had given that heavier view the whole root share
+(21 usable joints against 14), and at the hand-off the fused heading jumped 177 deg onto the along view. The snap
+rule had nothing to read. A departure is the same evidence in another form: a view whose coverage ends, or begins,
+inside a disagreement episode while another view continues through it never resolves the disagreement, and the
+surviving view is where the output lands anyway, so `_drop_snapping_views` now treats the frame where a view's
+coverage ends (or begins) inside an episode like a snap and zeroes that view over the episode. A test plants the
+pattern (the wrong-way view heavier and ending mid-turn; the old code is 170 deg off at the hand-off). Re-merged,
+the rule touched 21 frames of one recording and nothing else: HC904 has no flip (root 7.8 to 7.7 deg), the other
+five are bit-identical. The arbiter that would not need the turn to resolve is the pelvis IMU's own yaw rate, whose
+sign says which view turned the right way; it is not used, because the pipeline reads the recording for the sync
+and the identity only, and a third use would want its own argument.
+
+**The side camera's gravity frame, and the shipped HC901.** With the camera 2.3 m up looking down at the mat,
+GVHMR's root for the side view is pitched 6-15 deg from the truth on every rendered session (median over the
+recording after a yaw fit; the along views 3-9 deg), the alignment between views is a yaw and an offset, so the
+pitch stays as the views' root residual (11-18 deg, against 5-8 with the earlier side cameras), and the merged root
+carries the tilt of the reference view: 5.6-7.7 deg where that is the along view, 14.5 (HC901) and 15.8 (the TUG)
+where it is the side view. The same camera costs the TUG's seated and rising phases, which it sees obliquely and
+close: the side view's own leg error there went from 17 and 21 to 19 and 24 deg (the walking frames unchanged at
+14), and the TUG's legs over 20 deg from 16 to 29 % of the exported frames, all of it in the chair. A
+full-rotation alignment of the views onto the more upright one would remove the residual and, choosing the
+reference by uprightness, most of the tilt; it is the open item of this round. The shipped HC901 itself, the
+reconstruction section's sample, now reads: along view alone 19.3 deg on the legs (50 % over 20; 15.6 and 11 %
+where its legs are in frame), side view 11.5 and 0 %, merge 11.3 and 0 % at 94 % export, below both views on the
+513 frames both have the legs (13.0 against 13.5 and 15.6), knee-flexion RMSE 5.9 (the side view 5.9, the along
+view 40 over all of its frames); the experiment's table in the README is from the first render and says so.
+
+**What the room-wide side view's track does not hold.** Checked against the truth's projected pelvis, the side
+view's subject track covers the walker on 100 % of its frames and never another person, but it misses the walker
+while the walker is in its panel on four of the six recordings: 51 % of those frames on HC900, 30 % on HC902, 33 %
+on HC904, 14 % on HC905 (5 % on HC901, 0 on the TUG), nearly all of them the walker standing still before the
+first bout or between bouts at the near end of the mat (inside the annotated walk bouts the misses are 0-3 %, 10 %
+on HC900). Two mechanisms: on HC902 and HC904 the standing walker is a tracker fragment of its own, with no motion
+along the mat for the cross-view cue to correlate, so it is never attached; on HC900 and HC905 the attached
+fragment does span the standing phase, and the cue's window test (5-s windows whose progress correlation with the
+other view's subject falls under 0.5 are dropped as an identity switch) drops it, because its "too little motion
+to judge" guard asks for a standard deviation under 1e-6 pixels, which keypoint noise on a standing person never
+is, and the correlation of two noise signals is nothing. The along view has every one of those frames and the
+export loses none, so the training target is whole; what is lost is the side view's lift of the standing phases.
+The fix is in the next round: the window test judges a window only where the reference actually moves (a tenth
+of its range), and a standing fragment is attached by continuity with an attached one.
 
 ## 3. What has not been tested on real clinic recordings
 

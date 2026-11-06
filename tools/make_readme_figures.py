@@ -36,6 +36,10 @@ def load_run(d: Path):
     ts = {v: TrackSet.load(w / f"HC900_SP_DeID/tracks_{v}.npz") for v in ("left", "right")}
     imu = load_imu_ref(w / "imu_ref/hc900_selfpace_imu_ref.npz")
     sel = json.loads((dl / "selection_joint.json").read_text())
+    for v in ("left", "right"):                       # each view's final choice: the cross-view cue attaches tracks the IMU match alone did not
+        pv = dl / v / "selection.json"
+        if pv.exists():
+            sel["views"][v]["track_ids"] = json.loads(pv.read_text()).get("track_ids", sel["views"][v]["track_ids"])
     pan = json.loads((w / "HC900_SP_DeID/panels.json").read_text())
     exp = json.loads((PKG / "sample/expected.json").read_text())
     return ts, imu, sel, pan, exp, dl
@@ -164,13 +168,15 @@ def fig_selection(ts, imu, sel, roles, dl):
             pres[t.track(int(tid))["pos"]] = True
         ax[2].fill_between(ti, 1 - i - 0.3, 1 - i + 0.3, where=pres, color="tab:green", step="mid", alpha=0.85, lw=0)
         ax[2].text(-0.8, 1 - i, f"{v} view", ha="right", va="center", fontsize=9)
+        e = np.flatnonzero(np.diff(np.r_[0, pres.astype(int), 0])); on = list(zip(e[::2], e[1::2]))
+        for (a0, a1), (b0, b1) in zip(on[:-1], on[1:]):                                   # gaps of 1 s or more inside the view's coverage
+            if ti[b0] - ti[a1 - 1] >= 1.0:
+                ax[2].annotate("gap", xy=((ti[a1 - 1] + ti[b0]) / 2, 1 - i), ha="center", va="center", fontsize=8, color="tab:red")
     for a, b in walk:
         ax[2].axvspan(a, b, color="0.85", zorder=0)
     ax[2].set_yticks([]); ax[2].set_ylim(-0.6, 1.6); ax[2].set_xlim(-0.8, imu["duration_s"] + 0.5); ax[2].set_xlabel("IMU time (s)")
-    for a, b in sel["views"]["right"]["coverage"]["gaps_imu_time_s"]:
-        ax[2].annotate("exit", xy=((a + b) / 2, 0), ha="center", va="center", fontsize=8, color="tab:red")
     ri = json.loads((dl.parent / "session_summary.json").read_text())["items"]["hc900_selfpace"]
-    ax[2].set_title(f"C. Coverage per view on the IMU timeline (grey = annotated Walk bouts); exits are gaps, not another person; bouts covered {ri.get('n_walk_bouts_ok')}/{ri.get('n_walk_bouts')}", loc="left", fontsize=10.5)
+    ax[2].set_title(f"C. Coverage per view on the IMU timeline (grey = annotated Walk bouts); a gap is an exit or an unattached fragment, never another person; bouts covered {ri.get('n_walk_bouts_ok')}/{ri.get('n_walk_bouts')}", loc="left", fontsize=10.5)
     plt.tight_layout(); plt.savefig(OUT / "selection_and_sync.png", dpi=130); plt.close(fig)
 
 
