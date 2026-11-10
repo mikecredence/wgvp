@@ -8,7 +8,10 @@ takes away: parts no view saw are absent, dropped frames show the empty floor), 
 
 Inputs: <session>/deliver/<recording>/{merged_smpl.npz, sync.json, <view>/smpl_global.npz, <view>/kp2d_vitpose.npz}
 and the session video. A ground truth (`--gt`, the rendered samples' <sid>_gt.npz) adds the truth panel, row and
-curve and the leg-joint error; without one the aerial view shows the reconstruction on its own path.
+curve and the leg-joint and root-orientation errors; when the truth carries its room, the three close-ups stand
+in that room (the truth's position, floor and mat; the reconstruction turned into it by one yaw fitted over the
+recording), so a heading difference on screen is a heading error. Without a truth the aerial view shows the
+reconstruction on its own path.
 Output: <session>/work/demo/<recording>_demo.mp4. It contains video frames, so it stays in work/ and is not a
 deliverable. Needs the demo extras (`pip install -e .[demo]`: smplx, trimesh, pyrender, av, matplotlib) and the
 SMPL-X body model (`--body-models`, default: GVHMR's inputs/checkpoints/body_models from the config).
@@ -23,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .fusion import LEGS, chordal_mean, collapsed_legs, geodesic, mirror_body, mirror_root, smooth_rotations
+from .fusion import ARMS, LEGS, SPINE, chordal_mean, collapsed_legs, fit_yaw, geodesic, mirror_body, mirror_root, smooth_rotations
 from .tracking import FACE_KP, SKELETON
 
 COL = {"ok": [150, 160, 200], "missing": [220, 70, 70], "truth": [170, 170, 170]}
@@ -174,14 +177,41 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         x0m, x1m = float(ctr[0] - ext[0]), float(ctr[0] + ext[0]); zm = float(ctr[2]); cams = {}; mat_half_w = 0.5; mat_pad = 0.8
     xm_ = 0.5 * (x0m + x1m)
     lay = exp.get("scene", {}).get("layout") if G is not None else None
+    # With a truth that carries its room (the root path and the mat), the close-ups are drawn in that room: the truth where it
+    # walked, the reconstruction and the export turned into the room by ONE yaw fitted over the whole recording and stood at the
+    # truth's position. The merge knows neither the room's heading (its world is the reference view's, with an arbitrary heading)
+    # nor, to better than a few decimetres, where in the room the subject is; what is left to see is the pose and the heading error.
+    room = bool(G is not None and "transl" in G.files and "mat_x" in lay0)
+    truth_root = np.full((n_video, 3), np.nan); truth_xz = np.full((n_video, 2), np.nan); yaw_room = 0.0
+    for f_, i_ in gi.items():
+        if f_ < n_video:
+            truth_root[f_] = G["pose_aa"][i_, :3]
+            if room:
+                truth_xz[f_] = G["transl"][i_][[0, 2]]
+    if room:
+        okf = export_ok & np.isfinite(root_fused).all(1) & np.isfinite(truth_root).all(1)
+        if okf.sum() >= 10:
+            yaw_room = float(fit_yaw(root_fused, truth_root, okf))
+    def to_room(aa):
+        """Root rotations in the reference view's world -> the room's (one yaw); NaN rows stay NaN."""
+        if not room:
+            return aa
+        ok_ = np.isfinite(aa).all(1); out_ = np.full(aa.shape, np.nan)
+        if ok_.any():
+            out_[ok_] = (R.from_euler("y", yaw_room, degrees=True) * R.from_rotvec(aa[ok_])).as_rotvec()
+        return out_
+    root_show = to_room(root_fused); root_al_show = {v: to_room(root_al[v]) for v in views}; side = -1.0 if room else 1.0   # the room is watched from the side camera's side
     def quad(pts, rgba):
         m = trimesh.Trimesh(np.asarray(pts, np.float32), np.array([[0, 1, 2], [0, 2, 3]]), process=False); m.visual = trimesh.visual.ColorVisuals(mesh=m, face_colors=np.tile(rgba, (2, 1)))
         return pyrender.Mesh.from_trimesh(m, smooth=False)
-    def add_floor_and_mat(sc, floor_y, cx, half_len, cz, big=12.0, mat=True):
+    def add_floor_and_mat(sc, floor_y, cx, half_len, cz, big=12.0, mat=True, stripes=False):
         sc.add(quad([[cx - big, floor_y, cz - big], [cx + big, floor_y, cz - big], [cx + big, floor_y, cz + big], [cx - big, floor_y, cz + big]], [205, 200, 190, 255]))
         if mat:
             hl, hw = half_len + mat_pad, mat_half_w
             sc.add(quad([[cx - hl, floor_y + 0.004, cz - hw], [cx + hl, floor_y + 0.004, cz - hw], [cx + hl, floor_y + 0.004, cz + hw], [cx - hl, floor_y + 0.004, cz + hw]], [45, 42, 44, 255]))
+            if stripes:                                                        # a cross line every 2 ft, so the walk along the mat shows under a camera that follows the body
+                for xs in np.arange(cx - hl, cx + hl + 1e-6, 0.6096):
+                    sc.add(quad([[xs - 0.012, floor_y + 0.006, cz - hw], [xs + 0.012, floor_y + 0.006, cz - hw], [xs + 0.012, floor_y + 0.006, cz + hw], [xs - 0.012, floor_y + 0.006, cz + hw]], [120, 116, 118, 255]))
     def look_at(eye, target, up=(0, 1, 0)):
         eye = np.asarray(eye, float); fwd = eye - np.asarray(target, float); fwd /= np.linalg.norm(fwd)
         right = np.cross(np.asarray(up, float), fwd); right /= np.linalg.norm(right); up_ = np.cross(fwd, right)
@@ -196,14 +226,27 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         tm = trimesh.Trimesh(Vv, faces if keep_faces is None else faces[keep_faces], process=False)
         tm.visual = trimesh.visual.ColorVisuals(mesh=tm, vertex_colors=np.c_[colours, np.full(len(Vv), 255)].astype(np.uint8))
         return pyrender.Mesh.from_trimesh(tm, smooth=True)
-    view_ref = {"floor": -1.17, "c": np.array([0.0, -0.25, 0.0])}
-    def render(Vv, colours, keep_faces=None):
-        """Close-up: the body at the origin on a floor with the mat running along x under it; V None = floor only."""
-        sc = pyrender.Scene(bg_color=(1.0, 1.0, 1.0, 1.0), ambient_light=(0.45, 0.45, 0.45))
-        if Vv is not None:
-            sc.add(body_mesh(Vv, colours, keep_faces)); view_ref["floor"] = float(Vv[:, 1].min()) - 0.01; view_ref["c"] = np.array([0.0, Vv[:, 1].mean(), 0.0])
-        add_floor_and_mat(sc, view_ref["floor"], 0.0, 2.45, 0.0, mat=G is not None)
-        c = view_ref["c"]; az = np.deg2rad(40); eye = c + 3.3 * np.array([np.sin(az), 0.25, np.cos(az)])
+    view_ref = {"floor": -1.17, "c": np.array([0.0, -0.25, 0.0]), "xz": np.array([xm_, zm])}
+    def render(Vv, colours, keep_faces=None, at=None):
+        """Close-up of one body (Vv: its vertices posed at the origin; None = the floor only).
+        In the truth's room (`room`): the body stands at `at` (room x, z; the last one given when None or NaN) with its lowest
+        point on the room's floor, the mat lies where the room has it, and the camera follows the body at a fixed bearing from
+        the side camera's side of the room. So the mat and the walking direction agree with the views and the aerial panel.
+        Otherwise (no truth, or one without a room): the body at the origin on a bare floor, or on a strip along x."""
+        sc = pyrender.Scene(bg_color=(1.0, 1.0, 1.0, 1.0), ambient_light=(0.45, 0.45, 0.45)); az = np.deg2rad(40)
+        if room:
+            if at is not None and np.isfinite(at).all():
+                view_ref["xz"] = np.asarray(at, float)
+            px, pz = view_ref["xz"]
+            if Vv is not None:
+                sc.add(body_mesh(Vv + np.array([px, -float(Vv[:, 1].min()), pz]), colours, keep_faces))
+            add_floor_and_mat(sc, 0.0, xm_, 0.5 * (x1m - x0m), zm, stripes=True)
+            c = np.array([px, 0.95, pz]); eye = c + 3.3 * np.array([np.sin(az), 0.25, -np.cos(az)])
+        else:
+            if Vv is not None:
+                sc.add(body_mesh(Vv, colours, keep_faces)); view_ref["floor"] = float(Vv[:, 1].min()) - 0.01; view_ref["c"] = np.array([0.0, Vv[:, 1].mean(), 0.0])
+            add_floor_and_mat(sc, view_ref["floor"], 0.0, 2.45, 0.0, mat=G is not None)
+            c = view_ref["c"]; eye = c + 3.3 * np.array([np.sin(az), 0.25, np.cos(az)])
         sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(40)), pose=look_at(eye, c)); lights(sc); return finish(renderer, sc)
     V_op = V_by = desk = None
     if lay:
@@ -292,7 +335,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     thumb_r = pyrender.OffscreenRenderer(2 * TW, 2 * TH)
     def thumb(Vv, colours):
         sc = pyrender.Scene(bg_color=(0.16, 0.16, 0.16, 1.0), ambient_light=(0.5, 0.5, 0.5)); sc.add(body_mesh(Vv, colours))
-        c = np.array([0.0, Vv[:, 1].mean(), 0.0]); az = np.deg2rad(40); eye = c + 3.0 * np.array([np.sin(az), 0.2, np.cos(az)])
+        c = np.array([0.0, Vv[:, 1].mean(), 0.0]); az = np.deg2rad(40); eye = c + 3.0 * np.array([np.sin(az), 0.2, side * np.cos(az)])
         sc.add(pyrender.PerspectiveCamera(yfov=np.deg2rad(42)), pose=look_at(eye, c)); lights(sc)
         col, _ = thumb_r.render(sc, flags=pyrender.RenderFlags.SKIP_CULL_FACES); return cv2.resize(col[:, :, ::-1], (TW, TH), interpolation=cv2.INTER_AREA)
     strip = np.full((SH, W, 3), 28, np.uint8)
@@ -308,9 +351,9 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
                     img = thumb(verts(G["pose_aa"][gi[f], :3], G["pose_aa"][gi[f], 3:66]), np.tile(COL["truth"], (10475, 1)))
             elif key is None:
                 if any_lifted[f] and not none[f].all() and np.isfinite(root_fused[f]).all():
-                    V_ = verts(root_fused[f], merged_draw[f]); cl = np.tile(COL["ok"], (len(V_), 1)); cl[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]; img = thumb(V_, cl)
+                    V_ = verts(root_show[f], merged_draw[f]); cl = np.tile(COL["ok"], (len(V_), 1)); cl[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]; img = thumb(V_, cl)
             elif lifted[key][f] and vis[key][f]:
-                V_ = verts(root_al[key][f], np.nan_to_num(body[key][f])); cl = np.tile(COL["ok"], (len(V_), 1)); cl[np.isin(dom, np.flatnonzero(~usable[key][f]) + 1)] = COL["missing"]; img = thumb(V_, cl)
+                V_ = verts(root_al_show[key][f], np.nan_to_num(body[key][f])); cl = np.tile(COL["ok"], (len(V_), 1)); cl[np.isin(dom, np.flatnonzero(~usable[key][f]) + 1)] = COL["missing"]; img = thumb(V_, cl)
             if img is not None:
                 if key in good and not good[key][f]:
                     img = (img * 0.45).astype(np.uint8)
@@ -361,11 +404,11 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
             cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
             status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge")))
             label(canvas, f"{v} view: {status}" + (" (mirror image: reflected back)" if mirrored[v] else ""), (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
-        yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20                               # middle: (truth | each view alone), reconstruction, export, aerial
+        yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20; at = truth_xz[f]             # middle: (truth | each view alone), reconstruction, export, aerial
         if G is not None:
             if gi_f is not None:
-                aa = G["pose_aa"][gi_f]; Vt = verts(aa[:3], aa[3:66]); canvas[yb:yb + RH, 20:20 + RW] = render(Vt, np.tile(COL["truth"], (len(Vt), 1)))
-            label(canvas, "rendered truth", (28, yb + RH - 12)); xr = 20 + RW + 20
+                aa = G["pose_aa"][gi_f]; Vt = verts(aa[:3], aa[3:66]); canvas[yb:yb + RH, 20:20 + RW] = render(Vt, np.tile(COL["truth"], (len(Vt), 1)), at=at)
+            label(canvas, "rendered truth" + ("  (in its room, on the mat)" if room else ""), (28, yb + RH - 12)); xr = 20 + RW + 20
         elif V >= 2:
             for i, v in enumerate(views):
                 if lifted[v][f] and vis[v][f] and np.isfinite(root_al[v][f]).all():
@@ -381,15 +424,19 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         elif none[f].all() or not np.isfinite(root_fused[f]).all():
             label(canvas, "no usable joint in any view", (xr + 8, yb + RH // 2), col=(60, 60, 220))
         else:
-            Vr = verts(root_fused[f], merged_draw[f]); colours = np.tile(COL["ok"], (len(Vr), 1)); colours[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]
-            canvas[yb:yb + RH, xr:xr + RW] = render(Vr, colours)
+            Vr = verts(root_show[f], merged_draw[f]); colours = np.tile(COL["ok"], (len(Vr), 1)); colours[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]
+            canvas[yb:yb + RH, xr:xr + RW] = render(Vr, colours, at=at)
             if gi_f is not None:
                 e = geodesic(merged_out[f], G["pose_aa"][gi_f, 3:66].reshape(21, 3)); le = np.nanmedian(e[LEGS]) if np.isfinite(e[LEGS]).any() else np.nan
                 if np.isfinite(le):
                     err_hist.append(le)
                 label(canvas, f"leg-joint error vs truth: {le:5.1f} deg" if np.isfinite(le) else "leg joints: no usable view", (xr + 8, yb + 24))
+                if room:
+                    he = float(geodesic(root_show[f][None], truth_root[f][None])[0])
+                    label(canvas, f"root orientation error: {he:5.1f} deg" if np.isfinite(he) else "root orientation: none", (xr + 8, yb + 46), scale=0.5)
+                    label(canvas, f"in the room: one yaw for the recording ({yaw_room:+.0f} deg), true position", (xr + 8, yb + 64), scale=0.36, col=(200, 200, 200))
             src = []
-            for grp, nm in ((LEGS, "legs"), ([12, 13, 15, 16, 17, 18, 19, 20], "arms"), ([2, 5, 8, 11, 14], "spine")):
+            for grp, nm in ((LEGS, "legs"), (ARMS, "arms"), (SPINE, "torso")):
                 who = [v for v in views if usable[v][f][grp].any()]
                 src.append(f"{nm}: " + ("both" if len(who) == V and V > 1 else (who[0] if len(who) == 1 else ("all" if who else "none"))))
             label(canvas, "reconstruction  " + " | ".join(src), (xr + 8, yb + RH - 12), scale=0.5)
@@ -398,14 +445,15 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
               (10, 20 + PH + 8), scale=0.4, col=(200, 200, 200), bg=(28, 28, 28))
         xe = xr + RW + 20                                                           # the export
         if export_ok[f] and np.isfinite(root_fused[f]).all():
-            Ve = verts(root_fused[f], np.nan_to_num(merged_out[f])); keep = ~np.isin(dom[faces], np.flatnonzero(none[f]) + 1).any(1)
-            canvas[yb:yb + RH, xe:xe + RW] = render(Ve, np.tile(COL["ok"], (len(Ve), 1)), keep)
+            Ve = verts(root_show[f], np.nan_to_num(merged_out[f])); keep = ~np.isin(dom[faces], np.flatnonzero(none[f]) + 1).any(1)
+            canvas[yb:yb + RH, xe:xe + RW] = render(Ve, np.tile(COL["ok"], (len(Ve), 1)), keep, at=at)
         else:
-            canvas[yb:yb + RH, xe:xe + RW] = render(None, None)
-            why = ("subject tracked in no view" if not any_lifted[f] else ("a leg joint seen by no view" if not np.isfinite(merged_out[f][LEGS]).all() else f"run shorter than {min_run_s:.1f} s"))
+            canvas[yb:yb + RH, xe:xe + RW] = render(None, None, at=at)
+            why = ("subject tracked in no view" if not any_lifted[f] else ("a leg joint seen by no view" if not np.isfinite(merged_out[f][LEGS]).all()
+                   else ("a torso joint seen by no view" if not np.isfinite(merged_out[f][SPINE]).all() else f"run shorter than {min_run_s:.1f} s")))
             label(canvas, "frame not exported:", (xe + 8, yb + RH // 2 - 22), col=(60, 60, 220), scale=0.5); label(canvas, why, (xe + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
         label(canvas, f"frames kept so far: {export_ok[win & (tt <= t)].mean():.0%}", (xe + 8, yb + RH - 56), scale=0.5)
-        label(canvas, "parts no view saw are absent", (xe + 8, yb + RH - 34), scale=0.5)
+        label(canvas, "an arm no view saw is absent; legs and torso are required", (xe + 8, yb + RH - 34), scale=0.42)
         label(canvas, "export  (merged_smpl.npz: what a user takes away)", (xe + 8, yb + RH - 12))
         xt = xe + RW + 20
         if G is not None:

@@ -397,7 +397,22 @@ disagreement, and at the hand-off the merged root would jump by the whole gap on
 whose coverage ends, or begins, inside an episode while another view continues through it is treated like a
 snapping one and carries nothing over that episode. When no view snaps or departs, or more than one does, the rule
 is silent and the causal terms decide. That removed every flip of the rendered set. Every term is continuous in
-its inputs, so nothing in the rule can step the root (`wgvp.fusion.fuse_root`). The same share then scales that view's weight for all
+its inputs, so nothing in the rule can step the root (`wgvp.fusion.fuse_root`).
+
+Two more things had to change before the turns themselves read right. A view's lift can flip its root for a frame
+or two and come straight back (16 frames of HC901's along view, 2 in each view of HC902). Read as a snap, that
+glitch made the offline rule set aside the view that was right, and the merged turn then completed in 0.6 s where
+the walker took 1.6. Such an excursion, a step of more than 60 deg that is back where it was within 0.2 s, is now
+interpolated across in each view before anything else reads that view's root (`repair_root_glitches`; counted per
+view in `merge.json`). And the arbitration between the views is averaged over the cross-fade time, with the fused
+root smoothed over 5 frames after it, so a hand-over inside a turn no longer shows as jitter. Over the 24 turns of
+the six rendered recordings the merged turn takes within 0.11 s of the truth's time on average (10-90 % of the
+heading change; 0.47 s at worst) and peaks at 1.2 times the truth's rate (1.5 at worst; before these changes 2.9 on
+average and 29 at worst). Its heading is 7.5 deg from the truth at the median of a turn, 18 deg at the worst moment
+of an average turn, and 43 deg at the worst of all (HC901, where the side view holds the root nearly alone).
+`merge.json` also counts the turns no person makes (`root_turns_over_90deg_in_quarter_s`): none on the six.
+
+The same share then scales that view's weight for all
 of its body joints, since a lifter that got the gravity frame wrong solved the whole body in it. On the
 experiment's render this took the fused root to 6.6 deg (the views: 49.6 and 7.3) with a frame step at the 99th
 percentile of 5.4 deg (the side view alone 7.3), and the merge below the better view in every column: legs 10.0
@@ -408,27 +423,42 @@ On the shipped render of HC901, with the room-wide side camera, the along view i
 holds the walker for 99 % of the span, the standing phase attached by continuity, but its legs are usable on 35 %
 of the span, its hips on 35 % of its own frames and the shoulders on 9 %; knee-flexion RMSE 46 deg over all of its
 frames and 11 where its legs are in frame) and the side view now sees the whole walker but for the top of the head
-(legs usable 95 %): alone it is at 11.5 deg on the legs with no outliers, 11.6 over all 21 joints, knee-flexion
-RMSE 5.9. The merge matches it on the legs (11.3 deg, 0 %, 11.6 over all joints) at 94 % export, and on the 511
-frames where both views have the legs it is below either view (13.0 deg against 13.6 and 15.5; knee-flexion RMSE
-7.5 against 7.6 and 11.3), the along view's share of the root being 12 %. Over the export its knee-flexion RMSE is
-6.9 against the side view's 5.9, and the difference is eleven frames: the side view returns from its gap at 3.8 s
-while the walker stands, the cross-fade at the edge of its run hands the along view the weight for a fifth of a
-second, and the along view's knees on a legs-only crop of a standing walker are 50 deg wrong (elsewhere in the
-standing phase the merged knee is the side view's, 3 deg off). The per-joint loss weight reads a view's dissent by its
-share of the root, so those standing-phase knees, which the along view has 50 deg wrong and the merge took from the
-side view, keep their weight (read in full, the dissent would have put them at 0.2). Its root error, 14.5 deg, is
-not the along view's pitch this time but the side
-view's: lifted from a camera 2.3 m up looking down at the mat, GVHMR's gravity frame holds the pelvis pitched
-6-15 deg from the truth on every rendered session (the along views: 3-9 deg), the views are aligned by a yaw and an
-offset only, and the merged root carries the views' tilts in proportion to their shares of it: 14.5 and 15.8 deg
-here and in the TUG, where the side view holds most of the root, 7.0-7.7 on the other walks, where it holds a
-quarter to a half. A full-rotation alignment of the views onto the more upright one is the open item for that.
+(legs usable 95 %): alone it is at 11.4 deg on the legs (7 % of its leg-joint errors over 20 deg), 11.6 over all 21
+joints, knee-flexion RMSE 5.9. The merge matches it on the legs (11.3 deg, 7 %, 11.6 over all joints) at 91 %
+export, and on the 511 frames where both views have the legs it is below either view (13.0 deg against 13.6 and
+15.5; knee-flexion RMSE 7.4 against 7.6 and 11.3), the along view's share of the root being 12 %. Over the export
+its knee-flexion RMSE is 6.6 against the side view's 5.9, and the difference is seven frames (without them the
+merge is at 5.9): the side view returns from its gap at 3.8 s while the walker stands, the cross-fade at the edge
+of its run hands the along view the weight for a fifth of a second, and the along view's knees on a legs-only crop
+of a standing walker are 20-75 deg wrong; those seven frames carry a knee weight of 0.1-0.7. Elsewhere in the
+standing phase the merged knee is the side view's, 3 deg off, and it keeps its weight: the per-joint loss weight
+reads a view's dissent by its share of the root (read in full, the along view's dissent would have put those knees
+at 0.2). Its root error, 14.8 deg, is not the along view's pitch this time but the side view's: lifted from a
+camera 2.3 m up looking down at the mat, GVHMR's gravity frame holds the pelvis pitched 6-15 deg from the truth on
+every rendered session (the along views: 3-9 deg), the views are aligned by a yaw and an offset only, and the
+merged root carries the views' tilts in proportion to their shares of it: 14.8 and 15.4 deg here and in the TUG,
+where the side view holds most of the root, 6.4-9.1 on the other walks, where it holds a fifth to a half. A
+full-rotation alignment of the views onto the more upright one is the open item for that.
 
-What an export keeps is stricter than what the reconstruction shows. The red parts are filled only so the mesh
-can be drawn; the export (`export_mask`) keeps a frame only when every leg joint is output, in runs of at least
-0.5 s, and on those frames contains only the joints some view saw. On HC901 that is 94 % of the IMU span (the
-along view alone has the legs for 35 % of it, the side view for 95 %).
+The side view's heading carries a second error, with a known cause. GVHMR is handed a default camera whose focal
+length equals the image diagonal, which for these panels is 1.5 times the along camera's real focal length and 2.0
+times the side camera's. A lifter that takes the lens for longer than it is reads a walker off the optical axis as
+turned: over the rendered sessions the side view's heading error follows the walker's bearing from the axis at 0.96
+deg per degree (r = 0.69; its spread is 14 deg against the along view's 4), and taking that term out with the known
+bearing halves that view's heading error (7.6 to 3.9 deg median). Taking it out inside the merge did not carry
+through to the body, which the lifter solved under the same wrong camera (HC901's legs got worse), so none of it is
+shipped. The place for it is the lift, with each camera's real field of view given to GVHMR; that needs the
+recordings lifted again and is the first item on the list of what would improve the scores below.
+
+What an export keeps is stricter than what the reconstruction shows. The red parts are filled only so the mesh can
+be drawn; the export (`export_mask`) keeps a frame only when every leg joint and every torso joint (spine, neck and
+head) is output, in runs of at least 0.5 s, and on those frames contains only the joints some view saw. An arm no
+view saw is absent from an exported frame (NaN, weight 0); a frame without the whole legs or the whole torso is not
+exported at all. On HC901 that is 91 % of the IMU span (the along view alone has the legs for 35 % of it, the side
+view for 95 %). The torso is what the rule costs where one camera stands close: a view that shows the walker from
+the chest down cannot vouch for the upper spine, and when the other view has no subject on those frames they are
+dropped (7 % of HC900's frames, 9 % of HC902's and 37 % of the hurried walk's, see below; `merge.json` gives the
+share as an `info:` flag, which does not change the status).
 
 ### The training target: `merged_smpl.npz`
 
@@ -454,11 +484,7 @@ input. And everything a learner needs to weigh the target is in the file.
 | `view_alignment_yaw_deg`, `view_alignment_offset_m` | how each view was turned onto the reference view's world |
 
 `merge.json` beside it holds the numbers: export fraction, continuity, the alignment residuals, the views' body
-shapes and their difference, flags. On the two synthetic sessions, against the rendered truth: HC901 (the
-compromised views) exports 96 % of the lifted frames with legs at 10.0 deg median, knee-flexion RMSE 7.5 deg, root
-6.6 deg; the weight separates good cells from bad ones (median leg error 9.7 deg where weight > 0.5, 15.0 below).
-HC900 (the dry-run session) exports every frame at 8.7 deg legs, 5.7 deg knee RMSE, 4.8 deg root, with the views
-turned onto each other to within 5 deg and 3 cm. The weakest field is the translation: GVHMR's position is a
+shapes and their difference, flags. On two of the synthetic sessions, against the rendered truth: HC901 (the compromised views) exports 91 % of the lifted frames with legs at 11.3 deg median, knee-flexion RMSE 6.6 deg, root 14.8 deg; the weight separates good cells from bad ones (median leg error 11.3 deg where weight > 0.5, 14.1 below). HC900 (the dry-run session) exports 90 % at 8.7 deg legs, 6.6 deg knee RMSE, 7.7 deg root, with the views turned onto each other to within 12 deg and 0.17 m. The weakest field is the translation: GVHMR's position is a
 monocular depth estimate, within 0.1 m near the middle of the walk and off by 1 to 3 m at the far ends of it in a
 view that sees the walker small (an assumed focal length). Where both views see the subject their disagreement
 exposes this (`transl_disagree_m`, discounted by `transl_weight`); a single far view does not. When the recording
@@ -494,7 +520,9 @@ it exists and from `transl_scaled` elsewhere.
 *The target of HC901 (`tools/make_target_figure.py`). A: what each view can vouch for, the export mask and the
 per-joint weight; the along view (blue) vouches for half of the joints at most, and the weight dips only where
 both views vouch for a joint, disagree, and the along view holds a share of the root (the walks), not through the
-standing phase, where its legs-only crop dissents from a side view that holds the whole root. B: the heading and the heading-relative tilt (the pitch sits 10 deg below zero
+standing phase, where its legs-only crop dissents from a side view that holds the whole root. The gaps in the
+export are the legs-and-torso rule: at 1-4 s the side view has lost the standing walker and the along view holds
+only the legs, and at 36-38 s the side view's torso flickers in runs shorter than the 0.5-s minimum. B: the heading and the heading-relative tilt (the pitch sits 10 deg below zero
 while the walker stands: the side view's gravity frame, see the text). C: the root velocity in the heading frame
 against the rendered truth, with the frames of low root weight shaded: the side view's gaps, where only the far
 along view has the walker.*
@@ -505,7 +533,10 @@ along view has the walker.*
 ViTPose's keypoints for the chosen subject (the lifter's input; the left/right labels of the arms and legs are
 kept consistent from frame to frame for the drawing, because 2D estimators flip sides on a side-on walker, and
 the 3D stage does not use them) and what each view can use; the bright square in the side view is the sample's
-sync light, lit while the IMU records, which the flash cross-check reads. Middle, left to right: the rendered
+sync light, lit while the IMU records, which the flash cross-check reads. Middle, left to right, three close-ups
+that stand in the truth's room (its position, its floor and its mat; the reconstruction and the export are turned
+into the room by one yaw fitted over the whole recording, so a walker facing another way than the truth is a
+heading error, and the leg and root-orientation errors of the frame are printed): the rendered
 truth on the mat; the reconstruction (red = a part no view could see, filled only so the mesh can be drawn; the along view
 holds only the legs when the walker is near, and the upper body GVHMR invents from them is exactly what gets
 excluded; at 35-39 s, the walker at its feet, it holds nothing); the export, in which such parts are absent and a dropped frame shows the empty mat; and the whole room
@@ -541,13 +572,17 @@ the exported frames:
 
 | session | export | legs (median) | knee-flexion RMSE | root | views turned onto each other to |
 |---|---|---|---|---|---|
-| Sub 001 (HC900) | 100 % | 8.9 deg | 6.6 deg | 7.7 deg | 12 deg, 0.17 m |
-| Sub 002 (HC901) | 94 % | 11.3 deg | 6.9 deg | 14.5 deg | 23 deg, 0.77 m (flagged) |
-| Sub 003 (HC902) | 100 % | 11.2 deg | 9.8 deg | 7.0 deg | 12 deg, 0.70 m (flagged) |
+| Sub 001 (HC900) | 90 % | 8.7 deg | 6.6 deg | 7.7 deg | 12 deg, 0.17 m |
+| Sub 002 (HC901) | 91 % | 11.3 deg | 6.6 deg | 14.8 deg | 23 deg, 0.77 m (flagged) |
+| Sub 003 (HC902) | 90 % | 11.3 deg | 9.7 deg | 6.4 deg | 12 deg, 0.70 m (flagged) |
+
+The exports are the legs-and-torso rule at work: the frames left out are those in which the walker stands or turns
+close to the along camera, in its picture from the chest down, while the side view has no subject (Sub 001 and Sub
+003, 7 and 9 % of the frames), or in which neither view has the legs (Sub 002).
 
 The flags are the translation: on Sub 002 and Sub 003 the two views put the pelvis 0.7-0.8 m apart on the frames
 both see, each a monocular depth under an assumed focal length, and the merge says so (`transl_weight` averages
-0.1-0.6 against 0.8-0.9 for the pose weights, Sub 002's along view carrying 0.07); Sub 001's views, aligned on
+0.07 on Sub 002, 0.41 on Sub 003 and 0.57 on Sub 001, against 0.87-0.93 for the pose weights); Sub 001's views, aligned on
 1,163 shared frames now that its side view holds the standing walker, agree to 0.17 m and raise none. The roots
 turn onto each other to 12-23 deg, which is the side view's pitch (above). Sub 002's side view confirmed the sync, which its along view cannot, and the light settled the lag (the
 pelvis match had locked onto the subject's own walk a bout later, the case written up under "How the subject is
@@ -575,12 +610,12 @@ by the cross-view cue, the mat walk 0.51 and the cue), and lifted and merged lik
 
 | session | export | legs (median) | knee-flexion RMSE | root | two views' leg disagreement |
 |---|---|---|---|---|---|
-| TUG (HC903, hc142) | 100 % | 15.7 deg | 10.1 deg | 15.8 deg | 9.8 deg |
-| hurried pace (HC904) | 99 % | 10.4 deg | 7.4 deg | 7.6 deg | 9.7 deg |
-| mat walk (HC905) | 100 % | 10.7 deg | 7.2 deg | 7.2 deg | 8.5 deg |
+| TUG (HC903, hc142) | 100 % | 15.7 deg | 10.1 deg | 15.4 deg | 9.8 deg |
+| hurried pace (HC904) | 62 % | 12.1 deg | 8.6 deg | 9.1 deg | 9.7 deg |
+| mat walk (HC905) | 99 % | 10.7 deg | 7.2 deg | 7.0 deg | 8.5 deg |
 
-The TUG walker is hc142: the first render used hc100's TUG, whose inertial fit carries its left ankle 163 deg off (a
-visibly wrong foot in the rendered truth, and 26 deg of "error" that belonged to the truth), while hc142's fit
+The TUG walker is hc142: the first render used hc100's TUG, whose inertial fit carries its left ankle 163 deg off
+(a visibly wrong foot in the rendered truth, and 26 deg of "error" that belonged to the truth), while hc142's fit
 passes the ankle check (median ankle angles 10 deg, knees to 85 deg when seated). The TUG's errors are the largest
 of the set and they sit in the chair: by phase, its walking frames are at 13.2 deg on the legs (1 % over 20 deg)
 and 9.7 on the root, like the walks, its seated and rising frames at 19-20 deg on the legs (38-55 % over 20) and
@@ -588,10 +623,48 @@ and 9.7 on the root, like the walks, its seated and rising frames at 19-20 deg o
 (the along view has the seated legs in frame on half of those frames), sees the chair obliquely and close and
 carries the pitched gravity frame described above. The hurried walk is the hard case it was built to be: the side
 view's track holds the walker for two thirds of the recording (legs usable 67 %; the standing start is undetected
-at the panel's edge, the walk bouts are covered but for 3 % of their frames), and at the final turn that view's lift turned the wrong
-way and ran out of frame mid-turn, the case that gave the root rule its departure clause; the along view holds the
-legs throughout (99 %), the merge exports 99 % of the frames and the two views share 730 frames with their legs
-usable in both.
+at the panel's edge, the walk bouts are covered but for 3 % of their frames), and at the final turn that view's
+lift turned the wrong way and ran out of frame mid-turn, the case that gave the root rule its departure clause; the
+along view holds the legs throughout (99 %) and the two views share 686 exported frames with their legs usable in
+both. Its export is 62 % of the frames, and what is left out is the standing start: for the first 12 s the walker
+waits at the near end of the mat, in the along camera's picture from the chest down and undetected in the side
+view, so no view has the torso and the rule drops those frames (the walk and both turns are exported; the errors in
+the table are larger than the 10.4 deg on the legs that the same merge has with the standing frames counted,
+because standing is the easy part).
+
+### How good these scores are, and what would improve them
+
+Against the rendered truth the merged legs are 9-12 deg off at the median on the walks and 16 in the TUG (a
+three-axis rotation error per joint, which is a stricter measure than a flexion angle), with a knee-flexion RMSE of
+6.6-10 deg. These are the lifter's numbers more than the merge's. On the frames where both views have the legs, the
+merged legs are below both views on five sessions of the six (by 0.2-1.2 deg under the better one) and 0.5 deg
+above the better one on the sixth (HC905), and the merged knee RMSE is below both views or within 0.7 deg of the
+better one. What is left is in each view's lift, and three measurements say where.
+
+**Amplitude.** The slope of the estimated knee flexion on the true one is 0.63-0.71 on the walks (0.86 in the TUG),
+and of hip flexion 0.47-0.59: the lifter draws every stride toward an average one, so ranges of motion read at
+about 0.7 of their size. Each view alone has that slope (on the walks, HC901's truncated along view aside, knee
+0.64-0.79 and hip 0.42-0.69), and the merge lies between its two views. There is no bias on the walks (under 1
+deg), and the under-read amplitude is 35-50 % of the knee's squared error.
+
+**Which view sees what.** The side view has the better slope on hip flexion (0.64-0.69 against the along view's
+0.42-0.55): it sees flexion in its image plane, the along view sees it as depth. Weighting each view's leg joints
+by how face-on it sees the sagittal plane was tried on the six sessions: the knee-flexion RMSE fell by 0.3 deg on
+average (6.6 to 5.8 on HC900, worse by 0.2-0.4 on the TUG and the hurried walk), the hip slope rose by 0.03, and
+the three-axis leg error rose by 0.6 deg, the along view being the better one on the other two axes. It is not
+shipped; the gain is there for a combination per axis rather than per joint.
+
+**Timing.** Scored against the truth one frame later, the knee RMSE of HC900 is 5.9 instead of 6.6 (HC901 6.2
+instead of 6.6, the others within 0.3): half a frame of timing between the video and the sensor clock is worth up
+to 0.7 deg on this measure.
+
+What would move the scores, largest first: (1) the cameras' real fields of view at the lift, in place of the
+default focal length (the heading term above, and a perspective the body is solved under; a re-lift); (2) one fit
+to both views in place of two single-view lifts: the two cameras stand nearly at right angles, each has the
+walker's 2D keypoints to the pixel, and a fit to both removes the depth ambiguity that is behind the amplitude and
+behind the tilted root (it needs the cameras' relative pose, which the mat gives); (3) the full-rotation alignment
+of the views, for the root (14.8 and 15.4 deg where the side view holds it); (4) the per-axis weighting above. The
+first two are changes at the GPU stage, the last two in the merge.
 
 ### When there is no truth: a real clip
 
