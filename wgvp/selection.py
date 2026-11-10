@@ -143,6 +143,50 @@ def _app_descriptor(frs: dict, tids) -> np.ndarray | None:
     return np.median(A, axis=0) if len(A) else None
 
 
+def _chain_blind(frs: dict, chosen: set, concurrent: set, lag: float, p: dict, blind_frac: float = 0.1) -> tuple[set, dict]:
+    """Fragments without a torso in the picture (a body cut by the top of the frame, legs only: at most blind_frac of
+    their detections carry a descriptor, so appearance cannot place them) that continue the subject's own track: at
+    each end, the subject's detection nearest in time within xview_chain_gap_s is the same box (IoU above 0.4; the
+    centre alone would also take a small static false detection beside the place where the walker stands). An end
+    with no such neighbour is no evidence; one with a neighbour somewhere else rejects the fragment.
+    A fragment may share frames with the subject only as a second box on them (median IoU over the shared frames above
+    0.4: a tracker that loses a faint standing walker opens a second id and then alternates between the two); those
+    frames are masked out of it, so that it only fills the subject's gaps. Other people's fragments, two candidates
+    that share frames, and fragments that contradict the lag are left out. Returns the fragments and their masks."""
+    chained, masks = set(), {}; changed = True
+    def junction(tr, k, cur):
+        t0 = float(tr["pts_ms"][k]); b = tr["box"][k]; best = None
+        for a in cur:
+            ta = frs[a]["tr"]; j = int(np.argmin(np.abs(ta["pts_ms"] - t0))); dt = abs(float(ta["pts_ms"][j]) - t0) / 1000.0
+            if dt <= p["xview_chain_gap_s"] and (best is None or dt < best[0]):
+                c = ta["box"][j]; inter = max(min(b[2], c[2]) - max(b[0], c[0]), 0.0) * max(min(b[3], c[3]) - max(b[1], c[1]), 0.0)
+                best = (dt, bool(inter / max((b[2] - b[0]) * (b[3] - b[1]) + (c[2] - c[0]) * (c[3] - c[1]) - inter, 1e-6) > 0.4))
+        return None if best is None else best[1]
+    while changed:
+        changed = False; cur = chosen | chained; fits = []
+        for t, r in frs.items():
+            tr = r["tr"]
+            if t in cur or t in concurrent or not len(tr["pos"]) or (tr["app"].sum(1) > 0).mean() > blind_frac:
+                continue
+            if any(_overlap(tr, frs[a]["tr"]) >= 5 and _median_iou(tr, frs[a]["tr"]) <= 0.4 for a in cur):
+                continue
+            ra = _r_at(r["match"], lag, p["lag_tol_s"])
+            if np.isfinite(ra) and r["match"].get("overlap_s", 0) >= 3 and ra < 0.05:
+                continue
+            ends = [junction(tr, 0, cur), junction(tr, len(tr["pos"]) - 1, cur)]
+            if any(e is True for e in ends) and not any(e is False for e in ends):
+                fits.append(t)
+        for t in fits:
+            if all(_overlap(frs[t]["tr"], frs[u]["tr"]) < 5 for u in fits if u != t):
+                shared = np.isin(frs[t]["tr"]["pos"], np.concatenate([frs[a]["tr"]["pos"] for a in cur]))
+                if shared.all():
+                    continue
+                chained.add(t); changed = True
+                if shared.any():
+                    masks[int(t)] = ~shared
+    return chained, masks
+
+
 def refine_lag(curves: list, L: float, win_s: float) -> float:
     """The lag of the highest point of the combined correlation curve of `curves` within win_s of L (parabolic
     sub-sample peak), or L itself when the curve has nothing finite there."""
@@ -240,9 +284,10 @@ def joint_selection(views: dict, imu: dict, params: dict | None = None, log=prin
                 d_o = min([float(np.abs(np.median(ap, 0) - o).sum()) for o in other_apps], default=2.0)
                 if d_s < p["app_attach"] and d_s < p["app_ratio"] * d_o:
                     attached.add(t)
-        chosen = sorted(A | attached)
+        chained, masks = _chain_blind(s, A | attached, set(concurrent), L, p) if A else (set(), {})
+        chosen = sorted(A | attached | chained)
         # lag-consistency masks (identity switches inside a fragment)
-        masks, mask_info = {}, {}
+        mask_info = {}
         for t in A:
             mk, info = consistency_mask(s[t]["tr"], imu, L)
             if info.get("kept_frac", 1.0) < 1.0:
@@ -272,6 +317,7 @@ def joint_selection(views: dict, imu: dict, params: dict | None = None, log=prin
         if vc:
             view_off = refine_lag(vc, L, win)                                  # the same window as the shared lag's refinement
         out["views"][vid] = {"track_ids": [int(t) for t in chosen], "accepted_by_xcorr": sorted(int(t) for t in A), "attached_by_appearance": sorted(int(t) for t in attached),
+                             "attached_by_continuity": sorted(int(t) for t in chained),
                              "r_fine": float(best_r), "excess": float(best_e), "second_best_excess": float(second), "margin": float(margin), "confidence": conf, "view_offset_s": view_off,
                              "consistency": mask_info, "frame_masks": masks,
                              "fragments": {int(t): {"r_at_lag": (None if not np.isfinite(_r_at(s[t]["match"], L, p["lag_tol_s"])) else float(_r_at(s[t]["match"], L, p["lag_tol_s"]))),

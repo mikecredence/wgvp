@@ -55,6 +55,13 @@ def side_cam(xm, zm, side=-1.0, dx=0.8):
     # on it: the top edge of the picture crosses the mat 1.55 m above the floor, so the walker's head is outside the
     # frame along the mat and the face shows only when the walker dips or steps towards the camera (the real frame)
     return {"W": RW, "H": RC, "yfov": 43.0, "eye": [xm + dx, 2.3, zm + side * 4.0], "target": [xm - 0.2, -0.21, zm]}
+def close_along_cam(mat_end, walk_end, zm):
+    # v2's stress view: 0.6 m high, 0.3 m beyond the mat's end and at least 0.5 m beyond the walk's own end (the walker
+    # steps off the mat to turn), so the standing walker 1 m away shows from the thighs down and still reads as a person
+    e = min(mat_end - 0.3, walk_end - 0.5)
+    return {"W": LW, "H": LH, "yfov": 60.0, "eye": [e, 0.6, zm + 0.05], "target": [e + 1.7, 0.0, zm]}
+
+
 def along_cam(mat_end, walk_end, direction, zm, height=1.0, back_mat=1.0, back_walk=1.2):
     """Camera beyond the mat's end `mat_end` and beyond the walker's turn point `walk_end` (whichever is further
     out, so a walk that overshoots the mat still turns in front of the lens), `height` m high, looking along the mat
@@ -118,21 +125,162 @@ def imu_vertical_displacement(csv_name: str, n_frames: int) -> np.ndarray:
     return np.interp(t30, t100, d).astype(np.float32)
 
 
-def root_trajectory(aa, smpl, csv_name: str | None = None):
-    """Horizontal path by stance-foot pinning; vertical = mean floor contact + the recorded IMU vertical displacement
-    (csv_name) or the lowest-vertex-on-floor rule (csv_name None)."""
+def facing_xz(J: np.ndarray) -> np.ndarray:
+    """Unit facing direction in the floor plane (T, 2: x, z), from the hip and shoulder lines."""
+    left = (J[:, 1] - J[:, 2]) + (J[:, 16] - J[:, 17]); f = np.stack([-left[:, 2], left[:, 0]], 1)
+    return f / np.maximum(np.linalg.norm(f, axis=1, keepdims=True), 1e-9)
+
+
+def stance_sequence(feet: np.ndarray, fwd: np.ndarray, h_scale: float = 0.03, f_scale: float = 0.02, f_cap: float = 3.0, a_scale: float = 0.02,
+                    switch: float = 0.5, cap: float = 25.0):
+    """Stance foot per frame (0 left, 1 right) by dynamic programming over the two feet's toe joints (T, 2, 3, the
+    root at the origin). Per frame the lower foot is preferred (h_scale m of height costs 1) and so is the foot
+    that moves backwards under the body, which carries the root forwards along its facing fwd (T, 2; f_scale m/frame
+    less than the other foot costs 1, capped at f_cap); between frames a change of foot costs `switch`, and the root
+    velocity the pinned foot implies has to be continuous (a_scale m/frame of change costs 1, squared, capped).
+    The inertial fit has no floor: a swinging foot's toe can dip below the planted one for a few frames, and
+    choosing the lower foot frame by frame then pins the swinging foot and throws the root backwards.
+    Returns (stance, vel) with vel (T, 2, 2) the horizontal root step each foot implies."""
+    T = len(feet); vel = np.zeros((T, 2, 2)); vel[1:] = -(feet[1:, :, [0, 2]] - feet[:-1, :, [0, 2]])
+    along = (vel * fwd[:, None, :]).sum(-1)
+    un = (feet[:, :, 1] - feet[:, :, 1].min(1, keepdims=True)) / h_scale + np.minimum(f_cap, (along.max(1, keepdims=True) - along) / f_scale)
+    cost = np.zeros((T, 2)); back = np.zeros((T, 2), int)
+    if T > 1:
+        cost[1] = un[1]
+    for t in range(2, T):
+        for s in range(2):
+            c = [cost[t - 1, p] + min(cap, (np.linalg.norm(vel[t, s] - vel[t - 1, p]) / a_scale) ** 2) + (switch if p != s else 0.0) for p in range(2)]
+            back[t, s] = int(np.argmin(c)); cost[t, s] = min(c) + un[t, s]
+    st = np.zeros(T, int); st[-1] = int(np.argmin(cost[-1]))
+    for t in range(T - 1, 1, -1):
+        st[t - 1] = back[t, st[t]]
+    if T > 1:
+        st[0] = st[1]
+    return st, vel
+
+
+def pinned_path(aa, smpl):
+    """Horizontal root path by pinning the stance foot (stance_sequence), 9-frame smoothed. Returns (tr, V, J) with
+    the vertical left at zero."""
     from scipy.ndimage import uniform_filter1d
-    V, J = fk(aa, smpl); feet = J[:, [10, 11]]; T = len(aa); tr = np.zeros((T, 3))
+    V, J = fk(aa, smpl); st, vel = stance_sequence(J[:, [10, 11]], facing_xz(J)); T = len(aa); tr = np.zeros((T, 3))
     for t in range(1, T):
-        s = int(np.argmin(feet[t, :, 1] + feet[t - 1, :, 1])); d = feet[t, s] - feet[t - 1, s]
-        tr[t] = tr[t - 1] - np.array([d[0], 0.0, d[2]])
+        tr[t, [0, 2]] = tr[t - 1, [0, 2]] + vel[t, st[t]]
     tr[:, 0] = uniform_filter1d(tr[:, 0], 9, mode="nearest"); tr[:, 2] = uniform_filter1d(tr[:, 2], 9, mode="nearest")
+    return tr, V, J
+
+
+def straight_bouts(tr, min_len: float = 0.4, tol_deg: float = 35.0, min_s: float = 1.0, trim_s: float = 0.3):
+    """Runs of straight walking along the room's axis: the displacement over 1 s is longer than min_len m and within
+    tol_deg of +x or of -x, for min_s or longer. Returns [(a, b, angle)]: the frames (trimmed by trim_s at each end)
+    and the angle of the run's net displacement from its own direction of the axis (rad)."""
+    h = FPS // 2; T = len(tr); p = tr[:, [0, 2]]; d = np.zeros((T, 2)); d[h:T - h] = p[2 * h:] - p[:T - 2 * h]
+    L = np.linalg.norm(d, axis=1); th = np.arctan2(d[:, 1], d[:, 0]); out = []
+    for ref in (0.0, np.pi):
+        ok = (L > min_len) & (np.abs(np.angle(np.exp(1j * (th - ref)))) < np.radians(tol_deg)); e = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
+        for a, b in zip(e[::2], e[1::2]):
+            if b - a >= int(min_s * FPS):
+                a2, b2 = a + int(trim_s * FPS), b - int(trim_s * FPS); dd = p[b2 - 1] - p[a2]
+                out.append((int(a2), int(b2), float(np.angle(np.exp(1j * (np.arctan2(dd[1], dd[0]) - ref))))))
+    return sorted(out)
+
+
+def seated_runs(tr, J, min_s: float = 0.5):
+    """Frame runs with the walker on the chair: the pelvis less than 75 % of its standing height above the lower
+    foot, and the root at rest (under 0.2 m/s over 0.5 s; rising from the chair carries the pelvis forwards)."""
+    from scipy.ndimage import uniform_filter1d
+    hgt = J[:, 0, 1] - J[:, [10, 11], 1].min(1); sp = uniform_filter1d(np.linalg.norm(np.gradient(tr[:, [0, 2]], axis=0), axis=1) * FPS, FPS // 2, mode="nearest")
+    ok = (hgt < 0.75 * np.percentile(hgt, 90)) & (sp < 0.2); e = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
+    return [(int(a), int(b)) for a, b in zip(e[::2], e[1::2]) if b - a >= int(min_s * FPS)]
+
+
+def carried_curve(T: int, anchors, s: np.ndarray | None = None) -> np.ndarray:
+    """Per-frame value from anchors (a, b, value): the value inside each anchor's frames, held before the first and
+    after the last, and carried from one anchor to the next with a cosine ease in time or, with s (the root's
+    cumulative path length, T), in proportion to the distance travelled: a walker who stands still is not moved."""
+    if not anchors:
+        return np.zeros(T)
+    anchors = [list(x) for x in sorted(anchors)]; gap = FPS // 3
+    for p, q in zip(anchors[:-1], anchors[1:]):                       # two anchors that touch are drawn apart: no step between them
+        short = gap - (q[0] - p[1])
+        if short > 0:
+            p[1] = max(p[0] + 1, p[1] - (short + 1) // 2); q[0] = min(q[1] - 1, q[0] + short // 2)
+    out = np.full(T, anchors[-1][2], float); out[:anchors[0][1]] = anchors[0][2]
+    for (a0, b0, v0), (a1, b1, v1) in zip(anchors[:-1], anchors[1:]):
+        out[a0:b0] = v0; n = a1 - b0
+        if n > 0:
+            if s is not None and s[a1] - s[b0] > 1e-3:
+                w = (s[b0:a1] - s[b0]) / (s[a1] - s[b0])
+            else:
+                w = 0.5 * (1 - np.cos(np.pi * (np.arange(n) + 1) / (n + 1)))
+            out[b0:a1] = v0 + (v1 - v0) * w
+    out[anchors[-1][0]:] = anchors[-1][2]
+    return out
+
+
+def walker_path(aa, smpl, csv_name: str | None = None, n_iter: int = 2):
+    """The walker's pose sequence and root path in the room. Returns (aa, tr).
+
+    The path is the stance-foot-pinned one (pinned_path), made to fit a room with a mat along x:
+      heading   the inertial fit's heading is a few degrees off the direction the body travels, and drifts; every
+                straight bout is turned onto the room's axis (a yaw per bout, eased through the turn between two
+                bouts; a seated walker faces the way of the first seat), and the path is pinned again;
+      line      a pinned turn leaves the next bout 0.1-0.3 m to the side; every bout is brought back to one line
+                (the first seat's, or the bouts' mean);
+      chair     every seated run is brought back to the first seat's position (a Timed Up and Go returns to its
+                chair).
+    The line and chair shifts are spread between their anchors in proportion to the distance the root travels (a
+    slightly longer or shorter step), so no foot slides while the walker stands.
+    Vertical = mean floor contact + the recorded IMU vertical displacement (csv_name), or the lowest vertex on the
+    floor (csv_name None)."""
+    from scipy.ndimage import uniform_filter1d
+    from scipy.spatial.transform import Rotation as Rt
+    aa = aa.copy(); T = len(aa)
+    for _ in range(n_iter):
+        tr, V, J = pinned_path(aa, smpl); anc = list(straight_bouts(tr)); S = seated_runs(tr, J)
+        if S:
+            f = facing_xz(J); f = np.arctan2(f[:, 1], f[:, 0])                                            # a yaw of +a about y turns a floor direction at angle a onto +x
+            f0 = np.angle(np.exp(1j * f[S[0][0]:S[0][1]]).mean()); anc += [(a, b, float(np.angle(np.exp(1j * (f[a:b] - f0)).mean()))) for a, b in S]
+        if not anc:
+            break
+        aa[:, :3] = (Rt.from_euler("y", carried_curve(T, anc)) * Rt.from_rotvec(aa[:, :3])).as_rotvec().astype(np.float32)
+    tr, V, J = pinned_path(aa, smpl); B = straight_bouts(tr); S = seated_runs(tr, J)
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(tr[:, [0, 2]], axis=0), axis=1))]
+    zb = [(a, b, float(tr[a:b, 2].mean())) for a, b, _ in B]; zs = [(a, b, float(tr[a:b, 2].mean())) for a, b in S]
+    if zb or zs:
+        line = zs[0][2] if zs else float(np.average([z for _, _, z in zb], weights=[b - a for a, b, _ in zb]))
+        dz = carried_curve(T, [(a, b, line - z) for a, b, z in zb + zs], s)
+    else:
+        dz = 0.0
+    dx = carried_curve(T, [(a, b, float(tr[S[0][0]:S[0][1], 0].mean() - tr[a:b, 0].mean())) for a, b in S], s) if S else 0.0
+    tr[:, 0] += dx; tr[:, 2] += dz
     floor = uniform_filter1d(V[..., 1].min(1), 5, mode="nearest")
     if csv_name is None:
         tr[:, 1] = -floor
     else:
         tr[:, 1] = -np.median(floor) + imu_vertical_displacement(csv_name, T)
-    return tr.astype(np.float32)
+    return aa.astype(np.float32), tr.astype(np.float32)
+
+
+def walk_line(tr) -> float:
+    """z of the line the walker keeps to: the mean over the straight bouts (over the whole path if there are none)."""
+    B = straight_bouts(tr)
+    return float(np.concatenate([tr[a:b, 2] for a, b, _ in B]).mean()) if B else float(tr[:, 2].mean())
+
+
+CLOTHES = {"s": ([170, 60, 55], [45, 50, 75]), "d": ([60, 115, 75], [80, 70, 60]), "b": ([205, 170, 70], [50, 50, 55]), "o": ([95, 95, 155], [65, 65, 70])}   # (top, trousers) per person
+
+
+def clothed_colours(smpl, tag: str) -> np.ndarray:
+    """Per-vertex RGBA: a top, trousers, shoes, skin and hair, by the joint each vertex follows most. A uniformly pale
+    body is missed by the person detector while it stands small and still in the side view; a clothed one is found,
+    and the tops differ per person as in a real room (the pipeline's appearance descriptor is a torso histogram)."""
+    part = smpl.lbs_weights.detach().cpu().numpy().argmax(1); top, trousers = CLOTHES[tag]
+    col = np.tile(np.array([205, 165, 140, 255], np.uint8), (len(part), 1))                       # skin: neck, head, lower arms, hands
+    col[np.isin(part, [3, 6, 9, 13, 14, 16, 17]), :3] = top; col[np.isin(part, [0, 1, 2, 4, 5]), :3] = trousers; col[np.isin(part, [7, 8, 10, 11]), :3] = [40, 38, 40]
+    v = smpl.v_template.detach().cpu().numpy(); head = part == 15
+    col[head & (v[:, 1] > np.percentile(v[head, 1], 55)) & (v[:, 2] < np.percentile(v[head, 2], 60)), :3] = [70, 52, 40]   # hair: the upper back of the head
+    return col
 
 
 def seated_sequence(T: int, rng) -> np.ndarray:
@@ -174,7 +322,7 @@ VARIANTS = {
     # above the top edge along the whole mat. No co-walker: the point of this sample is reconstruction from two
     # truncated views, and the ground-truth 3D pose is saved beside it.
     "v2": {"sid": "HC901", "subdir": "sample_v2", "decoy": False, "seat": lambda xm, zm: desk_seat(xm, zm), "bystander": lambda x0, x1, xm, zm: [xm + 1.5, 0.0, zm + 3.0],
-           "cams": lambda x0, x1, xm, zm: {"left": {"W": LW, "H": LH, "yfov": 60.0, "eye": [min(xm - 0.5 * MAT_L, x0) - 0.3, 0.6, zm + 0.05], "target": [min(xm - 0.5 * MAT_L, x0) + 1.4, 0.0, zm]},   # the stress test: low and close, shins only when near
+           "cams": lambda x0, x1, xm, zm: {"left": close_along_cam(xm - 0.5 * MAT_L, x0, zm),   # the stress test: low and close, shins only when near
                                            "right": side_cam(xm, zm)}},
     # v3: a third room (sample_v3/, session HC902): a different walker (hc105: 6.3 m of walkway, the largest pelvis bob of
     # the public set) with hc100 as the co-walker on the far
@@ -217,7 +365,7 @@ MAT_CELL_M = 0.0127; MAT_CELLS = (384, 48)        # the GAITRite grid: 4.88 x 0.
 
 def recording_csv_subset(var: dict, subj_name: str, J_s: np.ndarray, T_s: int, x0: float, x1: float, xm: float, zm: float):
     """The session's recording CSV: a column subset of the public recording with the walkway columns EMPTIED (the
-    real footprints describe the real walk, 22 % longer than the rendered neutral-body one) or, for the mat variant,
+    real footprints describe the real walk, about a quarter longer than the rendered neutral-body one) or, for the mat variant,
     fabricated from the rendered truth in the export's own form. Returns (DataFrame, mat_frame | None); mat_frame
     gives the world position of cell (0, 0), the cell size and the grid, X along the walk (+x), Y across (+z)."""
     import pandas as pd
@@ -271,8 +419,8 @@ def refresh_csv(variant: str, out_dir: str | None = None):
     _smplx_compat_shims(); import smplx
     out = Path(out_dir) if out_dir else PKG / var["subdir"]; sess = out / "data" / sid
     smpl = smplx.create(BM, model_type="smpl", gender="neutral", batch_size=1)
-    subj = yaw_align(load_ik_aa(subj_name), smpl); tr_s = root_trajectory(subj, smpl, f"{subj_name}.csv"); T_s = len(subj)
-    x0, x1 = float(tr_s[:, 0].min()), float(tr_s[:, 0].max()); xm = 0.5 * (x0 + x1); zm = float(tr_s[:, 2].mean())
+    subj, tr_s = walker_path(yaw_align(load_ik_aa(subj_name), smpl), smpl, f"{subj_name}.csv"); T_s = len(subj)
+    x0, x1 = float(tr_s[:, 0].min()), float(tr_s[:, 0].max()); xm = 0.5 * (x0 + x1); zm = walk_line(tr_s)
     _, J_s = fk(subj, smpl, tr_s)
     G = np.load(out / f"{sid}_gt.npz")
     assert np.allclose(G["transl"], tr_s, atol=1e-4) and len(G["pose_aa"]) == T_s, "the rendered truth differs from this build: re-render instead"
@@ -294,11 +442,11 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     smpl = smplx.create(BM, model_type="smpl", gender="neutral", batch_size=1); faces = smpl.faces.astype(np.int32)
     rng = np.random.default_rng(0)
 
-    subj = yaw_align(load_ik_aa(subj_name), smpl); tr_s = root_trajectory(subj, smpl, f"{subj_name}.csv"); T_s = len(subj)
+    subj, tr_s = walker_path(yaw_align(load_ik_aa(subj_name), smpl), smpl, f"{subj_name}.csv"); T_s = len(subj)
     if has_decoy:
-        deco = yaw_align(load_ik_aa(deco_name), smpl); tr_d = root_trajectory(deco, smpl, f"{deco_name}.csv") + np.array([0, 0, decoy_dz], np.float32); delay_d = int(0.8 * FPS)
-    byst = yaw_align(load_ik_aa("hc101_selfpace"), smpl)[:45]; byst = np.concatenate([byst, byst[::-1]]); tr_b = root_trajectory(byst, smpl)
-    x0, x1 = float(tr_s[:, 0].min()), float(tr_s[:, 0].max()); xm = 0.5 * (x0 + x1); zm = float(tr_s[:, 2].mean())
+        deco, tr_d = walker_path(yaw_align(load_ik_aa(deco_name), smpl), smpl, f"{deco_name}.csv"); tr_d = tr_d + np.array([0, 0, walk_line(tr_s) + decoy_dz - walk_line(tr_d)], np.float32); delay_d = int(0.8 * FPS)   # the co-walker keeps decoy_dz beside the subject
+    byst = yaw_align(load_ik_aa("hc101_selfpace"), smpl)[:45]; byst, tr_b = walker_path(np.concatenate([byst, byst[::-1]]), smpl)
+    x0, x1 = float(tr_s[:, 0].min()), float(tr_s[:, 0].max()); xm = 0.5 * (x0 + x1); zm = walk_line(tr_s)
     tr_b = tr_b + np.array(var["bystander"](x0, x1, xm, zm) if "bystander" in var else [x1 + 2.2, 0.0, zm + 1.2], np.float32)
     pre = int(3.0 * FPS); post = int(1.5 * FPS); n_frames = pre + T_s + post
     seat = seated_sequence(n_frames, rng)
@@ -359,7 +507,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
             for prt in parts:
                 prt.visual = trimesh.visual.ColorVisuals(mesh=prt, face_colors=np.tile([90, 70, 60, 255], (len(prt.faces), 1))); sc.add(pyrender.Mesh.from_trimesh(prt, smooth=False))
         scenes[cid] = sc
-    colors = {"s": [140, 150, 180], "d": [180, 150, 140], "b": [150, 175, 150], "o": [120, 120, 160]}
+    colors = {tag: clothed_colours(smpl, tag) for tag in CLOTHES}
     writer = iio.imopen(str(sess / tdir / f"{sid}_{ttok}_DeID.mp4"), "w", plugin="pyav"); writer.init_video_stream("h264", fps=FPS)
     gt = {cid: {"frames": [], "hip": [], "vis": [], "decoy": [], "joints2d": [], "joints_in": []} for cid in cams}
     nodes = {cid: [] for cid in cams}
@@ -380,7 +528,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
                 sc.remove_node(nd)
             nodes[cid] = []
             for tag, v, j in bodies:
-                tm = trimesh.Trimesh(v, faces, process=False); tm.visual = trimesh.visual.ColorVisuals(mesh=tm, vertex_colors=np.tile(colors[tag] + [255], (len(v), 1)))
+                tm = trimesh.Trimesh(v, faces, process=False); tm.visual = trimesh.visual.ColorVisuals(mesh=tm, vertex_colors=colors[tag])
                 nodes[cid].append(sc.add(pyrender.Mesh.from_trimesh(tm, smooth=True)))
             color, _ = renderer[cid].render(sc, flags=pyrender.RenderFlags.SKIP_CULL_FACES)   # the floor, tiles and mat are single-sided quads seen from above
             img = color[..., ::-1].copy()      # BGR for cv2-style tiling? we write RGB below; keep RGB order consistent
