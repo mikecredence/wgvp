@@ -57,7 +57,7 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
     out = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="wgvp_dryrun_"))
     if out.exists() and any(out.iterdir()):
         shutil.rmtree(out)
-    shutil.copytree(SAMPLE_DIR / "data", out)
+    shutil.copytree(SAMPLE_DIR / "data", out, dirs_exist_ok=True)      # the default folder comes from mkdtemp and already exists
     log(f"dry run: sample copied to {out}")
     t0 = time.time(); cfg = load_config(out)
     summ = run_root(out, cfg, gvhmr_root=gvhmr_root, gvhmr_python=gvhmr_python, cpu_only=cpu_only, log=log)
