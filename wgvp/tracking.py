@@ -30,6 +30,8 @@ SKELETON = [(5, 6), (5, 7), (7, 9), (6, 8), (8, 10), (5, 11), (6, 12), (11, 12),
             (0, 5), (0, 6)]
 GRID_NX, GRID_NY = 32, 18
 APP_BINS = (12, 4)      # H x S histogram bins of the torso region
+STRIP_MIN = 0.75        # hips-only torso strip on a box cut by the frame's top: minimum height in thigh lengths
+TRACK_REV = 3           # bump when detections, descriptors or the fragment rules change: cached tracks of an older revision are recomputed
 VIS_FULL, VIS_PARTIAL, VIS_NONE = 2, 1, 0
 
 
@@ -109,21 +111,44 @@ def visibility_class(kp: np.ndarray, min_conf: float = 0.3) -> int:
 
 
 def torso_histogram(img_bgr: np.ndarray, kp: np.ndarray, box: np.ndarray, min_conf: float = 0.3) -> np.ndarray:
-    """H-S histogram of the torso region (shoulders..hips, else the middle of the box). L1-normalised, 48 floats."""
+    """H-S histogram of the torso region, L1-normalised, 48 floats; zeros when the torso is not in the picture.
+    A keypoint counts when it is confident and off the top edge of the frame: for a body part above the picture the
+    pose model reports a point clamped to that edge, with a confidence that passes in some frames (measured: y = 0
+    at 0.4-0.6 on a legs-only box, against 10 px and more for shoulders that are in the picture).
+    The region is shoulders..hips when at least three of those four keypoints count. With both hips and no shoulder,
+    the column over the hips up to the head. When the box is cut by the top of the frame and no head keypoint counts
+    (the walker close to the camera), that column runs from the box's top to the hip line and must be at least
+    STRIP_MIN thigh lengths tall: a shorter one holds the trousers' waist and little else (measured: its distance to
+    the full-torso descriptor is under 0.2 from 0.8 thigh lengths up and over 1.4 under 0.35). A box cut by the top
+    of the frame without both hips is legs only. Both cases give no descriptor, and the selection attaches such a
+    fragment by continuity instead. Else the middle of the box."""
     h, w = img_bgr.shape[:2]
-    pts = kp[[5, 6, 11, 12]]
-    if (pts[:, 2] >= min_conf).sum() >= 3:
-        p = pts[pts[:, 2] >= min_conf, :2]
+    none = np.zeros(APP_BINS[0] * APP_BINS[1], np.float32)
+    edge = 0.01 * h + 1.0; counts = (kp[:, 2] >= min_conf) & (kp[:, 1] > edge)
+    pts = kp[[5, 6, 11, 12]]; seen = counts[[5, 6, 11, 12]]
+    head = kp[:5][counts[:5]]
+    cut_top = box[1] <= edge; blind = cut_top and not len(head)
+    if seen.sum() >= 3:
+        p = pts[seen, :2]
         x0, y0 = p.min(0); x1, y1 = p.max(0)
+    elif seen[2] and seen[3]:
+        half = max(0.5 * abs(pts[2, 0] - pts[3, 0]), 0.15 * (box[2] - box[0])); cx = 0.5 * (pts[2, 0] + pts[3, 0])
+        x0, x1 = cx - half, cx + half; y1 = 0.5 * (pts[2, 1] + pts[3, 1]); y0 = min(float(head[:, 1].max()) if len(head) else box[1], y1)
+        if blind:
+            knee = kp[[13, 14]]; ok = counts[[13, 14]]
+            if not ok.any() or y1 - y0 < STRIP_MIN * float(np.linalg.norm(knee[ok, :2] - pts[2:][ok, :2], axis=1).mean()):
+                return none
+    elif cut_top:
+        return none
     else:
         x0, y0, x1, y1 = box[0] + 0.25 * (box[2] - box[0]), box[1] + 0.25 * (box[3] - box[1]), box[2] - 0.25 * (box[2] - box[0]), box[3] - 0.45 * (box[3] - box[1])
     x0, x1 = int(np.clip(x0, 0, w - 1)), int(np.clip(x1, 0, w)); y0, y1 = int(np.clip(y0, 0, h - 1)), int(np.clip(y1, 0, h))
     if x1 - x0 < 3 or y1 - y0 < 3:
-        return np.zeros(APP_BINS[0] * APP_BINS[1], np.float32)
+        return none
     hsv = cv2.cvtColor(img_bgr[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
     hist = cv2.calcHist([hsv], [0, 1], None, list(APP_BINS), [0, 180, 0, 256]).ravel()
     s = hist.sum()
-    return (hist / s).astype(np.float32) if s > 0 else np.zeros_like(hist, dtype=np.float32)
+    return (hist / s).astype(np.float32) if s > 0 else none
 
 
 def analyze_video(video: str | Path, weights: str | Path, panels: list[dict], start: int = 0, end: int | None = None, step: int = 1,
@@ -193,17 +218,38 @@ def analyze_video(video: str | Path, weights: str | Path, panels: list[dict], st
 # ----------------------------------------------------------------------------------------------------------------
 # Fragment splitting (identity switches) and per-track derived signals
 # ----------------------------------------------------------------------------------------------------------------
-def split_fragments(ts: TrackSet, max_jump_frac: float = 0.5, max_gap_s: float = 1.0, app_jump: float = 1.1) -> TrackSet:
+def split_fragments(ts: TrackSet, max_jump_frac: float = 0.5, max_gap_s: float = 1.0, app_jump: float = 1.1, switch_window_s: float = 2.0) -> TrackSet:
     """Re-label tracker ids into continuous fragments: split where the box centre jumps by more than max_jump_frac
     box heights per frame between consecutive detections, where the time gap exceeds max_gap_s, or where the torso
     appearance changes abruptly and persistently (L1 distance between the median descriptor of the 8 detections
-    before and the 8 after > app_jump; range 0..2). Fragment ids are new integers."""
+    before and the 8 after > app_jump; range 0..2). One appearance change is one cut, at the detection where that
+    distance peaks (the medians cross the threshold a few detections either side of it). An appearance change cuts
+    only where a detection of another tracker id overlaps the box within switch_window_s: an identity switch needs
+    a second person to switch with, and a lone person's descriptor changes on its own (a chair behind a seated
+    torso, a body leaving the top of the frame). Fragment ids are new integers."""
     new_tid = np.zeros_like(ts.det_tid); nxt = 1
+    t_det = ts.pts_ms[ts.det_frame] / 1000.0
     for tid in ts.track_ids():
         m = np.where(ts.det_tid == tid)[0]
         m = m[np.argsort(ts.det_frame[m], kind="stable")]
         cur = nxt; nxt += 1
         app = ts.det_app[m]; has_app = app.sum(1) > 0
+        dapp = np.zeros(len(m))
+        for k in range(8, len(m) - 7):
+            if has_app[k - 8:k].sum() >= 4 and has_app[k:k + 8].sum() >= 4:
+                dapp[k] = float(np.abs(np.median(app[k - 8:k][has_app[k - 8:k]], 0) - np.median(app[k:k + 8][has_app[k:k + 8]], 0)).sum())
+        app_cut = np.zeros(len(m), bool); k = 0
+        while k < len(m):
+            if dapp[k] > app_jump:
+                e = k
+                while e + 1 < len(m) and dapp[e + 1] > app_jump:
+                    e += 1
+                kk = k + int(np.argmax(dapp[k:e + 1])); b = ts.det_box[m[kk]]
+                ob = ts.det_box[(ts.det_tid != tid) & (np.abs(t_det - t_det[m[kk]]) <= switch_window_s)]
+                app_cut[kk] = bool(((np.minimum(b[2], ob[:, 2]) > np.maximum(b[0], ob[:, 0])) & (np.minimum(b[3], ob[:, 3]) > np.maximum(b[1], ob[:, 1]))).any())
+                k = e + 1
+            else:
+                k += 1
         for k, i in enumerate(m):
             if k > 0:
                 j = m[k - 1]
@@ -212,11 +258,7 @@ def split_fragments(ts: TrackSet, max_jump_frac: float = 0.5, max_gap_s: float =
                 c_i = ts.det_box[i, [0, 1]] + ts.det_box[i, [2, 3]]; c_j = ts.det_box[j, [0, 1]] + ts.det_box[j, [2, 3]]
                 jump = np.linalg.norm(c_i - c_j) / 2 / bh
                 frames_apart = max(dt * 30.0, 1.0)
-                dapp = 0.0
-                if 8 <= k <= len(m) - 8 and has_app[k - 8:k].sum() >= 4 and has_app[k:k + 8].sum() >= 4:
-                    a0 = np.median(app[k - 8:k][has_app[k - 8:k]], 0); a1 = np.median(app[k:k + 8][has_app[k:k + 8]], 0)
-                    dapp = float(np.abs(a0 - a1).sum())
-                if dt > max_gap_s or jump > max_jump_frac * frames_apart or dapp > app_jump:
+                if dt > max_gap_s or jump > max_jump_frac * frames_apart or app_cut[k]:
                     cur = nxt; nxt += 1
             new_tid[i] = cur
     ts.det_tid = new_tid
