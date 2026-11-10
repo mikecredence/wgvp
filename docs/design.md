@@ -19,8 +19,9 @@ Per video (CPU, one decode pass, cached by file hash):
 2. **Tracking per view.** YOLOv8n-pose + ByteTrack (one tracker per view), frames downscaled to 960 px for the
    detector, keypoints reported in full-frame pixels, with per detection a torso colour histogram (12 x 4 H-S bins,
    for re-identification only, kept in `work/`) and a visibility class (full: shoulders, hips and ankles seen;
-   partial; none). Tracker ids are split into fragments at box-centre jumps, time gaps and persistent appearance
-   changes.
+   partial; none). A body whose torso is outside the picture gets no histogram. Tracker ids are split into fragments
+   at box-centre jumps, at time gaps, and at persistent appearance changes where a second tracked person overlaps the
+   box.
 3. **Subject selection (primary: pelvis cross-correlation, joint over both views).** Every fragment gets a
    perspective-robust pelvis signal: (hip row - fitted horizon row) / smoothed torso length, which removes the
    per-step term that walking toward a low camera leaves in the raw hip row. The IMU side is the recording CSV's
@@ -831,12 +832,23 @@ to 62, HC905 100 to 99. HC904's 37 % is its standing start (the first 11.8 s: se
 both turns are kept. The two real clips are unchanged (95 and 100 %). The merge reports the share as an `info:`
 flag, and `info:` flags no longer turn a PASS into a WARN.
 
-**Why the side view did not register a standing walker (HC904, HC902).** The tracker has no detection of the
-subject there, not a lost selection: the sample stands the walker beyond the near end of the mat, at the panel's
-top edge and half out of it, and the avatars are pale, unclothed and close in tone to the wall; the person detector
-finds the walker once the first step brings the body into the panel. That is a property of the sample's scene
-rather than of a clinic recording, and it is to be fixed in the generator (start position inside the panel,
-clothing-like colours) together with the truth's defects below. Nothing in the pipeline was changed for it.
+**Why the side view did not register a standing walker (HC904, HC902).** The tracker has no detection of the subject
+there, not a lost selection: the sample stands the walker beyond the near end of the mat, at the panel's top edge and
+half out of it, and the avatars are pale, unclothed and close in tone to the wall; the person detector finds the
+walker once the first step brings the body into the panel. That is a property of the sample's scene rather than of a
+clinic recording. The generator now dresses the avatars (below), and on the new renders the chosen side-view track
+covers 84.8 % of HC904 (66.6 on the bundled video; first tracked frame 96 against 427), 79.0 % of HC902 (70.0) and
+99.7 % of HC900 (86.9). What is left is the detector's margin, and no tracker setting recovers it. YOLOv8n-pose gives
+the standing walker of the new HC904 a confidence of 0.25 or more on 48 % of the standing frames. ByteTrack's second
+association is meant to carry a track through fainter detections, but with `fuse_score: True` (the default) the IoU is
+multiplied by the detection's score, so a detection under 0.25 sits at a matching distance of 0.75 or more against a
+threshold of 0.5 and never matches; this is why lowering the pose confidence alone changed nothing. With the score
+left unfused and the low threshold at 0.1 or 0.05, a direct tracker test covers 63 and 67 % of the 350 standing frames
+instead of 43. In the pipeline the same settings break the side view up (27 fragments become 41), the selection falls
+from the inertial correlation to the cross-view rule (r 0.0), and the chosen track covers 72.4 % instead of 84.8 and
+starts at frame 394 instead of 96: faint detections carry erratic keypoints and descriptors. The settings were
+reverted. One idea is not tested: where the subject's track ends and resumes at the same place with the body at rest,
+hold the box over the gap. It changes the frames the lifter is given, so it needs the GPU stage.
 
 **The demo's close-ups now stand in the room.** The three close-up panels used to draw each body at the origin on a
 strip standing in for the mat, the truth in the room's frame and the reconstruction in the reference view's GVHMR
@@ -850,17 +862,89 @@ error of the frame. The merged translation is not used to place them: after one 
 m from the truth at the median of a session (0.44-1.02 m at the 90th percentile), which would read as the walker
 leaving the mat, and `transl_weight` already says so. Without a truth or a room the old layout is kept.
 
-**What in the videos is the sample's own (to fix in `tools/make_sample.py`; needs a new render and a new lift).**
-Three things seen in the demos are in the rendered truth, so in the videos the pipeline is given, and the
-reconstruction follows them. (1) The walker drifts off the mat as he walks down it (HC900): the truth's path is
-integrated from the inertial fit's heading by pinning the stance foot, and that heading drifts about 7 deg from the
-mat's axis over the recording. (2) A backward slide of about 4 cm at 25.93-26.07 s of HC900: the stance foot is
-chosen frame by frame as the lower one, with no hysteresis, and flickers in double support. (3) The TUG's chair
-(HC903) is placed under the first frame's pelvis, and by the third repetition the same drift has the seated pelvis
-(-0.75, -0.30) m from it, beside the chair at 0:36. The fixes are a heading correction per straight bout before
-pinning, hysteresis on the stance foot, and closing each repetition's path on the chair. They change the rendered
-videos, so every number in the README would have to come from a new lift; they are held until the GPU stage can run
-again.
+**What in the videos was the sample's own, and its fix in `tools/make_sample.py`.** Three things seen in the demos are
+in the rendered truth, so in the videos the pipeline is given, and the reconstruction follows them. (1) The walker
+drifts off the mat as he walks down it (HC900): the truth's path is integrated from the inertial fit's heading by
+pinning the stance foot, and that heading drifts about 7 deg from the mat's axis over the recording. (2) A backward
+slide of about 4 cm at 25.93-26.07 s of HC900: the stance foot was chosen frame by frame as the lower one, and the
+inertial fit has no floor, so a swinging toe that dips below the planted one for a few frames was pinned and threw the
+root backwards. (3) The TUG's chair (HC903) is placed under the first frame's pelvis, and by the third repetition the
+same drift had the seated pelvis (-0.75, -0.30) m from it, beside the chair at 0:36.
+
+The generator's path (`walker_path`) is now built in four steps. The stance foot is chosen over the whole recording by
+dynamic programming (`stance_sequence`: the lower foot and the foot moving backwards under the body are preferred, a
+change of foot costs, and the root velocity the pinned foot implies has to be continuous). Every straight bout
+(`straight_bouts`) is turned onto the room's axis by a yaw of its own, eased through the turn between two bouts, and
+the path is pinned again. Every bout is brought back to one line. Every seated run (`seated_runs`: the pelvis under 75
+% of its standing height above the lower foot, and the root at rest) is brought back to the first seat's position. The
+line and chair shifts are spread between their anchors in proportion to the distance the root travels, a slightly
+longer or shorter step, so no foot slides while the walker stands. Measured on the new truth: HC900's four straight
+bouts lie within 0.1 deg of the mat's axis, no foot joint leaves the mat in their 490 frames (the pelvis stays within
+0.108 m of the centre line of a mat that reaches 0.305 m to each side), no frame inside a bout moves backwards, and
+the stance changes 45 times. In HC903 all four seated runs return to the chair within 1 mm and face it within 0.1 deg,
+no bout frame moves backwards, and 5 of 521 bout frames have a foot joint off the mat. In the rendered frames the
+walker of HC900 stands on the mat at 25-26 s, and the walker of HC903 sits down onto the seat at 35-38 s.
+
+The avatars are dressed (`clothed_colours`: a top, trousers, shoes, skin and hair per vertex, the top and trousers
+different for each person). A uniformly pale body is missed by the person detector while it stands small and still in
+the side view, and the pipeline's appearance descriptor is a torso histogram, which a room of identical bodies does
+not exercise. HC901's along camera is now low and close (`close_along_cam`: 0.6 m high, the standing walker 1 m away
+shown from the thighs down), a stress view for bodies cut by the top of the frame.
+
+The new videos are not in the repository. They change every number in the README, and those come from a lift; until
+the GPU stage has run on them, the bundled samples are the old renders. The six new renders pass the stages before the
+lift (QC status PASS on all six).
+
+**Tracking revision 3: what clothed, cut-off bodies exposed.** With the avatars dressed and one camera close, the
+colour descriptor started to matter, and four weaknesses of tracking and selection showed, all in the handling of a
+body that is partly outside the picture. They are fixed with the sample (`TRACK_REV = 3`, part of the tracking cache
+key, so caches of the earlier revision are not reused).
+
+(1) A descriptor from the wrong part of the body. With the torso above the picture the descriptor's region fell on the
+trousers, and the fragment's distance to the subject's own descriptor went to the far end of the range: in HC901's
+close view the chosen track covered 43.4 % of the recording and began at frame 875. `torso_histogram` now returns no
+descriptor when the torso is not in the picture: a box cut by the top of the frame without both hips, or with a column
+over the hips shorter than 0.75 thigh lengths (measured: the column's distance to the full-torso descriptor is under
+0.2 from 0.8 thigh lengths up, and over 1.4 under 0.35).
+
+(2) Keypoints clamped to the edge. For a body part above the picture the pose model reports a point on the top edge,
+with a confidence that passes in some frames: shoulders at y = 0.0 with 0.4-0.6 on a legs-only box, against 10 px and
+more for shoulders that are in the picture. A keypoint now counts only when it is confident and off the top edge. Two
+simpler rules were tried and rejected on the regression set. Taking the hip column whenever no head is seen lost a
+19-frame standing fragment whose shoulders were in the picture (distance to the subject 0.808 instead of 0.329,
+against a threshold of 0.35). Following the shoulders without the edge rule cut the bundled HC900's side view in three
+places (86.9 % to 61.2).
+
+(3) Fragments without a descriptor. Appearance cannot place them, so the IMU-match path now has a continuity rule of
+its own for them, beside the cross-view path's (`_chain_blind`, reported under the same name,
+`attached_by_continuity`): at each end, the subject's detection nearest in time within 2 s has to be the same box (IoU
+above 0.4). The box centre alone was not enough; it also took a small static false detection beside the place where
+the walker stood. A tracker that loses a faint standing walker opens a second id and then alternates between the two,
+so a fragment may share frames with the subject as a second box on the same body (median IoU above 0.4), and those
+frames are masked out of it. Fragments that do carry a descriptor are still not attached by continuity in this path.
+
+(4) Appearance cuts with nobody to switch with. A fragment is cut where the descriptor changes abruptly and for good
+(the distance between the medians of the 8 detections before and the 8 after is above 1.1, of 2). One person's
+descriptor also changes on its own: a chair's backrest behind a seated walker in the TUG's side view gives 1.04-1.13,
+and so does a body leaving the top of the frame. On the real clip, with one person in it, revision 2 cut the track at
+frame 192. An appearance change now cuts only where a detection of another tracker id overlaps the box within 2 s: an
+identity switch needs a second person to switch with. On that clip each view is now one fragment of 13.1 s instead of
+two, the offset is 0.8205 s against 0.8212, and the selection margins are 0.56 and 0.61 against 0.45 and 0.44.
+
+The regression set is thirteen run roots: the six new renders, the six bundled samples and the real clip. Coverage of
+the chosen track, revision 2 against revision 3:
+
+| view | revision 2 | revision 3 |
+|---|---|---|
+| new HC901, along (the close camera) | 43.4 %, from frame 875 | 99.7 %, from frame 91 |
+| new HC905, side | 98.6 % | 99.3 % |
+| bundled HC902, side | 70.0 %, from frame 413 | 73.4 %, from frame 218 |
+| bundled HC903, along | 66.4 % | 79.4 % |
+| the other 20 sample views, and both views of the real clip | | unchanged |
+
+The QC status of every root is the same under both revisions, and `tests/test_tracking.py` holds the three rules. Two
+of the bundled samples' chosen tracks change, so their lifts and the README's numbers belong to revision 2 until the
+GPU stage runs again; revision 3 and the new sample go to `main` together with that lift.
 
 **The lifter's camera.** The lift hands GVHMR a default intrinsic matrix with the focal length equal to the image
 diagonal. Against the samples' real cameras that is 1.53 times too long for the along view and 2.04 for the side

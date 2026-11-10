@@ -31,7 +31,7 @@ from .merge import merge_recording
 from .reconcile import reconcile_recording, SMPLX_BODY_JOINTS
 from .selection import DEFAULTS as SEL_DEFAULTS, coverage, cross_view_selection, decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
 from .sync import combine_sync
-from .tracking import TrackSet, analyze_video, hip_vertical_signal, split_fragments
+from .tracking import TRACK_REV, TrackSet, analyze_video, hip_vertical_signal, split_fragments
 from .video_io import cut_video, detect_panels, panel_preview, probe_video, sha256_file
 
 PKG_DIR = Path(__file__).resolve().parent.parent
@@ -112,7 +112,8 @@ def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: 
     info = probe_video(video); dump_json(info, vdir / "probe.json")
     pan = panels_for(video, cfg, vdir, log)
     imgsz = int(cfg["params"].get("detector_imgsz", 640))
-    key = {"sha256": info["sha256"], "boxes": [p["box"] for p in pan["panels"]], "weights": Path(weights).name, "width": cfg["params"]["track_max_width"], "imgsz": imgsz}
+    key = {"sha256": info["sha256"], "boxes": [p["box"] for p in pan["panels"]], "weights": Path(weights).name, "width": cfg["params"]["track_max_width"], "imgsz": imgsz,
+           "conf": cfg["params"]["pose_conf"], "rev": TRACK_REV}
     cache = vdir / "tracks_cache.json"
     if cache.exists() and not force and json.loads(cache.read_text()) == key and all((vdir / f"tracks_{p['id']}.npz").exists() for p in pan["panels"]):
         views = {p["id"]: TrackSet.load(vdir / f"tracks_{p['id']}.npz") for p in pan["panels"]}
@@ -369,7 +370,7 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
             if dec["track_ids"] and sorted(dec["track_ids"]) != sorted((pv or {}).get("track_ids", [])) and sync.get("offset_s") is not None:
                 cov = coverage(ts, dec["track_ids"], float(sync["offset_s"]), imu, {**SEL_DEFAULTS, **selp})   # the operator's or the ROI's choice, not the primary's
             item = {"status": _status_merge(dec["status"], sync["status"]), "flags": [], "selection_source": dec["source"], "subject_track_ids": dec["track_ids"],
-                    "accepted_by_xcorr": (pv or {}).get("accepted_by_xcorr", []), "attached_by_appearance": (pv or {}).get("attached_by_appearance", []),
+                    "accepted_by_xcorr": (pv or {}).get("accepted_by_xcorr", []), "attached_by_appearance": (pv or {}).get("attached_by_appearance", []), "attached_by_continuity": (pv or {}).get("attached_by_continuity", []),
                     "r_fine": (pv or {}).get("r_fine"), "margin": (pv or {}).get("margin"), "view_confidence": (pv or {}).get("confidence") if dec["source"] != "cross_view" else "cross_view",
                     "view_offset_s": (pv or {}).get("view_offset_s") if dec["source"] != "cross_view" else dec.get("view_offset_s"),
                     "cross_view": ({k: v for k, v in dec["cross_view"].items() if k != "frame_masks"} if dec.get("cross_view") else None),
