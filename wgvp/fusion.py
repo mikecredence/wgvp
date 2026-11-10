@@ -4,6 +4,7 @@ tool `tools/two_view_fusion.py`. Everything here is run-time: no ground truth is
   usable_joints_rt   which SMPL-X body joints a view can vouch for in a frame (its 2D keypoints confident and inside the panel)
   ramp_inside        cross-fade weights at the edges of usable runs
   chordal_mean       weighted rotation average per (frame, joint)
+  repair_root_glitches   a view's root flipping away and back within 0.2 s is interpolated across, before anything reads it
   fuse_root          the merged root orientation and each view's share of it (continuous in every term)
   smooth_rotations   short moving average in rotation space that never crosses a gap
   export_mask        the frames an export keeps
@@ -15,6 +16,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 LEGS = [0, 1, 3, 4, 6, 7]; ARMS = [12, 13, 15, 16, 17, 18, 19, 20]; SPINE = [2, 5, 8, 11, 14]
+TORSO_LEGS = sorted(LEGS + SPINE)   # hips, knees, ankles, feet, the three spine joints, neck and head: what an exported frame must have (an arm may be missing)
 # SMPL-X body joint -> COCO-17 keypoints whose confidence says how well this joint's rotation is observed
 # (the joint itself and the child segment it moves)
 JOINT_KP = {0: [11, 13], 1: [12, 14], 2: [11, 12, 5, 6], 3: [13, 15], 4: [14, 16], 5: [5, 6, 11, 12], 6: [15], 7: [16], 8: [5, 6], 9: [15], 10: [16],
@@ -71,10 +73,39 @@ def smooth_rotations(aa: np.ndarray, window: int) -> np.ndarray:
     return out
 
 
+def repair_root_glitches(root_aa: np.ndarray, fps: float = 30.0, max_s: float = 0.2, jump_deg: float = 60.0) -> tuple[np.ndarray, np.ndarray]:
+    """A monocular lift can take the front/back ambiguity for an instant: its root steps by more than jump_deg
+    between two consecutive frames and, within max_s, is back within jump_deg / 2 of where it was. No body turns
+    like that; the view's joints are unaffected (measured on the rendered session where it happens: the leg error
+    of the two flipped frames is that of their neighbours), and left in, the two steps read as a snap to fuse_root's
+    offline rule, which then sets the wrong view aside for the whole turn. Those frames get the root interpolated
+    across them (slerp between the frames either side). A step that does not come back is left alone: that is a
+    snap, and fuse_root's business. (T, 3) axis-angle with NaN gaps -> the repaired roots and the (T,) mask of
+    repaired frames."""
+    root_aa = np.asarray(root_aa, float); T = len(root_aa); out = root_aa.copy(); fixed = np.zeros(T, bool)
+    ok = np.isfinite(root_aa).all(1); G = max(1, int(round(max_s * fps)))
+    if ok.sum() < 3:
+        return out, fixed
+    Q = np.full((T, 4), np.nan); Q[ok] = R.from_rotvec(root_aa[ok]).as_quat()
+    def ang(a, b): return float(np.degrees(2.0 * np.arccos(np.clip(abs(float(a @ b)), 0.0, 1.0))))
+    t = 1
+    while t < T:
+        if ok[t] and ok[t - 1] and ang(Q[t], Q[t - 1]) > jump_deg:
+            back = next((k for k in range(1, G + 1) if t + k < T and ok[t + k] and ang(Q[t + k], Q[t - 1]) < 0.5 * jump_deg), None)
+            if back is not None:
+                q0 = Q[t - 1]; q1 = Q[t + back] * (1.0 if Q[t + back] @ q0 >= 0 else -1.0)
+                for j in range(back):
+                    if ok[t + j]:
+                        m = q0 + (q1 - q0) * ((j + 1) / (back + 1.0)); out[t + j] = R.from_quat(m / np.linalg.norm(m)).as_rotvec(); fixed[t + j] = True
+                t += back + 1; continue
+        t += 1
+    return out, fixed
+
+
 def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np.ndarray], ramp: int = 15,
               soft_lo: float = 30.0, soft_hi: float = 60.0, n_joints: int = 21, return_raw: bool = False, cont_scale: float = 30.0,
               human_turn_deg_s: float = 150.0, snap_scale_deg_s: float = 150.0, fps: float = 30.0, snap_deg: float = 90.0,
-              snap_window_s: float = 0.25, max_turn_s: float = 4.0):
+              snap_window_s: float = 0.25, max_turn_s: float = 4.0, arb_smooth: bool = True):
     """Root orientation of the merge and each view's share of it. Inputs per view, all in one world frame (per-view
     heading offsets already removed): roots (T, 3), usable (T, J) bool, lifted (T,) bool. Returns the fused root
     (T, 3) axis-angle, NaN where no view lifted the frame, and the normalised weights (V, T); with return_raw also
@@ -89,12 +120,16 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
     and the disagreement, so nothing here introduces a discontinuity that is not in the inputs. When the views
     disagree by more than soft_lo, two continuity terms arbitrate before the sharpening (a monocular lifter takes a
     180-degree turn the wrong way round in one view by snapping through the front/back ambiguity, after which the
-    two headings are far apart and their mean is meaningless): a view's weight is divided by 1 + ((its own turning
+    two headings are far apart and their mean is meaningless): a view's weight is divided by 1 + g ((its own turning
     rate since its previous frame - human_turn_deg_s)+ / snap_scale_deg_s)^2, which discounts the snap itself (a
     person turns at up to about 150 deg/s, a snapping lift at 500 or more) and leaves a turn at a human rate alone,
-    and by 1 + (its angle to the previous fused output / cont_scale)^2, which keeps the output with the view it was
-    following until the views agree again. The weighted mean is taken on unit quaternions, hemisphere-aligned to
-    the heaviest view.
+    and by 1 + g (its angle to the previous fused output / cont_scale)^2, which keeps the output with the view it was
+    following until the views agree again. g is the size of the disagreement on the same scale as the sharpening
+    (0 at soft_lo, 1 by soft_hi), so the two terms fade in with it: switched on at full strength the moment the
+    disagreement crossed soft_lo, they halved a view's weight from one frame to the next whenever two lifts sat
+    about 30 deg apart (every turn), and the fused heading hopped by several degrees each time (measured on the
+    rendered sessions: the heading's frame-to-frame jitter in turns was 2 to 5 times the truth's). The weighted mean
+    is taken on unit quaternions, hemisphere-aligned to the heaviest view.
 
     Those two terms are causal and cannot settle the other form of the same failure: a view that turns the wrong
     way round at a human rate, indistinguishable from the right one while both turn, and gives itself away only by
@@ -104,12 +139,20 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
     whose own root turns by more than snap_deg within snap_window_s, during the episode or just after it, is the
     one that took the turn the wrong way (a person cannot turn 90 degrees in a quarter of a second; the snap is the
     lift's own correction, so that view was wrong on one side of it, inside the episode), and it carries no weight
-    over the episode, up to max_turn_s either side of its snap. The same episode can also end without a snap when the
+    over the episode, up to max_turn_s either side of its snap (its weight fades out over `ramp` frames before the
+    episode and back in after it, so the hand-over cannot step the root). The same episode can also end without a snap when the
     wrong view's coverage simply runs out (the walker leaves its frame mid-turn): the disagreement is never resolved,
     and at the hand-off the merged root would jump onto the surviving view. A view whose coverage ends, or begins,
     inside an episode while another view continues through it is treated like a snapping one and carries no weight
     over the episode. When no view snaps or departs, or more than one does, the rule is silent and the causal terms
     decide.
+
+    The causal terms feed on their own output (the continuity term measures each view against the previous fused
+    root), so their verdict can flip from one frame to the next while two views sit near soft_lo apart. A second
+    pass (arb_smooth) therefore averages what the arbitration did to each view's weight over `ramp` frames and
+    recomputes the shares and the root from that. Measured on the six rendered sessions (24 turns), with the faded
+    drop: heading jitter inside turns 5.5 times the truth's before and 0.9 after, peak turning rate 2.9 times the
+    truth's before and 1.3 after.
 
     The share is also the right weight for the view's body joints: a lifter that got the root's pitch wrong (the
     along view of the sample at close range: +40 deg) has hips that compensate for it, and the rest of its body
@@ -121,7 +164,7 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
     w = pres * frac ** 2; w[~L] = 0.0
     Q = np.stack([np.where(np.isfinite(r).all(1)[:, None], R.from_rotvec(np.nan_to_num(r)).as_quat(), np.nan) for r in roots])
     w = _drop_snapping_views(w, Q, L, soft_lo, ramp, snap_deg, snap_window_s, max_turn_s, fps)
-    out = np.full((T, 3), np.nan); share = np.zeros((V, T)); prev = None; gap = 0
+    out = np.full((T, 3), np.nan); share = np.zeros((V, T)); arb = np.ones((V, T)); prev = None; gap = 0
     last_q = [None] * V; last_t = np.full(V, -10 ** 9); r0 = human_turn_deg_s / max(fps, 1e-6); rs = snap_scale_deg_s / max(fps, 1e-6)   # deg per frame
     def ang(a, b): return np.degrees(2.0 * np.arccos(np.clip(np.abs(a @ b), 0.0, 1.0)))
     for t in range(T):
@@ -131,26 +174,42 @@ def fuse_root(roots: list[np.ndarray], usable: list[np.ndarray], lifted: list[np
         ww = w[idx, t].copy()
         if ww.sum() <= 1e-9:                                   # lifted but nothing usable in any view (bridged frames): plain mean
             ww[:] = 1.0
+        ww0 = ww.copy()
         k = int(np.argmax(ww)); q = Q[idx, t].copy(); q *= np.sign(q @ q[k] + 1e-12)[:, None]
         d = ang(q, q[k])                                                                                     # each root's angle to the heaviest
-        if len(idx) > 1 and d.max() > soft_lo:                                                              # disagreement: continuity arbitrates
+        g = float(np.clip((d.max() - soft_lo) / (soft_hi - soft_lo), 0.0, 1.0)) if len(idx) > 1 else 0.0     # how much of a disagreement this is: 0 below soft_lo, 1 by soft_hi
+        if g > 0.0:                                                                                         # disagreement: continuity arbitrates
             rate = np.array([ang(Q[i, t], last_q[i]) / max(t - last_t[i], 1) if (last_q[i] is not None and t - last_t[i] <= ramp) else 0.0 for i in idx])
-            ww = ww / (1.0 + (np.maximum(rate - r0, 0.0) / rs) ** 2)
+            ww = ww / (1.0 + g * (np.maximum(rate - r0, 0.0) / rs) ** 2)
             if prev is not None and gap <= ramp:
-                ww = ww / (1.0 + (ang(q, prev) / cont_scale) ** 2)
+                ww = ww / (1.0 + g * (ang(q, prev) / cont_scale) ** 2)
             k = int(np.argmax(ww)); q *= np.sign(q @ q[k] + 1e-12)[:, None]; d = ang(q, q[k])
         p = 8.0 * np.clip((d - soft_lo) / (soft_hi - soft_lo), 0.0, 1.0)                                    # 0 below soft_lo, 8 at soft_hi
         ww = ww * (ww / ww[k]) ** p; share[idx, t] = ww / ww.sum()
+        a = np.where(ww0 > 0, ww / np.maximum(ww0, 1e-12), 0.0); arb[idx, t] = a / max(float(a.max()), 1e-12)   # what the arbitration made of each view's weight (the preferred view: 1)
         m = (ww[:, None] * q).sum(0); m /= np.linalg.norm(m); out[t] = R.from_quat(m).as_rotvec(); prev = m; gap = 0
         for i in idx:
             last_q[i] = Q[i, t]; last_t[i] = t
+    if arb_smooth and ramp > 1:                                                                            # second pass: the arbitration, averaged over the cross-fade time
+        arb_s = np.stack([_moving_average(arb[i], ramp) for i in range(V)])
+        for t in range(T):
+            idx = np.flatnonzero(L[:, t] & np.isfinite(Q[:, t]).all(1))
+            if not len(idx):
+                continue
+            ww = w[idx, t] * arb_s[idx, t]
+            if ww.sum() <= 1e-9:
+                ww = np.ones(len(idx))
+            k = int(np.argmax(ww)); q = Q[idx, t].copy(); q *= np.sign(q @ q[k] + 1e-12)[:, None]
+            share[:, t] = 0.0; share[idx, t] = ww / ww.sum()
+            m = (ww[:, None] * q).sum(0); m /= np.linalg.norm(m); out[t] = R.from_quat(m).as_rotvec()
     return (out, share, w) if return_raw else (out, share)
 
 
 def _drop_snapping_views(w: np.ndarray, Q: np.ndarray, L: np.ndarray, soft_lo: float, ramp: int, snap_deg: float,
                          snap_window_s: float, max_turn_s: float, fps: float) -> np.ndarray:
     """fuse_root's offline rule (see there). w, L (V, T); Q (V, T, 4) quaternions, NaN where absent. Returns w with
-    the view that snaps, or whose coverage ends or begins, inside a disagreement episode zeroed over that episode."""
+    the view that snaps, or whose coverage ends or begins, inside a disagreement episode zeroed over that episode,
+    faded out over `ramp` frames before it and back in over `ramp` frames after it."""
     V, T = w.shape; win = max(1, int(round(snap_window_s * fps))); mx = max(win, int(round(max_turn_s * fps)))
     ok = L & np.isfinite(Q).all(2)
     def ang(a, b): return np.degrees(2.0 * np.arccos(np.clip(np.abs(np.sum(a * b, axis=-1)), 0.0, 1.0)))
@@ -190,7 +249,10 @@ def _drop_snapping_views(w: np.ndarray, Q: np.ndarray, L: np.ndarray, soft_lo: f
             continue
         i = hits[0][0]; s0 = min(h[1] for h in hits); s1 = max(h[2] for h in hits)
         lo = max(a_, s0 - mx); hi = min(max(b_, s1 + 1), s1 + mx, T)
-        w[i, lo:hi] = 0.0
+        f = np.ones(T); f[lo:hi] = 0.0                                                                   # out over the episode, faded out before it and back in after it
+        pre = np.arange(max(lo - ramp, 0), lo); f[pre] = (lo - pre) / (ramp + 1.0)
+        post = np.arange(hi, min(hi + ramp, T)); f[post] = (post - hi + 1) / (ramp + 1.0)
+        w[i] *= f
     return w
 
 
@@ -211,9 +273,11 @@ def moving_average_in_runs(x: np.ndarray, k: int) -> np.ndarray:
     return out[:, 0] if one else out
 
 
-def export_mask(merged_out: np.ndarray, required=LEGS, min_run: int = 15) -> np.ndarray:
+def export_mask(merged_out: np.ndarray, required=TORSO_LEGS, min_run: int = 15) -> np.ndarray:
     """Frames an export keeps: every required joint is output (seen by at least one view), in runs of at least
-    min_run frames. (T, 21, 3) with NaN for joints not output -> (T,) bool."""
+    min_run frames. The default asks for the legs and the torso: a frame with a leg or a trunk joint that no view
+    saw is dropped whole, a frame with only an arm missing is kept (the arm's joints stay NaN with weight 0).
+    (T, 21, 3) with NaN for joints not output -> (T,) bool."""
     ok = np.isfinite(merged_out[:, list(required)]).all(axis=(1, 2))
     edges = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
     for a_, b_ in zip(edges[::2], edges[1::2]):

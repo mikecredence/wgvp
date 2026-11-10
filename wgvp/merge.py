@@ -11,11 +11,15 @@ Per recording:
      more usable joints is the reference; every other view is turned onto it by one constant yaw (the circular
      median of the heading difference of the two roots) and one constant offset (median translation difference),
      fitted on frames where both views see most of the body. The residuals are reported.
-  3. Root: `fuse_root` (presence-ramped, usable-fraction-weighted, sharpened when the views disagree); the
-     translation is averaged with the same shares and smoothed over 5 frames inside runs.
+  3. Root: a view's root that flips for an instant and comes back is interpolated across first
+     (`repair_root_glitches`); then `fuse_root` (presence-ramped, usable-fraction-weighted, sharpened when the
+     views disagree, the arbitration itself smoothed over the cross-fade time) and the same 5-frame moving
+     average the body gets; the translation is averaged with the same shares and smoothed over 5 frames.
   4. Body: per joint, the view(s) that can vouch for it, cross-faded over 0.5 s at segment edges, each view
      weighted by its share of the root; nothing where no view saw the joint; smoothed over 5 frames.
-  5. Export rule: a frame is kept when every leg joint is output, in runs of at least 0.5 s (`export_ok`).
+  5. Export rule: a frame is kept when every leg joint AND every torso joint (spine, neck, head) is output, in
+     runs of at least 0.5 s (`export_ok`). A frame with a leg or the trunk unseen is dropped whole; a frame with
+     only an arm unseen is kept, the arm's joints NaN with weight 0.
   6. Heading-relative root for learning from body-worn sensors: the heading yaw is taken out of the root
      (`global_orient_heading_rel`), and the root velocity is expressed in the heading frame; a sensor model is
      then asked for tilt, turning rate and velocity, never for the room's yaw.
@@ -51,13 +55,15 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 from .fusion import (MIRROR_SWAP, mirror_body, mirror_check, mirror_root, mirror_transl,
-                     L_ANKLE, L_FOOT, LEGS, R_ANKLE, R_FOOT, chordal_mean, circular_median_deg, export_mask, fk_joints, fuse_root, geodesic, heading_yaw_deg,
-                     moving_average_in_runs, ramp_inside, smooth_rotations, step_stats, usable_joints_rt)
+                     ARMS, L_ANKLE, L_FOOT, LEGS, R_ANKLE, R_FOOT, SPINE, TORSO_LEGS, chordal_mean, circular_median_deg, export_mask, fk_joints, fuse_root, geodesic, heading_yaw_deg,
+                     moving_average_in_runs, ramp_inside, repair_root_glitches, smooth_rotations, step_stats, usable_joints_rt)
 from .reconcile import SMPLX_BODY_JOINTS
 
 RAMP_S = 0.5           # cross-fade at the edges of usable segments and of lifted runs
 MIN_RUN_S = 0.5        # an export keeps runs of at least this length
 SMOOTH_FRAMES = 5      # moving average of the merged rotations / translation
+ROOT_SMOOTH_FRAMES = 5 # the same for the merged root orientation
+FAST_TURN_S = 0.25; FAST_TURN_DEG = 90.0   # QC: the merged root turning more than this within this long is no body's turn (360 deg/s; a quick turn on the spot peaks near 200)
 AGREE_FREE_DEG = 5.0   # two views agreeing to within this carry full weight
 AGREE_SCALE_DEG = 20.0 # the agreement factor is 0.5 at AGREE_FREE_DEG + this
 TRANSL_FREE_M, TRANSL_SCALE_M = 0.10, 0.30   # the same for the two views' pelvis positions
@@ -81,7 +87,7 @@ FIELDS_DOC = (
     "walkway_scale (V): each view's depth-scale factor (1 = unchanged); transl_calibrated: whether the walkway scale fit ran; "
     "view_mirrored (V): views found to be mirror images of the reference (left/right swapped by the camera software) and reflected back before merging; "
     "betas (10): one body shape for the recording; "
-    "export_ok (T): frames the export keeps (every leg joint output, runs >= 0.5 s); "
+    "export_ok (T): frames the export keeps (every leg and torso joint output, i.e. hips, knees, ankles, feet, spine, neck, head; runs >= 0.5 s; an arm may be missing); "
     "weight (T,21): per-joint loss weight in [0,1] (0 outside the export or where the joint is NaN); root_weight (T): the same for the root orientation; "
     "transl_weight (T): for the translation / velocity; transl_disagree_m (T): distance between the two views' aligned pelvis positions (NaN with one view); "
     "source (T,21): bit i set when view i (in `views` order) contributed to the joint; usable (V,T,21): which joints each view could vouch for; "
@@ -262,6 +268,9 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     if fps is None or not np.isfinite(fps) or fps <= 0:
         fps = float(1.0 / np.nanmedian(np.diff(t_imu)))
     ramp = max(1, int(round(RAMP_S * fps))); min_run = max(1, int(round(MIN_RUN_S * fps)))
+    glitch = []                                                                                  # a view's root flipping for an instant and coming back: interpolated across
+    for i, v in enumerate(views):
+        root[i], fx = repair_root_glitches(root[i], fps); glitch.append(fx)
     frac = usable.sum(2) / 21.0                                                                  # (V, T)
     ref = int(np.argmax(usable.sum(axis=(1, 2)))); flags = []
     # ---- camera centres (each view's own world) and the walkway footfalls, if the recording has them
@@ -332,6 +341,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                 transl_al_sc[i, li] = tv + off_sc; a["offset_scaled_m"] = [float(x) for x in off_sc]
     # ---- root, translation
     root_f, share, raw = fuse_root([root_al[i] for i in range(V)], [usable[i] for i in range(V)], [lifted[i] for i in range(V)], ramp=ramp, return_raw=True, fps=fps)
+    root_f = smooth_rotations(root_f[:, None, :], ROOT_SMOOTH_FRAMES)[:, 0]                       # the same moving average the body gets
     for i, v in enumerate(views):
         a = align[i]
         if i != ref and a["root_residual_deg"] is not None and a["root_residual_deg"] > 20:
@@ -344,7 +354,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     w = np.stack([ramp_inside(usable[i], ramp) * share[i][:, None] for i in range(V)])         # (V, T, 21)
     body_raw = chordal_mean([body[i] for i in range(V)], w); none = ~usable.any(0); body_raw[none] = np.nan
     body_f = smooth_rotations(body_raw, SMOOTH_FRAMES)
-    export_ok = export_mask(body_f, LEGS, min_run)
+    export_ok = export_mask(body_f, TORSO_LEGS, min_run)                                         # legs and torso; an arm may be missing
     # ---- the walkway: the scaled views fused with the same shares (when the scale fits were accepted), the mat's
     # pose in the world from the fused feet against the footfalls, the video path in the mat frame, and the pelvis
     # path ON THE MAT from the footprints plus the video pose (no depth estimate in it)
@@ -429,8 +439,15 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     # ---- QC numbers
     body_step = step_stats(body_f); root_step = step_stats(root_f[:, None, :])
     exp_frac = float(export_ok.mean()); n_runs = int((np.diff(np.r_[0, export_ok.astype(int), 0]) == 1).sum())
-    cov = {"legs": float(np.isfinite(body_f[:, LEGS]).all(2).mean()), "arms": float(np.isfinite(body_f[:, [12, 13, 15, 16, 17, 18, 19, 20]]).all(2).mean()),
-           "all_joints": float(np.isfinite(body_f).all(2).mean())}
+    has_j = np.isfinite(body_f).all(2); legs_ok = has_j[:, LEGS].all(1); torso_ok = has_j[:, SPINE].all(1)
+    cov = {"legs": float(legs_ok.mean()), "torso": float(torso_ok.mean()), "legs_and_torso": float((legs_ok & torso_ok).mean()),
+           "arms": float(has_j[:, ARMS].all(1).mean()), "all_joints": float(has_j.all(1).mean())}
+    if (legs_ok & ~torso_ok).mean() > 0.05:
+        flags.append(f"info: {(legs_ok & ~torso_ok).mean():.0%} of the lifted frames are not exported because no view saw the whole torso (the legs were seen): "
+                     "the upper body is out of one view's panel while the other view has no subject")
+    n_glitch = {v: int(glitch[i].sum()) for i, v in enumerate(views)}
+    if sum(n_glitch.values()):
+        flags.append("info: a view's root flipped for an instant and came back; interpolated across before merging (" + ", ".join(f"{v}: {n} frame(s)" for v, n in n_glitch.items() if n) + ")")
     if exp_frac < 0.5:
         flags.append(f"the export keeps only {exp_frac:.0%} of the lifted frames")
     if np.isfinite(root_step["p99_deg"]) and root_step["p99_deg"] > 15:
@@ -440,9 +457,17 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
         rr = root_f[okr_]; n_flip = int((np.degrees((R.from_rotvec(rr[:-1]).inv() * R.from_rotvec(rr[1:])).magnitude()) > 90.0).sum())
     if n_flip:
         flags.append(f"merged root turns more than 90 deg between consecutive frames {n_flip} time(s) (a view's lift flipping; see the demo's heading)")
+    kq = max(1, int(round(FAST_TURN_S * fps))); n_fast = 0                                       # a turn no body makes: more than 90 deg inside a quarter second
+    if T > kq:
+        pair = okr_[:-kq] & okr_[kq:]; fast = np.zeros(T - kq, bool)
+        if pair.any():
+            fast[pair] = np.degrees((R.from_rotvec(root_f[:-kq][pair]).inv() * R.from_rotvec(root_f[kq:][pair])).magnitude()) > FAST_TURN_DEG
+        n_fast = int((np.diff(np.r_[0, fast.astype(int)]) == 1).sum())
+    if n_fast and not n_flip:
+        flags.append(f"merged root turns more than {FAST_TURN_DEG:.0f} deg within {FAST_TURN_S} s {n_fast} time(s): faster than a body turns (one view's lift snapping round; see the demo's heading)")
     if t_mismatch > 0.002:
         flags.append(f"the views' IMU times for the same frame differ by up to {t_mismatch * 1000:.0f} ms")
-    status = "WARN" if flags else "PASS"
+    status = "WARN" if any(not f.startswith("info:") for f in flags) else "PASS"
     summary = {"status": status, "flags": flags, "views": views, "reference_view": views[ref], "n_frames": T, "fps": fps,
                "imu_span_s": [float(np.nanmin(t_imu)), float(np.nanmax(t_imu))],
                "export": {"frac_of_lifted_frames": exp_frac, "n_frames": int(export_ok.sum()), "n_runs": n_runs, "min_run_frames": min_run},
@@ -450,7 +475,8 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                                                                  "mean_usable_fraction": float(frac[i][lifted[i]].mean()) if lifted[i].any() else 0.0,
                                                                  "legs_usable_frac": float(usable[i][:, LEGS].all(1).mean()), "root_share_mean": float(share[i].mean()),
                                                                  "alignment": align[i]} for i, v in enumerate(views)},
-               "continuity": {"body_step_p99_deg": body_step["p99_deg"], "body_steps_over_20deg_frac": body_step["frac_over_20"], "root_step_p99_deg": root_step["p99_deg"], "root_flips_over_90deg": n_flip},
+               "continuity": {"body_step_p99_deg": body_step["p99_deg"], "body_steps_over_20deg_frac": body_step["frac_over_20"], "root_step_p99_deg": root_step["p99_deg"], "root_flips_over_90deg": n_flip,
+                              "root_turns_over_90deg_in_quarter_s": n_fast, "root_glitch_frames_repaired": n_glitch},
                "weight": {"mean_over_export": float(weight[export_ok].mean()) if export_ok.any() else 0.0, "frac_cells_over_0_5": float((weight > 0.5).mean()),
                           "root_weight_mean": float(root_weight.mean()), "transl_weight_mean": float(transl_weight.mean())},
                "translation": {"views_disagree_median_m": (float(np.nanmedian(transl_dis)) if np.isfinite(transl_dis).any() else None),

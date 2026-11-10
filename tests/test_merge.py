@@ -115,6 +115,42 @@ def test_merge_single_view_and_gaps(tmp_path):
     assert np.nanmedian(geodesic(bp, body)) < 1.0 and abs(float(m["view_alignment_yaw_deg"][0])) == 0.0
 
 
+def test_export_needs_legs_and_torso_but_not_arms(tmp_path):
+    """The export rule: a frame whose torso no view saw is dropped whole, like a frame without legs; a frame with
+    only an arm unseen is kept, the arm's joints NaN with weight 0."""
+    rng = np.random.default_rng(5); T = 300; frames = np.arange(T)
+    body, root, transl, _ = _truth(T, rng); rec = tmp_path / "deliver" / "r"
+    _view(rec / "right", "right", frames, body, root, transl, np.zeros(10), np.full(T, 0.9), np.ones(T, bool))
+    k = np.load(rec / "right" / "kp2d_vitpose.npz"); kp = k["kp2d"].copy()
+    kp[60:120, [5, 6], 1] = 10_000.0                           # both shoulders out of the panel for 2 s: no spine, neck, head (and no arms)
+    kp[180:240, [7, 9], 1] = 10_000.0                          # left elbow and wrist out for 2 s: the left arm only
+    np.savez(rec / "right" / "kp2d_vitpose.npz", kp2d=kp, bbox_xyxy=k["bbox_xyxy"], view_box=k["view_box"], frame_idx=frames)
+    s = merge_recording(rec, log=lambda *a: None); m = np.load(rec / "merged_smpl.npz"); bp = m["body_pose"].reshape(T, 21, 3)
+    assert np.isfinite(bp[60:120, [0, 1, 3, 4, 6, 7]]).all() and np.isnan(bp[60:120, 5]).all()                 # the legs were seen, the torso was not
+    assert not m["export_ok"][60:120].any() and (m["weight"][60:120] == 0).all()                               # dropped whole
+    assert m["export_ok"][180:240].all() and np.isnan(bp[180:240, 17]).all() and (m["weight"][180:240, 17] == 0).all() and (m["weight"][180:240, 3] > 0).all()
+    assert m["export_ok"][:60].all() and m["export_ok"][120:180].all() and m["export_ok"][240:].all()
+    cov = s["coverage_of_lifted_frames"]
+    assert abs(cov["legs"] - 1.0) < 1e-9 and abs(cov["torso"] - 0.8) < 1e-9 and abs(cov["legs_and_torso"] - 0.8) < 1e-9 and abs(s["export"]["frac_of_lifted_frames"] - 0.8) < 1e-9
+    assert any(f.startswith("info:") and "torso" in f for f in s["flags"]) and s["status"] == "PASS"            # reported, and an info line alone is no warning
+
+
+def test_a_views_root_glitch_is_repaired_before_merging(tmp_path):
+    """One view's root flips for two frames in the middle of a walk and comes back. Left in, the merged heading would
+    hop; the merge interpolates across the two frames first and reports it."""
+    rng = np.random.default_rng(6); T = 300; frames = np.arange(T)
+    body, root, transl, heading = _truth(T, rng); betas = np.zeros(10); conf = np.full(T, 0.9)
+    root_l = root.copy(); root_l[150:152] = (R.from_euler("y", 170.0, degrees=True) * R.from_rotvec(root[150:152])).as_rotvec()
+    rec = tmp_path / "deliver" / "r"
+    _view(rec / "left", "left", frames, _noisy(body, 0.02, rng), root_l, transl, betas, conf, np.ones(T, bool))
+    _view(rec / "right", "right", frames, _noisy(body, 0.02, rng), root, transl, betas, conf, np.ones(T, bool))
+    s = merge_recording(rec, log=lambda *a: None); m = np.load(rec / "merged_smpl.npz")
+    assert s["continuity"]["root_glitch_frames_repaired"] == {"left": 2, "right": 0}
+    assert s["continuity"]["root_flips_over_90deg"] == 0 and s["continuity"]["root_turns_over_90deg_in_quarter_s"] == 0
+    err = np.abs(((heading_yaw_deg(m["global_orient"]) - heading + 180) % 360) - 180); assert err.max() < 3.0, err.max()
+    assert any(f.startswith("info:") and "flipped for an instant" in f for f in s["flags"])
+
+
 def test_walkway_calibration_recovers_each_views_depth_scale(tmp_path):
     """Two views whose GVHMR positions are wrong by a depth factor about each camera (1.3x and 0.8x), a recording CSV
     reference with the landing foot's position on a mat that is rotated and shifted in the world (2 cm of noise):
@@ -190,7 +226,7 @@ def test_agreement_factor_counts_a_dissenting_view_by_its_share(tmp_path):
     yaw_l, off_l = -40.0, np.array([1.5, 0.0, -2.0]); Rl = R.from_euler("y", yaw_l, degrees=True)
     body_l = _noisy(body, 0.03, rng); body_l[220:250] = _noisy(body[220:250], 0.5, rng)                      # its legs wrong over 220-250
     root_l = (Rl * R.from_rotvec(root)).as_rotvec()
-    root_l[220:250] = (Rl * R.from_euler("x", 30, degrees=True) * R.from_rotvec(root[220:250])).as_rotvec()  # and its gravity frame with them
+    root_l[220:250] = (Rl * R.from_euler("x", 40, degrees=True) * R.from_rotvec(root[220:250])).as_rotvec()  # and its gravity frame with them (40 deg: the pitch measured on that camera; past the 30 deg where the root rule starts to act)
     transl_l = Rl.apply(transl) + off_l; conf = np.full(T, 0.9); rec = tmp_path / "deliver" / "s_selfpace"
     _view(rec / "left", "left", frames, body_l, root_l, transl_l, betas, conf, np.ones(T, bool))
     _view(rec / "right", "right", frames, _noisy(body, 0.03, rng), root, transl, betas, conf, np.ones(T, bool))

@@ -88,13 +88,60 @@ def test_fuse_root_is_continuous_and_prefers_the_view_that_sees_more():
     assert np.isnan(out3[:60]).all() and np.allclose(out3[60:140], bad[60:140], atol=1e-6) and np.allclose(share3[1, 60:140], 1.0)
 
 
-def test_export_mask_requires_every_leg_joint_in_runs():
-    from tools.two_view_fusion import LEGS, export_mask
-    T = 100; m = np.zeros((T, 21, 3)); m[:10] = np.nan; m[40:48, 3] = np.nan; m[70:80, 12] = np.nan           # nothing / left knee missing / a collar missing (not required)
-    ok = export_mask(m, LEGS, min_run=15)
-    assert not ok[:10].any() and ok[10:40].all() and not ok[40:48].any() and ok[48:].all()
+def test_export_mask_requires_every_leg_and_torso_joint_in_runs():
+    """The export rule: a frame with a leg joint or a torso joint (spine, neck, head) not output is dropped whole;
+    a frame with only an arm joint missing is kept."""
+    from wgvp.fusion import LEGS, TORSO_LEGS, export_mask
+    assert TORSO_LEGS == [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 14]
+    T = 130; m = np.zeros((T, 21, 3)); m[:10] = np.nan; m[40:48, 3] = np.nan; m[70:80, 12] = np.nan; m[70:80, 19] = np.nan   # nothing / left knee / a collar and a wrist (arms: not required)
+    m[100:110, 5] = np.nan                                                                                     # a spine joint: the torso is required
+    ok = export_mask(m, min_run=15)
+    assert not ok[:10].any() and ok[10:40].all() and not ok[40:48].any() and ok[48:100].all() and not ok[100:110].any() and ok[110:].all()
+    legs_only = export_mask(m, LEGS, min_run=15)                                                               # the older, laxer rule is still available by name
+    assert legs_only[100:110].all() and not legs_only[40:48].any()
     m2 = np.zeros((T, 21, 3)); m2[:50] = np.nan; m2[60:] = np.nan                                              # a 10-frame run
-    assert not export_mask(m2, LEGS, 15).any() and export_mask(m2, LEGS, 10).sum() == 10
+    assert not export_mask(m2, min_run=15).any() and export_mask(m2, min_run=10).sum() == 10
+
+
+def test_repair_root_glitches_interpolates_a_flip_that_comes_back_and_leaves_turns_alone():
+    """A lift's root that flips for two frames and comes back is interpolated across; a turn at a human rate and a
+    step that does not come back (a snap: fuse_root's business) are left as they are."""
+    from scipy.spatial.transform import Rotation as R
+    from wgvp.fusion import heading_yaw_deg, repair_root_glitches
+    T = 240; t = np.arange(T) / 30.0; h = 10.0 + 180.0 * np.clip((t - 2.0) / 1.2, 0.0, 1.0)                    # a 180-degree turn in 1.2 s (150 deg/s)
+    def roots(hh): return np.stack([(R.from_euler("y", x, degrees=True) * R.from_euler("x", 6.0, degrees=True)).as_rotvec() for x in hh])
+    clean = roots(h); out, fixed = repair_root_glitches(clean, 30.0)
+    assert not fixed.any() and np.allclose(out, clean)                                                          # the turn itself is no glitch
+    hg = h.copy(); hg[75:77] += 170.0                                                                         # two frames on the far side, mid-turn
+    out, fixed = repair_root_glitches(roots(hg), 30.0)
+    assert fixed[75:77].all() and fixed.sum() == 2
+    err = np.abs(((heading_yaw_deg(out) - h + 180) % 360) - 180); assert err.max() < 3.0, err.max()
+    hs = h.copy(); hs[150:] += 120.0                                                                          # a step that stays: not repaired
+    out, fixed = repair_root_glitches(roots(hs), 30.0)
+    assert not fixed.any() and np.allclose(out, roots(hs))
+    gap = roots(hg); gap[10:20] = np.nan                                                                      # gaps stay gaps
+    out, fixed = repair_root_glitches(gap, 30.0)
+    assert np.isnan(out[10:20]).all() and fixed.sum() == 2
+
+
+def test_fuse_root_turn_has_no_jitter_when_two_views_sit_near_the_disagreement_threshold():
+    """A turn that one view's lift follows a third of a second late: the two roots sit 30-45 deg apart for the
+    length of the turn, right where the arbitration switches on. The fused heading must turn smoothly (no hop from
+    one frame to the next beyond the turn's own rate), and the smoothed arbitration must not be rougher than the
+    causal one it replaces."""
+    from scipy.spatial.transform import Rotation as R
+    from wgvp.fusion import fuse_root, heading_yaw_deg
+    T = 300; t = np.arange(T) / 30.0; rng = np.random.default_rng(3)
+    h_a = 20.0 + 180.0 * np.clip((t - 5.0) / 1.5, 0.0, 1.0); h_b = 20.0 + 180.0 * np.clip((t - 5.3) / 1.5, 0.0, 1.0)   # 120 deg/s; b lags by 0.3 s = 36 deg
+    def roots(h): return np.stack([(R.from_euler("y", hh + rng.normal(0, 1.5), degrees=True) * R.from_euler("x", 5.0, degrees=True)).as_rotvec() for hh in h])
+    a, b = roots(h_a), roots(h_b); usable = [np.ones((T, 21), bool), np.ones((T, 21), bool)]; lifted = [np.ones(T, bool), np.ones(T, bool)]
+    def jerk(arb_smooth):
+        fused, _ = fuse_root([a, b], usable, lifted, ramp=15, arb_smooth=arb_smooth)
+        hf = np.degrees(np.unwrap(np.radians(heading_yaw_deg(fused)))); return hf, np.abs(np.diff(hf, 2))[int(4.5 * 30):int(7.5 * 30)]
+    hf, j1 = jerk(True); _, j0 = jerk(False)
+    assert np.abs(np.diff(hf)).max() < 12.0, np.abs(np.diff(hf)).max()                                          # 120 deg/s is 4 deg per frame; nothing like a hand-over hop
+    assert np.percentile(j1, 95) <= np.percentile(j0, 95) + 1e-9, (np.percentile(j1, 95), np.percentile(j0, 95))
+    assert hf[-1] - hf[0] > 170.0 and (np.minimum(h_a, h_b) - 8 <= hf).all() and (hf <= np.maximum(h_a, h_b) + 8).all()   # between the two views throughout
 
 
 def test_side_consistent_undoes_a_left_right_flip_for_display():
