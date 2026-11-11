@@ -889,6 +889,53 @@ pelvis rises and falls in a stride, says the lifted floor is level on average an
 hand-held, with about 26 deg of pan in its first 3 s, under a lift that assumes a fixed camera; neither the pan
 nor the lens has been checked against anything but the picture.
 
+**The joint fit on this clip.** `wgvp jointfit` skips the one-view clip (OWN01: the fit takes two views) and fits the
+composite (OWN02) in 3 s. It meets the two panels' keypoints to 1.1 and 1.5 px and finds the two "cameras" 2 cm apart
+and 0.2 deg turned against each other, which is what they are: one camera. `jointfit.json` says so in a flag (`the
+views are one viewpoint`), next to the two this clip also raises: the up direction is the first view's own gravity
+estimate, since two parallel level axes have no cross product, and the mirrored panel was reflected back. The body
+hardly moves against the merge (root 0.5 deg, legs 1.3, arms 0.9 at the median), so the two demo videos look alike in
+the close-ups. The path does move, by 0.48 m at the median:
+
+| OWN02 | merge | joint fit |
+|---|---|---|
+| reach of the walk (m) | 6.9 | 7.7 |
+| walking speed, median (m/s) | 1.09 | 1.29 |
+| path length (m) | 13.8 | 15.4 |
+| the slower ankle's speed while walking, median (m/s) | 0.04 | 0.40 |
+
+There is no truth for the clip, so neither column can be scored. A tape measure along the corridor would settle it.
+
+**What one camera knows about distance.** The rendered sessions can say which column is the likelier one.
+`tools/one_camera_speed.py` takes each of their views by itself and reads the pelvis speed two ways: from the
+lifter's own world path, the one the merge is fused from, and from the joint fit handed that one view twice, where
+the distance to the walker comes from the body's size in the picture and the lens (`docs/one_camera.json`). Each
+cell is the mean speed over the truth's, lifter / fit:
+
+| | HC900 | HC903 (TUG) | HC901 | HC902 | HC904 | HC905 | median |
+|---|---|---|---|---|---|---|---|
+| the along camera, walks along its line of sight | 0.51 / 1.00 | 0.95 / 1.06 | 0.55 / 0.94 | 0.87 / 1.02 | 0.83 / 1.04 | 0.80 / 0.99 | 0.82 / 1.01 |
+| the side camera, walks across its line of sight | 1.02 / 1.07 | 1.12 / 1.12 | 1.01 / 1.07 | 1.02 / 1.07 | 1.01 / 1.07 | 1.07 / 1.07 | 1.02 / 1.07 |
+
+A camera that looks down the walk under-reads its speed through the lifter, by a fifth at the median and by half at
+worst, and a keypoint fit of the same single view does not. The merge of two real views never shows this, because
+the side camera's steps carry the path there. On this clip both panels look down the walk, the merge's path is the
+lifter's along-sight steps, and its speed is 0.85 of the joint fit's, inside the lifter's range in the first row. So
+the joint fit's longer path is the likelier one. Two limits on that reading: the rendered cameras' lenses are known
+exactly and this clip's is an estimate, and the fit's distance scales with it; and the three short stretches (35 to
+45 frames around the turns) where the side camera sees the walker along its line of sight are noisy under both
+(0.45 to 0.99 for the lifter, 0.61 to 1.18 for the fit).
+
+**Two faults of the fit on this clip.** It assumes still cameras, and this one is hand-held: in the seconds in which
+the camera pans (the first 3 s and around second 13) the fitted body slides sideways at 0.3 to 0.5 m/s, and close to
+zero in between. And the feet are not planted. The slower ankle moves at 0.40 m/s while walking, a third of the
+pelvis's speed: the legs' swing toward and away from the camera is seen by neither panel, stays as lifted, and the
+path grew longer around it. The merge's 0.04 m/s is the lifter's own foot lock and not a sign that its path is
+right: on the rendered sessions the same measure reads 0.18 to 0.24 m/s for the merge and 0.13 to 0.18 for the joint
+fit. For a recording like this one the body can come from either file, the path's length is likelier right in the
+joint fit, and the feet are steadier in the merge. The fit does not take a one-view recording yet; the table above
+is the case for letting it, with the camera's own motion among the unknowns.
+
 ## Outputs
 
 `<data root>/wgvp_output/`
@@ -1022,7 +1069,8 @@ tests/           unit tests (python -m pytest tests -q)
 tools/           make_sample.py (how the samples were rendered), make_partner_layout.py (the six samples in a
                  Sub 00N/Video + IMU layout), make_readme_figures.py, two_view_fusion.py (the fusion experiment
                  against the truth), make_target_figure.py, estimate_focal.py (a camera's field of view from the
-                 room's straight edges), compare_jointfit.py (the merge and the joint two-view fit against the truth)
+                 room's straight edges), compare_jointfit.py (the merge and the joint two-view fit against the truth),
+                 one_camera_speed.py (one view's walking speed: the lifter's path against a keypoint fit)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), jointfit.json (the joint fit's comparison), figures/
 ```
