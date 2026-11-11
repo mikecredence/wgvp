@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .fusion import ARMS, LEGS, SPINE, chordal_mean, collapsed_legs, fit_yaw, geodesic, mirror_body, mirror_root, smooth_rotations
+from .fusion import ARMS, LEGS, SPINE, chordal_mean, collapsed_legs, fit_yaw, geodesic, mirror_body, mirror_root, seen_frames, smooth_rotations
 from .tracking import FACE_KP, SKELETON
 
 COL = {"ok": [150, 160, 200], "missing": [220, 70, 70], "truth": [170, 170, 170]}
@@ -107,7 +107,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     if gt and (Path(gt).parent / "expected.json").exists():
         exp = json.loads((Path(gt).parent / "expected.json").read_text())
     # ---- per view, dense over the video's frames
-    body, root_al, usable, lifted, vis, kp_draw = {}, {}, {}, {}, {}, {}
+    body, root_al, usable, lifted, vis, kp_draw, held = {}, {}, {}, {}, {}, {}, {}
     yaw_al = {v: float(y) for v, y in zip(views, M["view_alignment_yaw_deg"])}
     mirrored = {v: bool(m) for v, m in zip(views, M["view_mirrored"])} if "view_mirrored" in M.files else {v: False for v in views}
     collapsed = {}
@@ -117,7 +117,8 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         bp = z["body_pose"].reshape(-1, 21, 3); ro = z["global_orient"]
         if mirrored[v]:                                                    # the merge reflected this view back; show it the same way
             bp = mirror_body(bp); ro = mirror_root(ro)
-        body[v][fr] = bp; lifted[v][fr] = True; vis[v][fr] = z["visible"]
+        body[v][fr] = bp; lifted[v][fr] = True; vis[v][fr] = seen_frames(z, k)       # seen: detected, or held at rest and confirmed
+        held[v] = np.zeros(n_video, bool); held[v][fr] = vis[v][fr] & ~z["visible"].astype(bool)
         with np.errstate(all="ignore"):
             root_al[v][fr] = (R.from_euler("y", yaw_al[v], degrees=True) * R.from_rotvec(ro)).as_rotvec()
         arr = np.full((n_video, 17, 3), np.nan); arr[k["frame_idx"].astype(int)] = k["kp2d"]; kp_draw[v] = side_consistent(arr)
@@ -402,7 +403,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
             legs_ok = leg_ok[v][f]; n_us = int(usable[v][f].sum())
             col = (40, 200, 40) if legs_ok else ((30, 170, 240) if lifted[v][f] else (60, 60, 220))
             cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
-            status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge")))
+            status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge") + (" (at rest: box held)" if held[v][f] else "")))
             label(canvas, f"{v} view: {status}" + (" (mirror image: reflected back)" if mirrored[v] else ""), (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
         yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20; at = truth_xz[f]             # middle: (truth | each view alone), reconstruction, export, aerial
         if G is not None:

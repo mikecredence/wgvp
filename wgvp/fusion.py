@@ -2,11 +2,14 @@
 tool `tools/two_view_fusion.py`. Everything here is run-time: no ground truth is involved.
 
   usable_joints_rt   which SMPL-X body joints a view can vouch for in a frame (its 2D keypoints confident and inside the panel)
+  hold_runs          hysteresis over consecutive frames (the shoulders' margin at the panel's top edge)
   ramp_inside        cross-fade weights at the edges of usable runs
   chordal_mean       weighted rotation average per (frame, joint)
   repair_root_glitches   a view's root flipping away and back within 0.2 s is interpolated across, before anything reads it
   fuse_root          the merged root orientation and each view's share of it (continuous in every term)
   smooth_rotations   short moving average in rotation space that never crosses a gap
+  side_on_score      how side-on a camera sees the walker (1 = from the side, 0 = walking straight at it or away)
+  flexion_two_band   a joint's flexion with its slow part (posture) from one estimate and its fast part (the stride's swing) from another
   export_mask        the frames an export keeps
   step_stats, geodesic, fit_yaw   measurements
 """
@@ -16,23 +19,91 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 LEGS = [0, 1, 3, 4, 6, 7]; ARMS = [12, 13, 15, 16, 17, 18, 19, 20]; SPINE = [2, 5, 8, 11, 14]
+FLEX = [0, 1, 3, 4]                  # hips and knees: the joints whose flexion (the turn about their local x axis) carries the stride
 TORSO_LEGS = sorted(LEGS + SPINE)   # hips, knees, ankles, feet, the three spine joints, neck and head: what an exported frame must have (an arm may be missing)
 # SMPL-X body joint -> COCO-17 keypoints whose confidence says how well this joint's rotation is observed
 # (the joint itself and the child segment it moves)
 JOINT_KP = {0: [11, 13], 1: [12, 14], 2: [11, 12, 5, 6], 3: [13, 15], 4: [14, 16], 5: [5, 6, 11, 12], 6: [15], 7: [16], 8: [5, 6], 9: [15], 10: [16],
             11: [5, 6], 12: [5], 13: [6], 14: [5, 6], 15: [5, 7], 16: [6, 8], 17: [7, 9], 18: [8, 10], 19: [9], 20: [10]}
+SHOULDER_KP = [5, 6]                 # COCO shoulders: at the panel's top edge only the head lies beyond them
 
 
-def usable_joints_rt(kp2d: np.ndarray, view_box, visible: np.ndarray, min_conf: float = 0.3, margin: float = 8.0) -> np.ndarray:
+REST_KP = [5, 6, 11, 12, 13, 14, 15, 16]     # shoulders, hips, knees, ankles: the keypoints a body at rest is checked on
+
+
+def rest_held_seen(visible: np.ndarray, rest_held: np.ndarray, kp2d: np.ndarray, bbox: np.ndarray, min_conf: float = 0.5,
+                   max_shift: float = 0.05) -> np.ndarray:
+    """Which of a view's rest-held frames show the subject. A rest-held frame has no detection: the IMU labels the body
+    at rest and the lifter was given the box of the neighbouring detection (session.rest_hold). The frame counts as seen
+    when ViTPose, run inside that box, finds the shoulders, hips, knees and ankles where the nearest detected frame
+    before or after has them: median confidence >= min_conf, median displacement <= max_shift of that frame's box
+    height. A body at rest behind an occluder, or one that has left the box, fails both.
+    visible, rest_held (T,) bool; kp2d (T, 17, 3); bbox (T, 4) xyxy, same pixels as kp2d. Returns (T,) bool."""
+    visible = np.asarray(visible, bool); held = np.asarray(rest_held, bool) & ~visible; ok = np.zeros(len(visible), bool)
+    vi = np.flatnonzero(visible); hi = np.flatnonzero(held)
+    if len(vi) == 0 or len(hi) == 0:
+        return ok
+    kp = np.asarray(kp2d, float)[:, REST_KP]; nxt = np.searchsorted(vi, hi)
+    with np.errstate(all="ignore"):
+        conf_ok = np.nan_to_num(np.nanmedian(kp[hi, :, 2], axis=1), nan=0.0) >= min_conf
+        for side in (nxt - 1, nxt):
+            has = (side >= 0) & (side < len(vi)); a = vi[np.clip(side, 0, len(vi) - 1)]
+            d = np.linalg.norm(kp[hi, :, :2] - kp[a, :, :2], axis=2) / np.maximum(bbox[a, 3] - bbox[a, 1], 1.0)[:, None]
+            ok[hi] |= has & conf_ok & (np.nan_to_num(np.nanmedian(d, axis=1), nan=np.inf) <= max_shift)
+    return ok
+
+
+def seen_frames(z, k) -> np.ndarray:
+    """The frames of one lifted view on which the subject is seen: detected (visible), or held at rest with keypoints
+    that confirm it (rest_held_seen). z, k: the view's smpl_global.npz and kp2d_vitpose.npz (or dicts with the same
+    fields); a lift from before the rest_held field has only the detected frames."""
+    vis = np.asarray(z["visible"], bool)
+    if "rest_held" not in (z.files if hasattr(z, "files") else z):
+        return vis
+    return vis | rest_held_seen(vis, z["rest_held"], k["kp2d"], k["bbox_xyxy"])
+
+
+def hold_runs(loose: np.ndarray, strict: np.ndarray, breaks: np.ndarray | None = None) -> np.ndarray:
+    """Hysteresis over consecutive frames: a run of frames that pass the loose test is kept when at least one of its
+    frames passes the strict one. `breaks[i]` true cuts a run between frames i-1 and i (a jump in the frame index)."""
+    loose = np.asarray(loose, bool); strict = np.asarray(strict, bool) & loose; out = np.zeros(len(loose), bool)
+    if not loose.any():
+        return out
+    start = loose & ~np.r_[False, loose[:-1]]
+    if breaks is not None:
+        start |= loose & np.asarray(breaks, bool)
+    run = np.cumsum(start); keep = np.zeros(int(run.max()) + 1, bool); keep[run[strict]] = True
+    return loose & keep[run]
+
+
+def usable_joints_rt(kp2d: np.ndarray, view_box, visible: np.ndarray, min_conf: float = 0.3, margin: float = 8.0,
+                     shoulder_top_margin: float = 4.0, shoulder_top_hold: float = 2.0, frame_idx=None) -> np.ndarray:
     """Run-time test, no truth involved: SMPL-X body joint j is usable in a frame when the ViTPose keypoints it moves
-    are confident and sit inside the view's panel with a margin, and the frame was not bridged. -> (T, 21) bool."""
-    conf = np.nan_to_num(kp2d[:, :, 2], nan=0.0)
+    are confident and sit inside the view's panel with a margin, and the frame was not bridged. -> (T, 21) bool.
+    The shoulders get a thinner margin at the panel's top edge: only the head lies beyond them there, ViTPose marks
+    the top of the shoulder a few pixels above the joint, and against the samples' truth the trunk's error is the
+    same with the shoulder keypoints 4 to 8 px below the edge as far from it (docs/design.md, 'The trunk at the top
+    edge'); a hip keypoint at the top edge is a body cut at the waist, so every other keypoint keeps the full margin.
+    That margin has hysteresis: a shoulder that has been `shoulder_top_margin` inside stays usable through the
+    consecutive seen frames in which it is still `shoulder_top_hold` inside, so a keypoint that rides the margin
+    (it moves by a few tenths of a pixel from one lift to the next) does not switch the trunk on and off frame by
+    frame. `frame_idx` (the frames' indices, optional) cuts those runs where frames are missing."""
+    conf = np.nan_to_num(kp2d[:, :, 2], nan=0.0); vis = np.asarray(visible, bool)
     if view_box is not None and len(view_box) == 4 and (view_box[2] - view_box[0]) > 0:
         x0, y0, x1, y1 = [float(b) for b in view_box]
-        ins = (conf >= min_conf) & (kp2d[:, :, 0] > x0 + margin) & (kp2d[:, :, 0] < x1 - margin) & (kp2d[:, :, 1] > y0 + margin) & (kp2d[:, :, 1] < y1 - margin)
+        rest = (conf >= min_conf) & (kp2d[:, :, 0] > x0 + margin) & (kp2d[:, :, 0] < x1 - margin) & (kp2d[:, :, 1] < y1 - margin)
+        top = np.full(kp2d.shape[1], float(margin)); top[SHOULDER_KP] = min(float(margin), float(shoulder_top_margin))
+        ins = rest & (kp2d[:, :, 1] > y0 + top[None])
+        hold = min(float(shoulder_top_hold), float(top[SHOULDER_KP[0]]))
+        if hold < top[SHOULDER_KP[0]]:
+            breaks = None
+            if frame_idx is not None and len(frame_idx) > 1:
+                d = np.diff(np.asarray(frame_idx, float)); breaks = np.r_[False, d > np.median(d)]
+            for c in SHOULDER_KP:
+                ins[:, c] = hold_runs(rest[:, c] & (kp2d[:, c, 1] > y0 + hold) & vis, ins[:, c], breaks)
     else:
         ins = conf >= min_conf
-    return np.stack([ins[:, JOINT_KP[j]].all(1) for j in range(21)], 1) & np.asarray(visible, bool)[:, None]
+    return np.stack([ins[:, JOINT_KP[j]].all(1) for j in range(21)], 1) & vis[:, None]
 
 
 def ramp_inside(mask: np.ndarray, k: int) -> np.ndarray:
@@ -303,6 +374,94 @@ def geodesic(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     sh = a.shape[:-1]; a2 = a.reshape(-1, 3); b2 = b.reshape(-1, 3); ok = np.isfinite(a2).all(1) & np.isfinite(b2).all(1); out = np.full(len(a2), np.nan)
     out[ok] = np.degrees((R.from_rotvec(a2[ok]).inv() * R.from_rotvec(b2[ok])).magnitude())
     return out.reshape(sh)
+
+
+def side_on_score(root_cam_aa: np.ndarray, transl_cam: np.ndarray) -> np.ndarray:
+    """How side-on a camera sees the body, per frame: the squared cosine between the pelvis's left-right axis and the
+    ray from the camera to the pelvis, both in the camera's frame (smpl_incam.npz: global_orient (T,3), transl (T,3)).
+    1 = the camera looks along that axis, so the hips and knees flex in the image plane; 0 = the body walks straight
+    at the camera or away from it, and their swing runs along the line of sight, where one camera reads it worst.
+    A mirrored picture gives the same score. -> (T,), NaN where an input is NaN."""
+    a = np.asarray(root_cam_aa, float); p = np.asarray(transl_cam, float); out = np.full(len(a), np.nan)
+    ok = np.isfinite(a).all(1) & np.isfinite(p).all(1); ok[ok] = np.linalg.norm(p[ok], axis=1) > 1e-6
+    if ok.any():
+        lat = R.from_rotvec(a[ok]).apply([1.0, 0.0, 0.0]); ray = p[ok] / np.linalg.norm(p[ok], axis=1, keepdims=True); out[ok] = (lat * ray).sum(1) ** 2
+    return out
+
+
+def sight_line_world(root_world_aa: np.ndarray, root_cam_aa: np.ndarray, transl_cam: np.ndarray) -> np.ndarray:
+    """The camera's line of sight to the pelvis in the lifter's world frame, per frame: the unit ray from the camera to
+    the pelvis in the camera's frame (smpl_incam.npz transl), turned by the rotation that takes the camera-frame root
+    to the world-frame root. -> (T, 3) unit vectors, NaN where an input is NaN."""
+    a = np.asarray(root_world_aa, float); c = np.asarray(root_cam_aa, float); p = np.asarray(transl_cam, float); out = np.full((len(a), 3), np.nan)
+    ok = np.isfinite(a).all(1) & np.isfinite(c).all(1) & np.isfinite(p).all(1); ok[ok] = np.linalg.norm(p[ok], axis=1) > 1e-6
+    if ok.any():
+        out[ok] = (R.from_rotvec(a[ok]) * R.from_rotvec(c[ok]).inv()).apply(p[ok] / np.linalg.norm(p[ok], axis=1, keepdims=True))
+    return out
+
+
+def fuse_path(pos: np.ndarray, share: np.ndarray, lifted: np.ndarray, sight: np.ndarray | None = None, along: float = 0.05) -> np.ndarray:
+    """One pelvis path from the views' aligned paths (pos (V, T, 3), y up; share (V, T); lifted (V, T) bool).
+
+    The views' per-frame STEPS are fused and summed, not their positions: two monocular paths sit decimetres to
+    metres apart while the walker moves, so a share-weighted mean of positions slides whenever the shares change.
+    Each view's horizontal step counts in full across its camera's line of sight (`sight`, (V, T, 3) in the same
+    world; NaN or None where unknown: that view's step then counts the same in every direction) and `along` of
+    that along it, where the step is a change of monocular depth. The vertical step is the share-weighted mean.
+    Every run of frames is then set on the share-weighted mean position by the median offset, so the path keeps
+    the views' origin and none of their drift against each other.
+
+    -> (T, 3), NaN where no view is lifted."""
+    pos = np.asarray(pos, float); V, T, _ = pos.shape; share = np.asarray(share, float); along = max(float(along), 1e-3)
+    fin = np.asarray(lifted, bool) & np.isfinite(pos).all(2); some = fin.any(0); out = np.full((T, 3), np.nan)
+    wa = np.where(fin, share, 0.0); none = some & (wa.sum(0) <= 0); wa[:, none] = fin[:, none]                     # no share on a lifted frame: the plain mean
+    anchor = (wa[:, :, None] * np.nan_to_num(pos)).sum(0) / np.maximum(wa.sum(0), 1e-9)[:, None]
+    has = np.zeros((V, T), bool); has[:, 1:] = fin[:, 1:] & fin[:, :-1]; step = np.zeros((V, T, 3)); step[:, 1:] = np.nan_to_num(pos[:, 1:] - pos[:, :-1]); step[~has] = 0.0
+    w = np.where(has, share, 0.0); ws = w.sum(0); v = (w[:, :, None] * step).sum(0) / np.maximum(ws, 1e-9)[:, None]
+    if sight is not None:
+        A = np.zeros((T, 2, 2)); b = np.zeros((T, 2))
+        for i in range(V):
+            r = np.nan_to_num(np.asarray(sight[i], float)[:, [0, 2]]); n = np.linalg.norm(r, axis=1); known = n > 1e-6; r[known] /= n[known][:, None]
+            W = w[i][:, None, None] * (np.eye(2)[None] - (1.0 - along) * known[:, None, None] * r[:, :, None] * r[:, None, :])
+            A += W; b += np.einsum("tij,tj->ti", W, step[i][:, [0, 2]])
+        ok = ws > 0; hz = v[:, [0, 2]]; hz[ok] = np.linalg.solve(A[ok], b[ok][:, :, None])[:, :, 0]; v[:, [0, 2]] = hz
+    start = some & ~(ws > 0); run = np.cumsum(start)                  # a run begins where no view steps into the frame
+    for k in range(1, int(run.max()) + 1 if T else 1):
+        m = some & (run == k); p = np.cumsum(np.where(start[m][:, None], 0.0, v[m]), axis=0); out[m] = p + np.median(anchor[m] - p, axis=0)
+    return out
+
+
+def _twist_x(aa: np.ndarray):
+    """(N, 3) axis-angle -> (the part of each rotation that turns about the x axis, its angle in radians): the
+    swing-twist split r = swing * twist. NaN rows count as no rotation."""
+    q = R.from_rotvec(np.nan_to_num(aa)).as_quat(); tw = np.zeros_like(q); tw[:, 0] = q[:, 0]; tw[:, 3] = q[:, 3]
+    n = np.linalg.norm(tw, axis=1); bad = n < 1e-8; tw[bad] = [0.0, 0.0, 0.0, 1.0]; n[bad] = 1.0; tw = tw / n[:, None]
+    tw = tw * np.where(tw[:, 3:4] < 0, -1.0, 1.0)
+    return R.from_quat(tw), 2.0 * np.arctan2(tw[:, 0], tw[:, 3])
+
+
+def _gauss_lowpass(x: np.ndarray, sigma: float) -> np.ndarray:
+    """(T, D) with NaN -> Gaussian low-pass along time, a normalised convolution over the finite samples (the
+    window shrinks at a gap or an end instead of reading across it as zero); NaN stays NaN."""
+    h = max(1, int(np.ceil(3.0 * sigma))); g = np.exp(-0.5 * (np.arange(-h, h + 1) / max(sigma, 1e-6)) ** 2); ok = np.isfinite(x)
+    num = np.stack([np.convolve(np.where(ok[:, j], x[:, j], 0.0), g, "same") for j in range(x.shape[1])], 1)
+    den = np.stack([np.convolve(ok[:, j].astype(float), g, "same") for j in range(x.shape[1])], 1)
+    return np.where(ok, num / np.maximum(den, 1e-9), np.nan)
+
+
+def flexion_two_band(base: np.ndarray, alt: np.ndarray, sigma_frames: float) -> np.ndarray:
+    """Two estimates (T, J, 3) of the same joints -> `base` with the fast part of its flexion taken from `alt`.
+    Each rotation is split into the flexion about the joint's local x axis and the rest (r = rest * flexion). The
+    output keeps base's rest and the slow part of base's flexion angle (the posture: what a Gaussian low-pass of
+    sigma_frames passes) and takes everything faster (the stride's swing) from alt:
+    angle = base + (d - lowpass(d)), d = alt - base. NaN where base is NaN; where alt is NaN the output is base."""
+    sh = base.shape; T = sh[0]; b = np.asarray(base, float).reshape(-1, 3); a = np.asarray(alt, float).reshape(-1, 3)
+    fin = np.isfinite(b).all(1); both = fin & np.isfinite(a).all(1)
+    tw_b, th_b = _twist_x(b); rest = R.from_rotvec(np.nan_to_num(b)) * tw_b.inv(); _, th_a = _twist_x(a)
+    d = np.where(both, (th_a - th_b + np.pi) % (2 * np.pi) - np.pi, np.nan).reshape(T, -1)
+    th = th_b + np.nan_to_num(d - _gauss_lowpass(d, sigma_frames)).ravel()
+    out = (rest * R.from_rotvec(np.c_[th, np.zeros_like(th), np.zeros_like(th)])).as_rotvec(); out[~fin] = np.nan
+    return out.reshape(sh).astype(np.asarray(base).dtype)
 
 
 def chordal_mean(aa_list: list[np.ndarray], w: np.ndarray) -> np.ndarray:

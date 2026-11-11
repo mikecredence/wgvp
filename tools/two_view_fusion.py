@@ -18,7 +18,9 @@ ground truth: head out of frame, shoulders out, hips out). Fusion rules, evaluat
   segment rule        a joint only from the view(s) whose keypoints for it are confident and inside the panel,
                       averaged when both, nothing when neither; cross-faded over 15 frames at segment edges;
                       optionally each view's weights scaled by its share of the fused root (fuse_root) and the
-                      result smoothed over 5 frames (smooth_rotations): this last variant is what the demo shows
+                      result smoothed over 5 frames (smooth_rotations); and, as the merge stage does last, the
+                      stride's swing of the hips and knees taken from the view that sees the walker from the side
+                      (flexion_two_band with side_on_score): this last variant is what the merge writes
   oracle pick         per joint, the view with the smaller error (an upper bound: needs the truth)
 
 The fusion library lives in `wgvp.fusion` (shared with the merge stage, `wgvp.merge`); this tool only adds the
@@ -39,8 +41,9 @@ from scipy.spatial.transform import Rotation as R
 PKG = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PKG))
 from wgvp.reconcile import SMPLX_BODY_JOINTS      # noqa: E402
-from wgvp.fusion import (ARMS, JOINT_KP, LEGS, SPINE, _moving_average, chordal_mean, export_mask, fit_yaw, fuse_root, geodesic,   # noqa: E402,F401
-                         ramp_inside, smooth_rotations, step_stats, usable_joints_rt)
+from wgvp.fusion import (ARMS, FLEX, JOINT_KP, LEGS, SPINE, _moving_average, chordal_mean, export_mask, fit_yaw, flexion_two_band, fuse_root, geodesic,   # noqa: E402,F401
+                         ramp_inside, seen_frames, side_on_score, smooth_rotations, step_stats, usable_joints_rt)
+from wgvp.merge import FLEX_SLOW_S, SIDE_ON_FLOOR   # noqa: E402
 # SMPL joint ids used for the visibility classes of a frame (from the ground-truth in-frame flags)
 SMPL_HEAD, SMPL_SHOULDERS, SMPL_HIPS, SMPL_ANKLES = 15, [16, 17], [1, 2], [7, 8]
 
@@ -59,16 +62,20 @@ def main(argv=None):
     frames = np.array(sorted(set(gt["frame_idx"].tolist()) & set(Z[views[0]]["frame_idx"].tolist()) & set(Z[views[1]]["frame_idx"].tolist())))
     gi = {int(f): i for i, f in enumerate(gt["frame_idx"])}; sel_gt = [gi[int(f)] for f in frames]
     gt_body = gt["pose_aa"][sel_gt, 3:66].reshape(-1, 21, 3); gt_root = gt["pose_aa"][sel_gt, :3]
-    est, root, w_conf, visible, in_frame, in_frame_rt = {}, {}, {}, {}, {}, {}
+    est, root, w_conf, visible, in_frame, in_frame_rt, side = {}, {}, {}, {}, {}, {}, {}
     for v in views:
         z, k = Z[v], K[v]; zi = {int(f): i for i, f in enumerate(z["frame_idx"])}; s = [zi[int(f)] for f in frames]
-        est[v] = z["body_pose"][s].reshape(-1, 21, 3); root[v] = z["global_orient"][s]; visible[v] = z["visible"][s].astype(bool)
+        est[v] = z["body_pose"][s].reshape(-1, 21, 3); root[v] = z["global_orient"][s]; visible[v] = seen_frames(z, k)[s]
         conf = np.nan_to_num(k["kp2d"][s][:, :, 2], nan=0.0)                               # (T,17) ViTPose confidence (face points blanked -> 0)
-        in_frame_rt[v] = usable_joints_rt(k["kp2d"][s], k["view_box"] if "view_box" in k.files else None, visible[v])
+        in_frame_rt[v] = usable_joints_rt(k["kp2d"][s], k["view_box"] if "view_box" in k.files else None, visible[v], frame_idx=frames)
         jin = gt[f"{v}_joints_in"][sel_gt]                                                   # (T,24) truth: joint inside this view
         w = np.stack([conf[:, JOINT_KP[j]].mean(1) for j in range(21)], 1)                   # (T,21)
         w = w * visible[v][:, None]                                                          # bridged frames carry no weight
         w_conf[v] = w; in_frame[v] = jin
+        if (deliver / v / "smpl_incam.npz").exists():                                     # how side-on this view sees the walker
+            zc = np.load(deliver / v / "smpl_incam.npz")
+            if len(zc["transl"]) == len(z["frame_idx"]):
+                side[v] = np.nan_to_num(side_on_score(zc["global_orient"][s], zc["transl"][s]))
     # ---- visibility classes per view from the truth
     def vclass(jin):
         head = jin[:, SMPL_HEAD]; sh = jin[:, SMPL_SHOULDERS].all(1); hips = jin[:, SMPL_HIPS].all(1); ank = jin[:, SMPL_ANKLES].all(1)
@@ -113,6 +120,13 @@ def main(argv=None):
     root_al = {v: (R.from_euler("y", yaw[v], degrees=True) * R.from_rotvec(root[v])).as_rotvec() for v in views}
     root_f, share = fuse_root([root_al[A], root_al[B]], [in_frame_rt[A], in_frame_rt[B]], [visible[A] | True, visible[B] | True], ramp=15)
     fused["segment rule, cross-faded x root share + smoothed 5 fr"] = smooth_rotations(segment_rule(in_frame_rt[A], in_frame_rt[B], ramp_frames=15, extra=(share[0], share[1])), 5)
+    if len(side) == 2:     # the merge's last step: the hips' and knees' posture from that weighted mean, the stride's swing from a mean that also weights each view by its side-on score
+        fps = float(Z[A]["fps_source"]) / float(Z[A]["frame_step"]) if "fps_source" in Z[A].files else 30.0
+        raw = segment_rule(in_frame_rt[A], in_frame_rt[B], ramp_frames=15, extra=(share[0], share[1]))
+        wf = np.stack([ramp_inside(in_frame_rt[v], 15)[:, FLEX] * (share[i] * (SIDE_ON_FLOOR + side[v]))[:, None] for i, v in enumerate(views)])
+        alt = chordal_mean([est[A][:, FLEX], est[B][:, FLEX]], wf); alt[~(in_frame_rt[A] | in_frame_rt[B])[:, FLEX]] = np.nan
+        raw[:, FLEX] = flexion_two_band(raw[:, FLEX], alt, FLEX_SLOW_S * fps)
+        fused["segment rule, cross-faded x root share, stride swing from the side-on view + smoothed 5 fr"] = smooth_rotations(raw, 5)
     pick = np.where((err[A] <= err[B])[:, :, None], est[A], est[B]); fused["oracle pick"] = pick
     err.update({k: geodesic(v_, gt_body) for k, v_ in fused.items()})
     root_err = {v: geodesic(root_al[v], gt_root) for v in views}; root_err["fused"] = geodesic(root_f, gt_root)

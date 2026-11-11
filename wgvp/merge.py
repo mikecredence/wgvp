@@ -14,7 +14,11 @@ Per recording:
   3. Root: a view's root that flips for an instant and comes back is interpolated across first
      (`repair_root_glitches`); then `fuse_root` (presence-ramped, usable-fraction-weighted, sharpened when the
      views disagree, the arbitration itself smoothed over the cross-fade time) and the same 5-frame moving
-     average the body gets; the translation is averaged with the same shares and smoothed over 5 frames.
+     average the body gets. The pelvis path is fused from the views' per-frame STEPS with the same shares and
+     summed (`fusion.fuse_path`), then smoothed over 5 frames: each view's horizontal step counts in full across
+     its camera's line of sight and PATH_ALONG_SIGHT of that along it, where it is a change of monocular depth
+     (the lines of sight come from the camera-frame files, `sight_line`). A mean of the views' positions would
+     slide whenever the shares change: two monocular paths sit up to metres apart while the walker moves.
   4. Body: per joint, the view(s) that can vouch for it, cross-faded over 0.5 s at segment edges, each view
      weighted by its share of the root; nothing where no view saw the joint; smoothed over 5 frames.
   5. Export rule: a frame is kept when every leg joint AND every torso joint (spine, neck, head) is output, in
@@ -43,8 +47,10 @@ Per recording:
      joint contains (the whole disagreement at an even split, none of it when the root rule set that view aside:
      a view in the wrong gravity frame that also solved the legs wrongly is not evidence against the other view's
      legs); zero outside the export. `root_weight` = the summed raw root weights (presence x usable fraction squared, <= 1);
-     `transl_weight` = root_weight times the same kind of factor on the two views' pelvis positions (10 cm free,
-     0.5 at 40 cm). Translation from one far camera is the weakest field (see the README).
+     `transl_weight` = root_weight where the path exists. The distance between the two views' aligned pelvis
+     positions is recorded (`transl_disagree_m`) and is no factor of the weight: the path is fused from steps,
+     and on the rendered samples that distance tracks neither the velocity's error nor the path's.
+     Translation from one far camera is the weakest field (see the README).
 """
 from __future__ import annotations
 
@@ -54,9 +60,9 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from .fusion import (MIRROR_SWAP, mirror_body, mirror_check, mirror_root, mirror_transl,
-                     ARMS, L_ANKLE, L_FOOT, LEGS, R_ANKLE, R_FOOT, SPINE, TORSO_LEGS, chordal_mean, circular_median_deg, export_mask, fk_joints, fuse_root, geodesic, heading_yaw_deg,
-                     moving_average_in_runs, ramp_inside, repair_root_glitches, smooth_rotations, step_stats, usable_joints_rt)
+from .fusion import (MIRROR_SWAP, mirror_body, mirror_check, mirror_root, mirror_transl, fuse_path,
+                     ARMS, FLEX, L_ANKLE, L_FOOT, LEGS, R_ANKLE, R_FOOT, SPINE, TORSO_LEGS, chordal_mean, circular_median_deg, export_mask, fk_joints, flexion_two_band, fuse_root, geodesic, heading_yaw_deg,
+                     moving_average_in_runs, ramp_inside, repair_root_glitches, seen_frames, side_on_score, sight_line_world, smooth_rotations, step_stats, usable_joints_rt)
 from .reconcile import SMPLX_BODY_JOINTS
 
 RAMP_S = 0.5           # cross-fade at the edges of usable segments and of lifted runs
@@ -66,20 +72,28 @@ ROOT_SMOOTH_FRAMES = 5 # the same for the merged root orientation
 FAST_TURN_S = 0.25; FAST_TURN_DEG = 90.0   # QC: the merged root turning more than this within this long is no body's turn (360 deg/s; a quick turn on the spot peaks near 200)
 AGREE_FREE_DEG = 5.0   # two views agreeing to within this carry full weight
 AGREE_SCALE_DEG = 20.0 # the agreement factor is 0.5 at AGREE_FREE_DEG + this
-TRANSL_FREE_M, TRANSL_SCALE_M = 0.10, 0.30   # the same for the two views' pelvis positions
 BETAS_DIFF_WARN = 3.0  # |betas_a - betas_b| above which the two views may not hold the same person
 ALIGN_MIN_FRAMES = 30
+MOVING_M_S = 0.25       # the pelvis moves faster than this: a frame of walking, for the views' position residual
 WALKWAY_MIN_ROWS = 8   # footfalls (stances) needed before the mat's pose and the translation scale are fitted
 MAT_GAP_S = 0.5        # the walkway-derived path is interpolated across gaps up to this long (a foot off the mat's edge)
 MAT_RAMP_S = 0.12      # a stance's say in the walkway-derived path ramps in and out over this long
 
+# hips' and knees' flexion: the posture (slower than a Gaussian of this sigma) is the weighted mean of the views, the
+# stride's swing comes from a second mean that also weights each view by how side-on it sees the walker
+FLEX_SLOW_S = 0.75
+MAT_VEL_S = 1.5            # on the mat the root velocity's mean over this long (a stride and a half) is the mat path's; what is faster is the fused video path's
+PATH_ALONG_SIGHT = 0.05   # weight of a view's pelvis step along its camera's line of sight (a change of monocular depth), against 1 for the step across it
+SIDE_ON_FLOOR = 0.05      # weight of a view that sees the walker head-on, against 1.05 for one that sees them from the side
 FIELDS_DOC = (
     "frame_idx: frame of the original combined video; imu_t_s: recording time (pts/1000 - offset); "
     "body_pose (T,63): merged SMPL-X body pose, axis-angle, NaN for joints no view saw; "
-    "global_orient (T,3) / transl (T,3): merged root in the reference view's GVHMR world (y up, arbitrary heading and origin); "
+    "global_orient (T,3) / transl (T,3): merged root in the reference view's GVHMR world (y up, arbitrary heading and origin); the pelvis path is the views' "
+    "per-frame steps fused and summed, each view's step counted across its camera's line of sight, set on the views' mean position per run of frames; "
     "heading_yaw_deg (T): yaw of the pelvis forward axis in that world, unwrapped inside runs; heading_yaw_rate_deg_s (T): its rate; "
     "global_orient_heading_rel (T,3): the root with the heading yaw removed (tilt only: what body-worn sensors can know); "
-    "root_vel_heading_rel_m_s (T,3): root velocity in the heading frame (x lateral, y up, z forward); "
+    "root_vel_heading_rel_m_s (T,3): root velocity in the heading frame (x lateral, y up, z forward), from the fused video path; where the pelvis has a mat "
+    "path (transl_from_walkway) the velocity's mean over 1.5 s is the mat path's and only the faster part the video's; "
     "transl_scaled (T,3): the translation after the walkway scale calibration (equal to transl when no walkway data); "
     "transl_mat (T,3): the pelvis ON THE MAT, metres in the mat frame (X along the mat, height from the video, Y across): the walkway's footprint "
     "under each foot in stance plus the video pose's foot-to-pelvis offset, NaN off the mat or without walkway data (a measured position, no depth estimate in it); "
@@ -89,26 +103,42 @@ FIELDS_DOC = (
     "betas (10): one body shape for the recording; "
     "export_ok (T): frames the export keeps (every leg and torso joint output, i.e. hips, knees, ankles, feet, spine, neck, head; runs >= 0.5 s; an arm may be missing); "
     "weight (T,21): per-joint loss weight in [0,1] (0 outside the export or where the joint is NaN); root_weight (T): the same for the root orientation; "
-    "transl_weight (T): for the translation / velocity; transl_disagree_m (T): distance between the two views' aligned pelvis positions (NaN with one view); "
+    "transl_weight (T): for the translation / velocity (root_weight where the path exists); transl_disagree_m (T): distance between the two views' aligned pelvis "
+    "positions (NaN with one view; recorded only: two monocular paths drift apart by decimetres to metres, and the merged path is fused from their steps); "
     "source (T,21): bit i set when view i (in `views` order) contributed to the joint; usable (V,T,21): which joints each view could vouch for; "
-    "share (V,T): each view's share of the root per frame; views, reference_view, view_alignment_yaw_deg (V), view_alignment_offset_m (V,3): "
+    "share (V,T): each view's share of the root per frame; side_on (V,T): how side-on each view saw the walker (1 = from the side, 0 = walking straight at "
+    "the camera or away from it, NaN where not lifted): the stride's swing of the hips and knees is taken mostly from the view with the higher value; sight_line (V,T,3): each camera's line of sight to the pelvis as a unit vector in the merged world (NaN where not lifted or without the camera-frame file): a view's pelvis step counts in full across it and little along it; views, reference_view, view_alignment_yaw_deg (V), view_alignment_offset_m (V,3): "
     "how each view was turned onto the reference view's world; fps: frames per second of the merged timeline")
 
 
-def align_to_reference(root_ref, transl_ref, root_v, transl_v, mask) -> dict:
+def moving_frames(transl: np.ndarray, fps: float, min_speed: float = MOVING_M_S, window_s: float = 0.5) -> np.ndarray:
+    """Frames in which the pelvis moves: its displacement over `window_s` (centred) is faster than `min_speed`."""
+    T = len(transl); k = max(1, int(round(0.5 * window_s * fps))); sp = np.zeros(T)
+    if T > 2 * k:
+        with np.errstate(all="ignore"):
+            sp[k:T - k] = np.nan_to_num(np.linalg.norm(transl[2 * k:] - transl[:T - 2 * k], axis=1), nan=0.0) / (2 * k / fps)
+    return sp > min_speed
+
+
+def align_to_reference(root_ref, transl_ref, root_v, transl_v, mask, moving=None) -> dict:
     """One yaw (deg) and one offset (m) that turn view v's GVHMR world onto the reference view's, from frames in
-    `mask` (both lifted and seeing most of the body). Residuals are reported on the same frames."""
+    `mask` (both lifted and seeing most of the body). The root's residual is reported on the same frames. The pelvis
+    position's is reported on those of them in which the walker moves (`moving`, when it leaves enough frames): the
+    frames of a walker who stands still agree after any offset, and one who stands for half the recording would
+    set the median alone."""
     n = int(mask.sum())
     if n == 0:
         return {"yaw_deg": 0.0, "offset_m": [0.0, 0.0, 0.0], "n_frames": 0, "root_residual_deg": None, "transl_residual_m": None}
     dyaw = heading_yaw_deg(root_ref[mask]) - heading_yaw_deg(root_v[mask])
     yaw = circular_median_deg(dyaw); Ry = R.from_euler("y", yaw, degrees=True)
+    on = np.ones(n, bool) if moving is None else np.asarray(moving, bool)[mask]
+    walking = bool(moving is not None and on.sum() >= ALIGN_MIN_FRAMES)
     with np.errstate(all="ignore"):                                  # (Accelerate on macOS raises spurious matmul warnings here)
         tv = Ry.apply(transl_v[mask]); off = np.median(transl_ref[mask] - tv, axis=0)
         rr = geodesic((Ry * R.from_rotvec(root_v[mask])).as_rotvec(), root_ref[mask])
         tr = np.linalg.norm(transl_ref[mask] - (tv + off), axis=1)
-    return {"yaw_deg": float(yaw), "offset_m": [float(x) for x in off], "n_frames": n,
-            "root_residual_deg": float(np.nanmedian(rr)), "transl_residual_m": float(np.nanmedian(tr))}
+    return {"yaw_deg": float(yaw), "offset_m": [float(x) for x in off], "n_frames": n, "root_residual_deg": float(np.nanmedian(rr)),
+            "transl_residual_m": float(np.nanmedian(tr[on] if walking else tr)), "transl_residual_frames": "moving" if walking else "all"}
 
 
 def camera_centre_world(transl_world: np.ndarray, transl_cam: np.ndarray):
@@ -252,14 +282,16 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     fi = {int(f): i for i, f in enumerate(frames)}
     lifted = np.zeros((V, T), bool); visible = np.zeros((V, T), bool); usable = np.zeros((V, T, 21), bool)
     body = np.full((V, T, 21, 3), np.nan); root = np.full((V, T, 3), np.nan); transl = np.full((V, T, 3), np.nan); betas = np.full((V, T, 10), np.nan)
-    imu_t = np.full((V, T), np.nan); fps = None
+    imu_t = np.full((V, T), np.nan); fps = None; detected = np.zeros((V, T), bool); rest_held = np.zeros((V, T), bool); rows = []
     for i, v in enumerate(views):
-        z, k = Z[v], K[v]; idx = np.array([fi[int(f)] for f in z["frame_idx"]])
-        lifted[i, idx] = True; visible[i, idx] = z["visible"].astype(bool)
+        z, k = Z[v], K[v]; idx = np.array([fi[int(f)] for f in z["frame_idx"]]); rows.append(idx)
+        # "visible" from here on: the subject is seen in the frame, detected or held at rest with keypoints that confirm it
+        lifted[i, idx] = True; visible[i, idx] = seen_frames(z, k); detected[i, idx] = z["visible"].astype(bool)
+        rest_held[i, idx] = z["rest_held"].astype(bool) if "rest_held" in z.files else False
         body[i, idx] = z["body_pose"].reshape(-1, 21, 3); root[i, idx] = z["global_orient"]; transl[i, idx] = z["transl"]; betas[i, idx] = z["betas"]
         imu_t[i, idx] = z["imu_t_s"]
         kp = np.full((T, 17, 3), np.nan); kp[idx] = k["kp2d"]
-        usable[i] = usable_joints_rt(kp, k["view_box"] if "view_box" in k.files else None, visible[i])
+        usable[i] = usable_joints_rt(kp, k["view_box"] if "view_box" in k.files else None, visible[i], frame_idx=frames)
         if fps is None and "fps_source" in z.files:
             fps = float(z["fps_source"]) / float(z["frame_step"] if "frame_step" in z.files else 1)
     t_imu = np.nanmean(imu_t, axis=0)
@@ -275,10 +307,14 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     ref = int(np.argmax(usable.sum(axis=(1, 2)))); flags = []
     # ---- camera centres (each view's own world) and the walkway footfalls, if the recording has them
     cam_c = []; cam_rms = []          # diagnostic only: how far GVHMR's world path is from a rigid image of its camera-frame path
+    side = np.full((V, T), np.nan)    # how side-on each view sees the walker (from the pose in its camera's frame)
+    sight = np.full((V, T, 3), np.nan)   # each camera's line of sight to the pelvis, in the view's own world
     for i, v in enumerate(views):
         inc = rec_dir / v / "smpl_incam.npz"; fit = None
         if inc.exists():
-            zc = np.load(inc); fit = camera_centre_world(Z[v]["transl"], zc["transl"]) if len(zc["transl"]) == len(Z[v]["transl"]) else None
+            zc = np.load(inc); same = len(zc["transl"]) == len(Z[v]["transl"]); fit = camera_centre_world(Z[v]["transl"], zc["transl"]) if same else None
+            if same:
+                side[i, rows[i]] = side_on_score(zc["global_orient"], zc["transl"]); sight[i, rows[i]] = sight_line_world(Z[v]["global_orient"], zc["global_orient"], zc["transl"])
         cam_c.append(fit[0] if fit is not None else None); cam_rms.append(fit[2] if fit is not None else None)
     ww = None; stances = None; ww_info = {"rows": 0, "stances": 0, "format": "none"}; ref_npz = rec_dir.parent.parent / "work" / "imu_ref" / f"{rec_dir.name}_imu_ref.npz"
     if ref_npz.exists():
@@ -312,12 +348,12 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
         chk = mirror_check(body[ref], body[i], both); mirror_info[v] = chk
         if chk["mirrored"]:
             mirrored[i] = True
-            body[i] = mirror_body(body[i]); root[i] = mirror_root(root[i]); transl[i] = mirror_transl(transl[i]); transl_sc[i] = mirror_transl(transl_sc[i])
+            body[i] = mirror_body(body[i]); root[i] = mirror_root(root[i]); transl[i] = mirror_transl(transl[i]); transl_sc[i] = mirror_transl(transl_sc[i]); sight[i] = mirror_transl(sight[i])
             usable[i] = usable[i][:, MIRROR_SWAP]
             flags.append(f"{v} is a mirror image of {views[ref]} (its legs fit {chk['mirrored_deg']:.1f} deg with the sides swapped vs {chk['as_is_deg']:.1f} deg as lifted, "
                          f"{chk['n_frames']} frames): reflected back before merging; check that camera's mirror setting")
     # ---- one world frame
-    align = []; root_al = root.copy(); transl_al = transl.copy(); transl_al_sc = transl_sc.copy()
+    align = []; root_al = root.copy(); transl_al = transl.copy(); transl_al_sc = transl_sc.copy(); sight_al = sight.copy(); moving = moving_frames(transl[ref], fps)
     for i, v in enumerate(views):
         if i == ref:
             align.append({"yaw_deg": 0.0, "offset_m": [0.0, 0.0, 0.0], "n_frames": int(lifted[i].sum()), "root_residual_deg": 0.0, "transl_residual_m": 0.0, "reference": True}); continue
@@ -327,14 +363,14 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
             mask = both & (frac[ref] >= 0.5) & (frac[i] >= 0.5)
         if mask.sum() < ALIGN_MIN_FRAMES:
             mask = both
-        a = align_to_reference(root[ref], transl[ref], root[i], transl[i], mask); align.append(a)
+        a = align_to_reference(root[ref], transl[ref], root[i], transl[i], mask, moving); align.append(a)
         if a["n_frames"] < ALIGN_MIN_FRAMES:
             flags.append(f"{v}: aligned to {views[ref]} on only {a['n_frames']} shared frames (heading / origin uncertain)")
-        if a["transl_residual_m"] is not None and a["transl_residual_m"] > 0.3:
-            flags.append(f"{v}: after alignment its pelvis position differs from {views[ref]} by {a['transl_residual_m']:.2f} m (median on shared frames)")
+        if a["transl_residual_m"] is not None and a["transl_residual_m"] > 0.3:      # for the record: the merged path is fused from the views' steps, so this offset does not enter it
+            flags.append(f"info: {v}: after alignment its pelvis position differs from {views[ref]} by {a['transl_residual_m']:.2f} m (median on shared frames{' in which the walker moves' if a.get('transl_residual_frames') == 'moving' else ''})")
         Ry = R.from_euler("y", a["yaw_deg"], degrees=True); li = lifted[i]
         with np.errstate(all="ignore"):
-            root_al[i, li] = (Ry * R.from_rotvec(root[i, li])).as_rotvec(); transl_al[i, li] = Ry.apply(transl[i, li]) + np.array(a["offset_m"])
+            root_al[i, li] = (Ry * R.from_rotvec(root[i, li])).as_rotvec(); transl_al[i, li] = Ry.apply(transl[i, li]) + np.array(a["offset_m"]); sight_al[i, li] = Ry.apply(sight[i, li])
             if calibrated:                                   # the scaled positions get their own offset onto the (scaled) reference view
                 tv = Ry.apply(transl_sc[i, li]); mm = mask[li]
                 off_sc = np.median(transl_sc[ref, li][mm] - tv[mm], axis=0) if mm.sum() >= 3 else np.array(a["offset_m"])
@@ -348,11 +384,22 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
             msg = (f"{v}: its root differs from {views[ref]}'s by {a['root_residual_deg']:.0f} deg on shared frames (one of them is in the wrong gravity frame); "
                    f"the merge gave {v} a mean root share of {share[i].mean():.2f}")
             flags.append(msg if share[i].mean() > 0.35 else "info: " + msg)
+    # the pelvis path: the views' steps fused (each across its camera's line of sight) and summed; a mean of their positions would slide with the shares
+    path_rule = V > 1; sight_known = bool(np.isfinite(sight_al).all(2).any(1).all())
     tr = np.nansum(share[:, :, None] * np.nan_to_num(transl_al), axis=0); tr[~lifted.any(0)] = np.nan
+    if path_rule:
+        tr = fuse_path(transl_al, share, lifted, sight_al, PATH_ALONG_SIGHT)
     transl_f = moving_average_in_runs(tr, SMOOTH_FRAMES)
     # ---- body
     w = np.stack([ramp_inside(usable[i], ramp) * share[i][:, None] for i in range(V)])         # (V, T, 21)
     body_raw = chordal_mean([body[i] for i in range(V)], w); none = ~usable.any(0); body_raw[none] = np.nan
+    # the hips' and knees' flexion in two bands: the posture stays that mean's; the stride's swing comes from a mean that
+    # also weights each view by how side-on it sees the walker (a camera the walker moves straight at reads it short)
+    swing_rule = V > 1 and bool(np.isfinite(side).any(1).all())
+    if swing_rule:
+        wf = w[:, :, FLEX] * (SIDE_ON_FLOOR + np.nan_to_num(side))[:, :, None]
+        alt = chordal_mean([body[i][:, FLEX] for i in range(V)], wf); alt[none[:, FLEX]] = np.nan
+        body_raw[:, FLEX] = flexion_two_band(body_raw[:, FLEX], alt, FLEX_SLOW_S * fps)
     body_f = smooth_rotations(body_raw, SMOOTH_FRAMES)
     export_ok = export_mask(body_f, TORSO_LEGS, min_run)                                         # legs and torso; an arm may be missing
     # ---- the walkway: the scaled views fused with the same shares (when the scale fits were accepted), the mat's
@@ -362,6 +409,8 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     wfit = None; mat_cov = 0.0
     if calibrated:
         ts = np.nansum(share[:, :, None] * np.nan_to_num(transl_al_sc), axis=0); ts[~lifted.any(0)] = np.nan
+        if path_rule:
+            ts = fuse_path(transl_al_sc, share, lifted, sight_al, PATH_ALONG_SIGHT)
         transl_scaled = moving_average_in_runs(ts, SMOOTH_FRAMES)
         if max(abs(np.log(k)) for k in wscale) > np.log(1.5):
             flags.append(f"walkway calibration scales a view's depth by {max(wscale):.2f}x / {min(wscale):.2f}x")
@@ -400,8 +449,10 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
             if b_ - a_ >= 2:
                 out[a_:b_] = np.gradient(x[a_:b_], t_imu[a_:b_], axis=0)
         return out
-    vel_src = np.where(np.isfinite(transl_ww_world).all(1)[:, None], transl_ww_world, transl_scaled)      # the mat's position where it has one
-    yaw_rate = rate(yaw_u); vel_w = rate(vel_src); vel_hr = np.full((T, 3), np.nan); okv = np.isfinite(vel_w).all(1) & ok
+    yaw_rate = rate(yaw_u); vel_w = rate(transl_scaled)            # the fused video path's steps: the stride's profile
+    if np.isfinite(transl_ww_world).any():                         # on the mat its speed over a stride and a half comes from the footprints: no depth estimate in it
+        slow = moving_average_in_runs(rate(transl_ww_world) - vel_w, int(round(MAT_VEL_S * fps)) | 1); vel_w[:, [0, 2]] += np.nan_to_num(slow)[:, [0, 2]]
+    vel_hr = np.full((T, 3), np.nan); okv = np.isfinite(vel_w).all(1) & ok
     with np.errstate(all="ignore"):
         vel_hr[okv] = R.from_euler("y", -yaw[okv], degrees=True).apply(vel_w[okv])
     # ---- one shape
@@ -431,8 +482,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     transl_dis = np.full(T, np.nan)
     if V >= 2:
         both_l = lifted[0] & lifted[1]; transl_dis[both_l] = np.linalg.norm(transl_al[0, both_l] - transl_al[1, both_l], axis=1)
-    f_tr = np.where(np.isfinite(transl_dis), 1.0 / (1.0 + (np.maximum(np.nan_to_num(transl_dis) - TRANSL_FREE_M, 0.0) / TRANSL_SCALE_M) ** 2), 1.0)
-    transl_weight = root_weight * f_tr; transl_weight[~np.isfinite(transl_f).all(1)] = 0.0
+    transl_weight = root_weight.copy(); transl_weight[~np.isfinite(transl_f).all(1)] = 0.0       # the views' position disagreement is recorded, not weighted (module docstring, item 9)
     source = np.zeros((T, 21), np.int8)
     for i in range(V):
         source |= (usable[i].astype(np.int8) << i)
@@ -472,16 +522,22 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                "imu_span_s": [float(np.nanmin(t_imu)), float(np.nanmax(t_imu))],
                "export": {"frac_of_lifted_frames": exp_frac, "n_frames": int(export_ok.sum()), "n_runs": n_runs, "min_run_frames": min_run},
                "coverage_of_lifted_frames": cov, "per_view": {v: {"lifted_frames": int(lifted[i].sum()), "visible_frames": int(visible[i].sum()),
+                                                                 "detected_frames": int(detected[i].sum()), "rest_held_frames": int(rest_held[i].sum()),
+                                                                 "rest_held_seen_frames": int((rest_held[i] & visible[i] & ~detected[i]).sum()),
                                                                  "mean_usable_fraction": float(frac[i][lifted[i]].mean()) if lifted[i].any() else 0.0,
                                                                  "legs_usable_frac": float(usable[i][:, LEGS].all(1).mean()), "root_share_mean": float(share[i].mean()),
+                                                                 "side_on_mean": (float(np.nanmean(side[i])) if np.isfinite(side[i]).any() else None),
                                                                  "alignment": align[i]} for i, v in enumerate(views)},
                "continuity": {"body_step_p99_deg": body_step["p99_deg"], "body_steps_over_20deg_frac": body_step["frac_over_20"], "root_step_p99_deg": root_step["p99_deg"], "root_flips_over_90deg": n_flip,
                               "root_turns_over_90deg_in_quarter_s": n_fast, "root_glitch_frames_repaired": n_glitch},
                "weight": {"mean_over_export": float(weight[export_ok].mean()) if export_ok.any() else 0.0, "frac_cells_over_0_5": float((weight > 0.5).mean()),
                           "root_weight_mean": float(root_weight.mean()), "transl_weight_mean": float(transl_weight.mean())},
-               "translation": {"views_disagree_median_m": (float(np.nanmedian(transl_dis)) if np.isfinite(transl_dis).any() else None),
+               "flexion": {"rule": "two bands: posture from the views' weighted mean, stride swing weighted by side_on" if swing_rule else "the views' weighted mean",
+                           "joints": [SMPLX_BODY_JOINTS[j] for j in FLEX], "slow_sigma_s": FLEX_SLOW_S, "side_on_floor": SIDE_ON_FLOOR},
+               "translation": {"rule": (("the views' steps fused and summed, each across its camera's line of sight" if sight_known else "the views' steps fused by their shares and summed (no camera-frame files: no lines of sight)") if path_rule else "the one view's path"),
+                               "along_sight_weight": PATH_ALONG_SIGHT, "views_disagree_median_m": (float(np.nanmedian(transl_dis)) if np.isfinite(transl_dis).any() else None),
                                "views_disagree_p90_m": (float(np.nanpercentile(transl_dis, 90)) if np.isfinite(transl_dis).any() else None),
-                               "note": "GVHMR's translation is a monocular depth estimate; on the rendered session it is within 0.1 m near the mat centre and off by 1-3 m at the far ends of the walk, which the two views expose where both see the subject (transl_disagree_m) and transl_weight discounts"},
+                               "note": "GVHMR's translation is a monocular depth estimate; on the rendered session it is within 0.1 m near the mat centre and off by 1-3 m at the far ends of the walk, which the two views expose where both see the subject (transl_disagree_m); the merged path is fused from the views' steps, so that offset does not enter it, and transl_weight does not discount by it"},
                "betas": {"recording": [float(x) for x in betas_rec], "per_view": betas_view, "n_frames_used": int(bsel.sum()), "view_difference_norm": d_b},
                "walkway": ({**ww_info, "fit": wfit, "per_view": {v: wfits[i] for i, v in enumerate(views)}} if ww is not None else {**ww_info, "fit": None, "note": "no usable walkway footfalls in the recording CSV"}),
                "mirror_check": mirror_info, "views_mirrored": [v for i, v in enumerate(views) if mirrored[i]],
@@ -497,7 +553,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                             heading_yaw_rate_deg_s=yaw_rate.astype(np.float32), global_orient_heading_rel=root_hr.astype(np.float32),
                             root_vel_heading_rel_m_s=vel_hr.astype(np.float32), betas=betas_rec.astype(np.float32), export_ok=export_ok,
                             weight=weight.astype(np.float32), root_weight=root_weight.astype(np.float32), transl_weight=transl_weight.astype(np.float32),
-                            transl_disagree_m=transl_dis.astype(np.float32), source=source, usable=usable, share=share.astype(np.float32),
+                            transl_disagree_m=transl_dis.astype(np.float32), source=source, usable=usable, share=share.astype(np.float32), side_on=side.astype(np.float32), sight_line=sight_al.astype(np.float32),
                             views=np.array(views), reference_view=views[ref], view_alignment_yaw_deg=np.array([a["yaw_deg"] for a in align], np.float32),
                             view_alignment_offset_m=np.array([a["offset_m"] for a in align], np.float32), joints=np.array(SMPLX_BODY_JOINTS), fps=fps,
                             fields_doc=FIELDS_DOC, note=summary["note"])
