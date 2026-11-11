@@ -31,7 +31,7 @@ until $SSH true 2>/dev/null; do sleep 15; done
 GPU=$($SSH 'nvidia-smi --query-gpu=name,utilization.gpu,memory.used --format=csv,noheader,nounits'); echo "GPU: $GPU"
 MEM=$(echo "$GPU" | awk -F', ' '{print $3}'); [ "$MEM" -lt 1000 ] || { echo "GPU busy ($MEM MiB), aborting"; exit 1; }
 $SSH "rm -rf $B && mkdir -p $B"
-rsync -a --exclude '.git' --exclude '__pycache__' --exclude 'examples/bundled' --exclude 'examples/data' --exclude 'examples/_cache' --exclude 'docs/figures' --exclude 'wgvp_output' "$PKG/" "$H:$B/pkg/"
+rsync -a --exclude '.git' --exclude '__pycache__' --exclude 'examples/bundled' --exclude 'examples/data' --exclude 'examples/_cache' --exclude 'docs/figures' --exclude 'wgvp-env' --exclude '*.egg-info' --exclude 'wgvp_output' "$PKG/" "$H:$B/pkg/"
 echo "uploaded $(du -sh --exclude .git --exclude examples --exclude docs "$PKG" 2>/dev/null | cut -f1) package"
 ACT="source ~/miniconda3/etc/profile.d/conda.sh; conda activate $GENV; cd $B/pkg"
 $SSH "$ACT; python -c 'import lap' 2>/dev/null && echo 'lap present' || { echo 'lap missing: installing'; pip install -q lap==0.5.13 2>&1 | tail -1; }" | tee "$OUT/lap_install.txt"
