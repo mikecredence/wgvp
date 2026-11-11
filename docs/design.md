@@ -1281,6 +1281,84 @@ least accurate part of the export and outside the export rule by design; and, fo
 view, which this round shows to be worth 3 deg of root and half of the heading error in the turns and which no
 recording from a clinic has yet had.
 
+### 2.14 Round seven: a camera's field of view read from the room, and a level floor on the real clip (2026-11-10)
+
+Round six measured what the field of view is worth on rendered cameras and left every real camera without one. The
+bundled phone clip is the one real recording in the repository and its file does not name the lens, so this round
+reads the field of view from the picture, lifts the clip with it, and looks for a check that needs no truth.
+
+**The estimator.** `tools/estimate_focal.py` uses the room. Floor and ceiling edges along it, the same across it, and
+door frames and wall corners up it are three perpendicular families of lines; each family aims at one vanishing point
+in the picture, and two perpendicular directions with vanishing points v1 and v2 satisfy (v1 - c) . (v2 - c) = -f^2
+with c the picture centre. Per frame it takes line segments (OpenCV's LSD, a second pass on a contrast-stretched
+picture for faint edges), finds the focal length and room orientation that put the most segment length on the three
+points (RANSAC over pairs of points, then least squares), and reports the median over the frames in millimetres of 35
+mm equivalent on the diagonal, the unit of `gvhmr.focal_35mm`. A frame counts only if two directions each carry 6
+segments and 5 % of the segment length, the second direction leans 6 deg or more out of the picture plane, and the
+focal length lies in 9-110 mm; when fewer than half the frames count the tool refuses and says the room's lines do not
+fix the focal length from this view.
+
+**Its checks.** On the rendered side camera (21.15 mm) it reads 21.1, 21.1, 20.9 and 21.4 mm on Sub 001-004. On the
+rendered along camera (28.3 mm), which stands square to the floor grid, it refuses in all four: two of the three
+families are parallel in the picture there, which is the case the rule is for. On the phone clip it reads 17.3 mm
+(quartiles 17.2 to 17.5 over 12 frames, pairs of directions on their own 16.0 to 17.8; a 103-deg diagonal), the same
+on the bundled 720 x 1280 clip as on the 4K original, and 20.2 and 32.2 mm on the two zoomed panels of OWN02, where
+17.3 times each panel's zoom (1.171 and 1.858) predicts 20.2 and 32.1. Those are consistency checks: nothing here
+knows the phone's lens.
+
+**A level floor.** The check without a truth is the floor. `merge.path_slope_deg` fits the pelvis height against
+distance along the walk's main horizontal direction over the moving frames (none for a walk that reaches under 2 m),
+`merge.json` records it per view as `floor_slope_deg`, and the no-truth demo prints it on one line. The clip was
+lifted nine times on the T4, the full picture at 43.3 (the lifter's default), 33, 30, 27, 20, 18, 17, 16 and 14 mm and
+each panel at that value times its zoom (the default row gives both panels 43.3):
+
+| focal (mm) | slope full (deg) | slope left | slope right | pelvis height range (m) | panels' pelvis positions apart (m) | root residual (deg) | legs apart after mirroring (deg) |
+|---|---|---|---|---|---|---|---|
+| 43.3 | 21.9 | 17.9 | 5.2 | 2.83 | 0.54 | 8.1 | 5.3 |
+| 33 | 14.7 | 15.2 | 14.9 | 1.90 | 0.10 | 7.2 | 5.3 |
+| 30 | 12.2 | 12.3 | 12.3 | 1.61 | 0.08 | 7.2 | 5.2 |
+| 27 | 9.7 | 10.1 | 9.0 | 1.31 | 0.08 | 7.1 | 5.2 |
+| 20 | 3.1 | 2.8 | 1.6 | 0.58 | 0.10 | 7.1 | 5.1 |
+| 18 | 1.3 | 1.1 | 0.0 | 0.41 | 0.11 | 7.2 | 5.2 |
+| 17 | 0.5 | 0.5 | 0.4 | 0.34 | 0.10 | 7.2 | 5.1 |
+| 16 | 0.2 | 0.1 | 0.9 | 0.26 | 0.10 | 7.3 | 5.1 |
+| 14 | 0.6 | 0.4 | 0.9 | 0.17 | 0.10 | 7.3 | 5.0 |
+
+The signed slope crosses zero at about 15.6 mm for the full view, 15.9 mm (in full-picture terms) for the left panel
+and 18.0 mm for the right, and the floor is level to 1.3 deg or better from 14 to 18 mm: the floor brackets the lens and the
+lines' 17.3 sits inside the bracket. A second reading that needs no truth agrees. The speed of the body in the
+camera's frame is 2.83 and 3.05 m/s on the two legs of the walk under the default against 1.25 and 1.26 in the world
+frame (camera depth 3.2 to 21.4 m); at 17 mm it is 1.16 and 1.24 against 1.10 and 1.13 (depth 1.3 to 8.6 m, reach 6.84
+m against 7.79), at 16 mm 1.10 and 1.18 against 1.08 and 1.12, and at 14 mm it falls below the world speed (0.98 and
+1.05 against 1.06 and 1.10). The two speeds meet between 16 and 17 mm.
+
+Two things follow for the composite. The 0.54 m between its two panels' pelvis positions, which the README had put
+down to the depth two zoom levels disagree about, was one lens handed to two zoom levels: with each panel's own focal
+length it is 0.08-0.11 m at every rung, 33 mm included, so it tests the ratio between the panels and not the lens. And
+the body does not move: export 94.7 % (two runs) for OWN01 and 100 % for OWN02 at every rung, the mirror check 44.2
+deg as lifted against 7.5 swapped over 224 frames at 17 mm, forward lean 5.3 and 5.8 deg against 5.7 and 5.8, the knee
+curves on top of each other. The demo's close-ups therefore look as they did, and the change is in the exported path.
+The bundled config now carries 17.3, 20.2 and 32.2 (the lifter takes whole millimetres: 17, 20 and 32), and the
+README's figure is from that lift.
+
+**How far the floor check can be trusted.** On the six rendered sessions of round six the same slope, read from the
+lifts under the default camera and under the true field of view, has a median over the twelve views of 2.6 and 0.9
+deg, with 8 of 12 views more level (per view, default then true, left and right: Sub 001 self-paced 7.0 to 0.4 and 2.3
+to 1.4; Sub 001 TUG 3.3 to 4.1 and 0.2 to 0.6; Sub 002 11.3 to 18.4 and 2.4 to 1.6; Sub 003 hurried 2.8 to 0.1 and 2.8
+to 2.2; Sub 003 self-paced 1.1 to 1.3 and 3.2 to 0.2; Sub 004 on the mat 0.4 to 0.1 and 1.1 to 0.4). One view gets
+worse by 7 deg with the right lens, so a slope is an indicator and a flag is not raised on it. It also senses the
+field of view only through the camera's tilt: the phone looks about 14 deg down, and a level camera would read zero
+whatever the lens.
+
+**What stays open on this clip.** The 0.34 m of pelvis height range left at 17 mm is several times a stride's rise and
+fall, so the lifted floor is level on average and not flat. The clip is hand-held, with about 26 deg of pan in its
+first 3 s and a little in its last second, and the lift runs with a static camera. The lens itself has not been read
+from the phone. None of the three has a truth to be scored against.
+
+**Small things.** The demo's slope readout is one line because two collided with the export panel's label.
+`tools/remote_gpu_stage.sh` and `remote_gpu_e2e.sh` no longer copy the local Python environment to the GPU box. The
+suite is at 82 tests (five for the estimator on synthetic room edges, one for the slope on a ramp and a level floor).
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
@@ -1306,6 +1384,10 @@ recording from a clinic has yet had.
   but the path it yields has only been checked against a rendered truth whose footprints were fabricated from that
   truth; a real mat under a real video is the test that remains. The mirror check has fired correctly on a mirrored
   panel of a real clip and stayed quiet on six rendered two-camera sessions, never yet on a real two-camera pair.
+* A real camera's field of view: `tools/estimate_focal.py` has read one real camera, a hand-held phone's, where the
+  only checks of its number are the lifted floor coming out level and two speeds agreeing (section 2.14). No clinic
+  camera has been read, a camera square to the walkway is refused by design, and a lens that bends straight lines
+  would bias it.
 * The field of view at the lift (2.13): the gain is measured on rendered pinhole cameras whose field of view is
   known exactly. A real lens has distortion, a combined video's panels may be cropped or scaled copies of the
   cameras' pictures, and nobody has yet measured a clinic camera's field of view for this; a wrong number has not

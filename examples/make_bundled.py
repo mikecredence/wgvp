@@ -17,7 +17,10 @@ OWN02  a synthetic TWO-VIEW file made from OWN01, shaped like a tiled two-camera
 
 The data root's wgvp_config.json sets detector_imgsz = 960: at the default 640 the walker at the far end of the
 corridor (under a tenth of the frame height) drops out of detection for 2-3 s and the track splits into two 5-s
-fragments, which is below what the selector accepts. The person in the clip consented to its publication.
+fragments, which is below what the selector accepts. It also gives the lifter each view's field of view
+(gvhmr.focal_35mm), read from the corridor's own lines with tools/estimate_focal.py: 17.3 mm for the clip (wider than a
+phone's main camera), 20.2 and 32.2 for the two zoomed panels of OWN02 (17.3 times each panel's zoom predicts 20.2
+and 32.1). The person in the clip consented to its publication.
 """
 from __future__ import annotations
 
@@ -37,6 +40,7 @@ from wgvp.tracking import track_summary                                         
 from wgvp.video_io import ffmpeg_exe, probe_video                                  # noqa: E402
 
 IMGSZ = 960
+FOCAL_35MM = {"full": 17.3, "left": 20.2, "right": 32.2}     # tools/estimate_focal.py on OWN01's clip and on each panel of OWN02's
 OFFSET_S = 0.8
 ABOUT1 = ("OWN01: one person (the author) walks away down an office corridor, turns at the far end and walks back; phone video, portrait, 13 s. "
           "OWN01_selfpace.csv is a FABRICATED recording: LowerBack_FreeAcc_U = the walker's own pelvis motion from the video plus noise, differentiated twice; "
@@ -97,8 +101,9 @@ def main():
     (s2 / "expected.json").write_text(json.dumps(exp2)); (s2 / "README.txt").write_text(ABOUT2 + "\n")
     print(f"OWN02 video {v2.stat().st_size / 1e6:.1f} MB ({pwl + sep + pwr}x{PH}; panels left {exp2['panels_true']['left']} x{sl:.2f}, right {exp2['panels_true']['right']} x{sr:.2f} mirrored)")
     (out / "wgvp_config.json").write_text(json.dumps({"_doc": "bundled offline examples: a portrait phone clip (OWN01) and a two-view composite of it (OWN02: zoomed | mirrored and zoomed more); "
-                                                              "detector_imgsz 960 keeps the walker detected at the far end of the corridor",
-                                                      "params": {"detector_imgsz": IMGSZ}}, indent=1))
+                                                              "detector_imgsz 960 keeps the walker detected at the far end of the corridor; "
+                                                              "gvhmr.focal_35mm is each view's field of view as measured from the corridor's lines by tools/estimate_focal.py",
+                                                      "params": {"detector_imgsz": IMGSZ}, "gvhmr": {"focal_35mm": FOCAL_35MM}}, indent=1))
     print(f"done -> {out}\nnext:  python -m wgvp run {out} --cpu-only   then   python examples/verify_examples.py --data {out}")
 
 
