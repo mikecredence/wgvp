@@ -123,7 +123,9 @@ def ramp_inside(mask: np.ndarray, k: int) -> np.ndarray:
 def smooth_rotations(aa: np.ndarray, window: int) -> np.ndarray:
     """Moving average of rotations over time, (T, J, 3) axis-angle -> same, computed as the normalised mean of unit
     quaternions (hemisphere-aligned to the window's centre) over `window` frames, within runs of emitted frames
-    only: NaN gaps stay gaps and are not averaged across. window <= 1 returns the input."""
+    only: NaN gaps stay gaps and are not averaged across. Near a run's end the window shrinks on BOTH sides, so
+    the average stays centred on its frame (a one-sided window would pull a moving joint toward the run's inside).
+    window <= 1 returns the input."""
     if window <= 1:
         return aa
     T, J = aa.shape[:2]; out = np.full_like(aa, np.nan); h = window // 2
@@ -132,15 +134,11 @@ def smooth_rotations(aa: np.ndarray, window: int) -> np.ndarray:
         if not ok.any():
             continue
         q = np.full((T, 4), np.nan); q[ok] = R.from_rotvec(aa[ok, j]).as_quat()
-        for t in np.flatnonzero(ok):
-            a, b = max(0, t - h), min(T, t + h + 1)
-            seg = q[a:b]; m = np.isfinite(seg).all(1)
-            # stay inside this run of emitted frames
-            idx = np.arange(a, b)[m]; left = idx[idx <= t]; right = idx[idx >= t]
-            left = left[np.r_[True, np.diff(left) == 1][::-1].cumprod()[::-1].astype(bool)] if len(left) else left
-            right = right[np.r_[True, np.diff(right) == 1].cumprod().astype(bool)] if len(right) else right
-            use = np.union1d(left, right); qs = q[use]; qs = qs * np.sign(qs @ q[t] + 1e-12)[:, None]
-            out[t, j] = R.from_quat(qs.mean(0) / np.linalg.norm(qs.mean(0))).as_rotvec()
+        edges = np.flatnonzero(np.diff(np.r_[False, ok, False].astype(int)))
+        for a, b in zip(edges[::2], edges[1::2]):                      # stay inside this run of emitted frames
+            for t in range(a, b):
+                n = min(h, t - a, b - 1 - t); qs = q[t - n:t + n + 1]; qs = qs * np.sign(qs @ q[t] + 1e-12)[:, None]
+                out[t, j] = R.from_quat(qs.mean(0) / np.linalg.norm(qs.mean(0))).as_rotvec()
     return out
 
 
@@ -334,13 +332,20 @@ def _moving_average(x: np.ndarray, k: int) -> np.ndarray:
     return (c[b_] - c[a_]) / (b_ - a_)
 
 
-def moving_average_in_runs(x: np.ndarray, k: int) -> np.ndarray:
-    """(T,) or (T, D) with NaN gaps -> moving average over k frames inside each run of finite rows; gaps stay NaN."""
+def moving_average_in_runs(x: np.ndarray, k: int, centred: bool = False) -> np.ndarray:
+    """(T,) or (T, D) with NaN gaps -> moving average over k frames inside each run of finite rows; gaps stay NaN.
+    Near a run's end the window is cut on the outer side only (right for a slow trend: the average keeps its
+    length), or with `centred` on both sides (right for a position: a one-sided window pulls a moving point toward
+    the run's inside and halves the last steps of a path)."""
     x = np.asarray(x, float); one = x.ndim == 1; X = x[:, None] if one else x; out = np.full_like(X, np.nan)
     ok = np.isfinite(X).all(1); edges = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
     for a, b in zip(edges[::2], edges[1::2]):
+        i = np.arange(b - a); h = np.minimum(k // 2, np.minimum(i, b - a - 1 - i))
         for d in range(X.shape[1]):
-            out[a:b, d] = _moving_average(X[a:b, d], k)
+            if centred and k > 1:
+                c = np.cumsum(np.r_[0.0, X[a:b, d]]); out[a:b, d] = (c[i + h + 1] - c[i - h]) / (2 * h + 1)
+            else:
+                out[a:b, d] = _moving_average(X[a:b, d], k)
     return out[:, 0] if one else out
 
 
