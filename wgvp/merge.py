@@ -245,7 +245,7 @@ def mat_pelvis_path(root_aa: np.ndarray, body_aa: np.ndarray, t_imu: np.ndarray,
             a, b = idx[g], idx[g + 1]
             if t_imu[b] - t_imu[a] <= MAT_GAP_S:
                 path[a:b + 1] = np.linspace(path[a], path[b], b - a + 1)
-    path = moving_average_in_runs(path, SMOOTH_FRAMES)
+    path = moving_average_in_runs(path, SMOOTH_FRAMES, centred=True)
     return path, float(np.isfinite(path).all(1).mean()), used
 
 
@@ -406,7 +406,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     tr = np.nansum(share[:, :, None] * np.nan_to_num(transl_al), axis=0); tr[~lifted.any(0)] = np.nan
     if path_rule:
         tr = fuse_path(transl_al, share, lifted, sight_al, PATH_ALONG_SIGHT)
-    transl_f = moving_average_in_runs(tr, SMOOTH_FRAMES)
+    transl_f = moving_average_in_runs(tr, SMOOTH_FRAMES, centred=True)
     # ---- body
     w = np.stack([ramp_inside(usable[i], ramp) * share[i][:, None] for i in range(V)])         # (V, T, 21)
     body_raw = chordal_mean([body[i] for i in range(V)], w); none = ~usable.any(0); body_raw[none] = np.nan
@@ -428,7 +428,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
         ts = np.nansum(share[:, :, None] * np.nan_to_num(transl_al_sc), axis=0); ts[~lifted.any(0)] = np.nan
         if path_rule:
             ts = fuse_path(transl_al_sc, share, lifted, sight_al, PATH_ALONG_SIGHT)
-        transl_scaled = moving_average_in_runs(ts, SMOOTH_FRAMES)
+        transl_scaled = moving_average_in_runs(ts, SMOOTH_FRAMES, centred=True)
         if max(abs(np.log(k)) for k in wscale) > np.log(1.5):
             flags.append(f"walkway calibration scales a view's depth by {max(wscale):.2f}x / {min(wscale):.2f}x")
     if ww is not None:

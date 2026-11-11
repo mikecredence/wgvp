@@ -81,7 +81,7 @@ def _video_path(root: Path, deliver: Path, rid: str) -> Path | None:
 
 def render_demo(root: Path, session: str, recording: str | None = None, gt: str | None = None, out: str | None = None, body_models: str | None = None,
                 t0: float | None = None, t1: float | None = None, step: int = 1, gif: str | None = None, gif_span: str | None = None,
-                readout: str = "both", strip_step: float = 2.0, log=print) -> dict:
+                readout: str = "both", strip_step: float = 2.0, log=print, target: str = "merge") -> dict:
     import cv2
     from scipy.spatial.transform import Rotation as R
     from .config import load_config
@@ -97,8 +97,12 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     if body_models is None:
         cand = Path(cfg.get("gvhmr", {}).get("root") or "") / "inputs" / "checkpoints" / "body_models"
         body_models = str(cand if (cand / "smplx").exists() else Path.home() / "data" / "WearGait" / "body_models")
-    out = Path(out) if out else sdir / "work" / "demo" / f"{rid}_demo.mp4"; out.parent.mkdir(parents=True, exist_ok=True)
+    out = Path(out) if out else sdir / "work" / "demo" / f"{rid}_demo{'_jointfit' if target == 'jointfit' else ''}.mp4"; out.parent.mkdir(parents=True, exist_ok=True)
     M = np.load(rdir / "merged_smpl.npz"); views = [str(v) for v in M["views"]]; V = len(views)
+    tname, tfile = ("joint fit", "jointfit_smpl.npz") if target == "jointfit" else ("merge", "merged_smpl.npz")       # the pose shown: the merge, or the joint two-view fit of the same frames and joints
+    if target == "jointfit" and not (rdir / tfile).exists():
+        raise FileNotFoundError(f"{rdir / tfile}: run `wgvp jointfit` first")
+    S = np.load(rdir / tfile) if target == "jointfit" else M
     Z = {v: np.load(rdir / v / "smpl_global.npz") for v in views}; K = {v: np.load(rdir / v / "kp2d_vitpose.npz") for v in views}
     offset = float(json.loads((rdir / "sync.json").read_text())["offset_s"])
     cap = cv2.VideoCapture(str(video)); n_video = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)); fps = float(M["fps"]) if "fps" in M.files else (cap.get(cv2.CAP_PROP_FPS) or 30.0)
@@ -130,16 +134,16 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     for i, v in enumerate(views):
         usable[v] = usable_all[i]
     share = np.zeros((V, n_video)); share[:, mf] = M["share"]
-    merged_out = np.full((n_video, 21, 3), np.nan); merged_out[mf] = M["body_pose"].reshape(-1, 21, 3)
-    root_fused = np.full((n_video, 3), np.nan); root_fused[mf] = M["global_orient"]
-    transl_f = np.full((n_video, 3), np.nan); transl_f[mf] = M["transl"]
+    merged_out = np.full((n_video, 21, 3), np.nan); merged_out[mf] = S["body_pose"].reshape(-1, 21, 3)
+    root_fused = np.full((n_video, 3), np.nan); root_fused[mf] = S["global_orient"]
+    transl_f = np.full((n_video, 3), np.nan); transl_f[mf] = S["transl"]
     export_ok = np.zeros(n_video, bool); export_ok[mf] = M["export_ok"]
     any_lifted = np.any([lifted[v] for v in views], axis=0); none = ~np.any([usable[v] for v in views], axis=0)
-    # the drawn reconstruction: unseen parts filled from whatever was lifted (shown red), then the same smoothing
+    # the drawn reconstruction: the stored pose as it is stored; unseen parts (shown red) filled from whatever was lifted, with the merge's smoothing
     est = [np.nan_to_num(body[v]) for v in views]
     fill = chordal_mean(est, np.stack([lifted[v][:, None].repeat(21, 1).astype(float) for v in views]))
     md = np.where(none[:, :, None], fill, np.nan_to_num(merged_out)); md[~any_lifted] = np.nan
-    merged_draw = np.nan_to_num(smooth_rotations(md, SMOOTH_FRAMES))
+    merged_draw = np.where(none[:, :, None] | ~np.isfinite(merged_out), np.nan_to_num(smooth_rotations(md, SMOOTH_FRAMES)), np.nan_to_num(merged_out))
     leg_ok = {v: usable[v][:, LEGS].all(1) for v in views}
     # ---- truth series
     truth_body = np.full((n_video, 21, 3), np.nan)
@@ -314,7 +318,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
             ax.plot(tt[win], kn[v][win, j], color=VIEW_MPL[i], lw=0.8, alpha=0.8, label=f"{v} view output")
         if G is not None:
             ax.plot(tt[win], kn["truth"][win, j], color="w", lw=1.0, alpha=0.9, label="truth")
-        ax.plot(tt[win], kn["merge"][win, j], color="#3fd13f", lw=2.0, label="merge (merged_smpl.npz)")
+        ax.plot(tt[win], kn["merge"][win, j], color="#3fd13f", lw=2.0, label=f"{tname} ({tfile})")
         ax.set_ylabel(name, fontsize=7, color="w"); ax.set_ylim(0, 90)
     axs[1].legend(fontsize=7, ncol=4, loc="upper left", facecolor=(0.2, 0.2, 0.2), labelcolor="w", framealpha=0.8)
     if len(axs) == 4:
@@ -334,7 +338,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     def cursor_x(t): return int(L_ * W + (t - t0) / max(t1 - t0, 1e-6) * (R_ - L_) * W)
     # ---- the filmstrip: every strip_step seconds a small render of what each view outputs, the merge (and the truth)
     ticks = np.arange(t0 + 0.5 * strip_step, t1, strip_step); n_tick = len(ticks); TW = min(56, int((R_ - L_) * W / max(n_tick, 1))); TH = int(TW * 5 / 3); RP = TH + 11
-    rows = [(f"{v} view", v) for v in views] + [("merge", None)] + ([("truth", "truth")] if G is not None else []); SH = len(rows) * RP + 20
+    rows = [(f"{v} view", v) for v in views] + [(tname, None)] + ([("truth", "truth")] if G is not None else []); SH = len(rows) * RP + 20
     thumb_r = pyrender.OffscreenRenderer(2 * TW, 2 * TH)
     def thumb(Vv, colours):
         sc = pyrender.Scene(bg_color=(0.16, 0.16, 0.16, 1.0), ambient_light=(0.5, 0.5, 0.5)); sc.add(body_mesh(Vv, colours))
@@ -371,7 +375,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
                 ks = [k_ for k_, tk in enumerate(ticks) if ta <= tk <= tb]
                 if ks:
                     cv2.rectangle(strip, (xL + ks[0] * TW - 1, y - 2), (xL + (ks[-1] + 1) * TW, y + TH + 7), row_bgr[key], 1)
-    cv2.putText(strip, f"every {strip_step:g} s: what each view outputs (red = joints it cannot see), the merge" + (", the truth." if G is not None else ".") + "   Bars and boxes mark the well-tracked blocks "
+    cv2.putText(strip, f"every {strip_step:g} s: what each view outputs (red = joints it cannot see), the {tname}" + (", the truth." if G is not None else ".") + "   Bars and boxes mark the well-tracked blocks "
                        "(a view: its legs usable; the merge: the frames the export keeps); thumbnails outside a block are dimmed", (xL, 11), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1, cv2.LINE_AA)
     thumb_r.delete()
     show_charts, show_strip = readout in ("both", "charts"), readout in ("both", "strips")
@@ -442,7 +446,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
             for grp, nm in ((LEGS, "legs"), (ARMS, "arms"), (SPINE, "torso")):
                 who = [v for v in views if usable[v][f][grp].any()]
                 src.append(f"{nm}: " + ("both" if len(who) == V and V > 1 else (who[0] if len(who) == 1 else ("all" if who else "none"))))
-            label(canvas, "reconstruction  " + " | ".join(src), (xr + 8, yb + RH - 12), scale=0.5)
+            label(canvas, ("reconstruction  " if target == "merge" else "joint two-view fit  ") + " | ".join(src), (xr + 8, yb + RH - 12), scale=0.5)
         label(canvas, "red = no view could see this part (not output)", (xr + 8, yb + RH - 34), col=(90, 90, 230), scale=0.5)
         label(canvas, "2D skeletons: ViTPose keypoints (the lifter's input); amber legs = the detector put both legs on one leg (the 3D lifter copes, measured)",
               (10, 20 + PH + 8), scale=0.4, col=(200, 200, 200), bg=(28, 28, 28))
@@ -457,7 +461,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
             label(canvas, "frame not exported:", (xe + 8, yb + RH // 2 - 22), col=(60, 60, 220), scale=0.5); label(canvas, why, (xe + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
         label(canvas, f"frames kept so far: {export_ok[win & (tt <= t)].mean():.0%}", (xe + 8, yb + RH - 56), scale=0.5)
         label(canvas, "an arm no view saw is absent; legs and torso are required", (xe + 8, yb + RH - 34), scale=0.42)
-        label(canvas, "export  (merged_smpl.npz: what a user takes away)", (xe + 8, yb + RH - 12))
+        label(canvas, f"export  ({tfile}: what a user takes away)", (xe + 8, yb + RH - 12))
         xt = xe + RW + 20
         if G is not None:
             Vw = verts(G["pose_aa"][gi_f, :3], G["pose_aa"][gi_f, 3:66], G["transl"][gi_f]) if gi_f is not None else None

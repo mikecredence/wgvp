@@ -752,13 +752,67 @@ speed is 0.88 instead of 0.70. The price is 0.05 m at the median of the path err
 percentile better (0.55 to 0.44 m).
 
 What would move the scores, largest first: (1) one body fitted to both views' keypoints at once, in place of the
-mean of two single-view lifts: the two cameras stand nearly at right angles, each has the walker's 2D keypoints to
-the pixel, and it is the only route to the depth each view lacks, which is behind the amplitude and the tilted root
-(it needs the cameras' relative pose, which the mat gives); (2) the seated posture, where the root is 21.5 deg off,
+mean of two single-view lifts. It is built as an optional stage, in the next section: it supplies the depth each
+view lacks (path 0.20 to 0.05 m, thigh direction 6.0 to 3.8 deg) and does not correct the tilted root, which was
+expected of it; its own next step is a known camera pose; (2) the seated posture, where the root is 21.5 deg off,
 the legs 26.5 and the knee 14 deg short while the two views agree; (3) the arms, at 16 deg the least accurate part
 of the export and outside the export rule by design; (4) for real cameras, a measured field of view, worth 3 deg of
 root and close to half of the heading error on these renders (`tools/estimate_focal.py` reads it from the room where
 the camera sees the room's edges at a slant).
+
+### A second estimate: one body fitted to both views (`wgvp jointfit`)
+
+The merge is a mean of two single-view lifts, joint by joint. `python -m wgvp jointfit <root>` is an optional stage
+after it: it fits one SMPL-X body per frame to both views' 2D keypoints at once and writes `jointfit_smpl.npz`
+beside `merged_smpl.npz`, on the same frames and the same joints. The merge stays the default training target. The
+stage runs on the CPU in 4-7 s per recording and needs the SMPL-X model file (`--body-models DIR`, a folder that
+holds `smplx/SMPLX_NEUTRAL.npz`; without the option it looks in the GVHMR checkout's
+`inputs/checkpoints/body_models`).
+
+No calibration comes with the videos, so the fit finds the pose of one camera against the other from the walker,
+starting from the two lifts. The body starts at the merge's pose and the root is held close to the merge's: twelve
+keypoints say where the pelvis is and little about how it is turned. The up direction is the cross product of the
+two cameras' level directions, which each lift knows from its camera's roll. Joints and frames the merge does not
+export are not exported here either. The output is a 3-frame moving average (the merge uses 5).
+
+Scored against the rendered truth on the merge's exported frames (`tools/compare_jointfit.py`; every number is in
+`docs/jointfit.json`). Each cell is merge / joint fit. All rows but the last two come from joint positions: the truth
+is an SMPL body and both estimates are SMPL-X, and the two models' rotations for one posture differ by 3-19 deg
+depending on the joint, a floor under the three-axis errors of the table above. The knee row is therefore the angle
+between thigh and shank and not the flexion component of that table.
+
+| | HC900 | HC903 (TUG) | HC901 | HC902 | HC904 | HC905 | median |
+|---|---|---|---|---|---|---|---|
+| thigh direction (deg) | 4.2 / 3.7 | 9.6 / 6.5 | 4.4 / 3.2 | 6.6 / 3.9 | 6.8 / 5.2 | 5.5 / 3.4 | 6.0 / 3.8 |
+| shank direction (deg) | 5.0 / 3.8 | 5.8 / 4.6 | 6.3 / 4.9 | 5.2 / 5.0 | 7.4 / 4.8 | 4.0 / 2.6 | 5.5 / 4.7 |
+| upper arm direction (deg) | 9.1 / 6.2 | 9.5 / 6.5 | 9.5 / 9.3 | 8.8 / 5.8 | 7.8 / 5.6 | 8.5 / 4.8 | 9.0 / 6.0 |
+| knee angle RMSE (deg) | 6.0 / 4.8 | 10.0 / 7.8 | 5.6 / 4.7 | 5.9 / 5.5 | 6.5 / 5.8 | 6.7 / 5.8 | 6.2 / 5.6 |
+| ankle position about the pelvis (cm) | 11.0 / 7.8 | 11.3 / 9.9 | 8.1 / 6.6 | 8.7 / 6.9 | 8.4 / 6.7 | 6.4 / 5.7 | 8.6 / 6.8 |
+| path after one rigid fit, median (m) | 0.16 / 0.05 | 0.19 / 0.10 | 0.33 / 0.04 | 0.18 / 0.04 | 0.34 / 0.06 | 0.21 / 0.02 | 0.20 / 0.05 |
+| speed RMSE while moving (m/s) | 0.134 / 0.072 | 0.153 / 0.070 | 0.148 / 0.082 | 0.216 / 0.049 | 0.221 / 0.063 | 0.185 / 0.050 | 0.169 / 0.067 |
+| pelvis frame (deg) | 3.6 / 3.2 | 8.4 / 8.5 | 6.3 / 6.1 | 4.7 / 4.4 | 5.1 / 4.6 | 5.0 / 5.0 | 5.1 / 4.8 |
+| root, three-axis (deg) | 8.1 / 8.1 | 15.1 / 15.1 | 12.5 / 12.5 | 7.4 / 7.7 | 10.5 / 10.6 | 8.4 / 9.0 | 9.4 / 9.8 |
+| heading (deg) | 1.7 / 1.8 | 3.9 / 4.2 | 4.1 / 3.8 | 2.7 / 2.7 | 2.7 / 2.7 | 3.3 / 3.6 | 3.0 / 3.2 |
+
+**What improves.** The thigh, the shank, the ankle and the path are better than the merge's on every one of the six
+recordings. The path is the largest step, 0.20 to 0.05 m at the median, with the speed's RMSE from 0.17 to 0.07 m/s.
+The thigh's sagittal range rises from 0.76 to 0.83 of the truth's and the knee's from 0.74 to 0.77.
+
+**What does not.** The root's rotation, the heading and the seated phase of the TUG (root 21.5 and 22.6 deg) stay
+where the merge has them. A second view of the same keypoints does not say how the pelvis is turned, and the fit
+does not try.
+
+**Limits.** These are rendered rooms; no real two-camera recording has a truth. The fit's settings were chosen on
+these same six recordings, with none held out. The fitted camera pose is 1.6-3.7 deg off the true one on five
+recordings and 7.2 on HC901, where the along camera stands so close that both views show the whole body in 30 % of
+the frames (`jointfit.json` notes the case: `views_complete_frac`). The scene's scale rests on the body's size as the
+lifts saw it, and the speed reads 1.04 times the truth. With the render's true camera pose held fixed the path error
+is 0.02 m and the speed ratio 1.00, so a camera pose measured once per room is the next step. The walkway path
+(`transl_mat`) and the loss weights are not refitted: take them from `merged_smpl.npz`.
+
+`python -m wgvp demo <root> --target jointfit` renders the demo video with this estimate in place of the merge
+(`<recording>_demo_jointfit.mp4`), to watch beside the merge's. Design and every measurement:
+[docs/design.md](docs/design.md) section 2.15.
 
 ### When there is no truth: a real clip
 
@@ -849,6 +903,8 @@ QC_SUMMARY.html, qc_summary.csv, qc_summary.json, manifest.json        cross-ses
    <recording>/pose_agreement_<a>_<b>.npz   after GVHMR: per-frame, per-joint disagreement between the two views (t_imu_s, geodesic_deg (T,21), legs_median_deg)
    <recording>/merged_smpl.npz        after GVHMR: THE TRAINING TARGET, one pose per frame from the two views (see "The training target" above)
    <recording>/merge.json             its numbers: export fraction, continuity, view alignment, body shapes, each view's floor slope, flags
+   <recording>/jointfit_smpl.npz      optional (wgvp jointfit): one body fitted to both views' keypoints, on the merge's frames and joints
+   <recording>/jointfit.json          its numbers: reprojection per view, the fitted camera pose and how far it moved from its seed, flags
    <recording>/qc.json                walk-bout coverage per view, flags
    <recording>/<view>/subject_track.npz   frame_idx, pts_ms, bbox_xyxy, kp2d (COCO-17, face points blanked), visibility, source fragment id
    <recording>/<view>/smpl_global.npz     GVHMR SMPL-X parameters per frame, gravity-aligned world frame: global_orient (T,3), body_pose (T,63), betas (T,10), transl (T,3), frame_idx, pts_ms, imu_t_s,
@@ -890,7 +946,11 @@ python -m wgvp scan <root>             find sessions / recordings / videos; writ
 python -m wgvp run <root> [--cpu-only] [--only <session> ...] [--force] [--gvhmr-root .. --gvhmr-python ..]
 python -m wgvp gvhmr <root>            the GPU stage alone, on pending chunks
 python -m wgvp merge <root>            rebuild the merged training target (merged_smpl.npz) from existing lifts; no GPU
+                                       (exits non-zero and says so when a recording's merge failed)
+python -m wgvp jointfit <root> [--session <id>] [--recording <id>] [--body-models DIR]
+                                       optional: one body fitted to both views' keypoints (jointfit_smpl.npz); no GPU
 python -m wgvp demo <root> [--session <id>] [--recording <id>] [--gt <sample>_gt.npz] [--t0 S --t1 S] [--gif FILE]
+                    [--target merge|jointfit]
                                        the demo video from the pipeline's outputs (demo extras; written under work/)
 python -m wgvp summary <root>          rebuild the QC summary
 python -m wgvp dry-run [--cpu-only] [--out DIR]
@@ -934,7 +994,9 @@ truth, never against a real mat under a real video. The field of view at the lif
 intrinsics are known exactly: a real lens's distortion, and a panel that the recording software has cropped or
 scaled, are untested. `tools/estimate_focal.py` has read one real camera, a phone's, and no clinic camera; on that
 clip the only check of its number is the lifted floor coming out level. The rest hold has been run only on rendered people. The step-summed path,
-the stride-band flexion rule and the velocity on the mat were tuned and scored on the same six rendered recordings.
+the stride-band flexion rule and the velocity on the mat were tuned and scored on the same six rendered recordings,
+and so were the settings of the optional joint two-view fit, whose self-calibration of the cameras has met rendered
+pinhole cameras only.
 The decisive number, the subject's `r_fine` in real footage, comes out of the first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
 section 4 the questions to settle with a dataset's owners before that run.
 
@@ -942,7 +1004,8 @@ section 4 the questions to settle with a dataset's owners before that run.
 
 ```
 wgvp/            the package: discovery, video_io (panels, cutting), tracking, signals, imu_ref, selection, sync,
-                 flash, labels, reconcile, fusion + merge (the training target), demo, gvhmr_stage, qc, summary,
+                 flash, labels, reconcile, fusion + merge (the training target), jointfit (the optional two-view fit), demo,
+                 gvhmr_stage, qc, summary,
                  session (orchestration), cli, gui, dryrun
 weights/         yolov8n-pose.pt (ultralytics, AGPL-3.0)
 sample/          the synthetic dry-run session (video + recording CSV + expected answers)
@@ -959,9 +1022,9 @@ tests/           unit tests (python -m pytest tests -q)
 tools/           make_sample.py (how the samples were rendered), make_partner_layout.py (the six samples in a
                  Sub 00N/Video + IMU layout), make_readme_figures.py, two_view_fusion.py (the fusion experiment
                  against the truth), make_target_figure.py, estimate_focal.py (a camera's field of view from the
-                 room's straight edges)
+                 room's straight edges), compare_jointfit.py (the merge and the joint two-view fit against the truth)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
-docs/            design.md (design, test results, open questions), figures/
+docs/            design.md (design, test results, open questions), jointfit.json (the joint fit's comparison), figures/
 ```
 
 ## Citing

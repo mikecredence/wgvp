@@ -27,7 +27,10 @@ def main(argv=None):
     p.add_argument("--out"); p.add_argument("--body-models"); p.add_argument("--t0", type=float); p.add_argument("--t1", type=float); p.add_argument("--step", type=int, default=1)
     p.add_argument("--gif"); p.add_argument("--gif-span", help="A,B seconds of IMU time for the GIF (default: the first 14 s of the span)")
     p.add_argument("--readout", choices=["both", "charts", "strips"], default="both"); p.add_argument("--strip-step", type=float, default=2.0)
+    p.add_argument("--target", choices=["merge", "jointfit"], default="merge", help="the pose shown: the merge (default) or the joint two-view fit (jointfit_smpl.npz; file name gets _jointfit)")
     p = sub.add_parser("merge", help="(re)build the merged training target (merged_smpl.npz) from existing GVHMR outputs; no GPU needed"); p.add_argument("root")
+    p = sub.add_parser("jointfit", help="optional: fit one body to both views' keypoints at once (jointfit_smpl.npz beside merged_smpl.npz); two-view recordings, CPU, needs the SMPL-X model file")
+    p.add_argument("root"); p.add_argument("--session"); p.add_argument("--recording"); p.add_argument("--body-models", help="folder that holds smplx/SMPLX_NEUTRAL.npz (default: the GVHMR checkout's)")
     p = sub.add_parser("dry-run", help="run the bundled sample and verify the known answers"); p.add_argument("--out"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python"); p.add_argument("--cpu-only", action="store_true")
     p = sub.add_parser("check-gpu", help="what is missing for the GPU stage"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python")
     p = sub.add_parser("init-config", help="write wgvp_config.json (matching rules) into the data folder"); p.add_argument("root"); p.add_argument("--overwrite", action="store_true")
@@ -73,17 +76,27 @@ def main(argv=None):
         if not sessions:
             print("no merged recording under wgvp_output (run the GPU stage, then `wgvp merge`)"); return 1
         for sid in sessions:
-            render_demo(root, sid, a.recording, a.gt, a.out if len(sessions) == 1 else None, a.body_models, a.t0, a.t1, a.step, a.gif if len(sessions) == 1 else None, a.gif_span, a.readout, a.strip_step)
+            render_demo(root, sid, a.recording, a.gt, a.out if len(sessions) == 1 else None, a.body_models, a.t0, a.t1, a.step, a.gif if len(sessions) == 1 else None, a.gif_span, a.readout, a.strip_step, target=a.target)
         return 0
     if a.cmd == "merge":
         from .config import load_config
         from .session import refresh_session_after_gvhmr
         from .summary import build_summary
-        root = Path(a.root); cfg = load_config(root); n = 0
+        root = Path(a.root); cfg = load_config(root); n = bad = 0
         for d in sorted((root / "wgvp_output").glob("*/deliver/session_summary.json")):
             s = refresh_session_after_gvhmr(root, d.parent.parent.name, cfg)
-            n += sum(1 for k in (s or {}).get("items", {}) if k.endswith("/merge"))
-        build_summary(root, cfg); print(f"{n} recording(s) merged"); return 0 if n else 1
+            st = [v.get("status") for k, v in (s or {}).get("items", {}).items() if k.endswith("/merge")]
+            n += len(st); bad += sum(1 for x in st if x == "FAIL" or x is None)
+        build_summary(root, cfg)
+        print(f"{n - bad} recording(s) merged" + (f", {bad} FAILED or without an export (a merged_smpl.npz from an earlier run, if there is one, was left as it was)" if bad else ""))
+        return 0 if n and not bad else 1
+    if a.cmd == "jointfit":
+        from .jointfit import jointfit_root
+        try:
+            out = jointfit_root(Path(a.root), a.body_models, a.session, a.recording)
+        except FileNotFoundError as e:
+            print(e); return 1
+        n = sum(1 for s in out if s["status"] != "SKIP"); print(f"{n} recording(s) fitted, {len(out) - n} skipped"); return 0 if n else 1
     if a.cmd == "summary":
         from .config import load_config
         from .summary import build_summary

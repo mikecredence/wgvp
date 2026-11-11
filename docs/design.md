@@ -1359,6 +1359,161 @@ from the phone. None of the three has a truth to be scored against.
 `tools/remote_gpu_stage.sh` and `remote_gpu_e2e.sh` no longer copy the local Python environment to the GPU box. The
 suite is at 82 tests (five for the estimator on synthetic room edges, one for the slope on a ramp and a level floor).
 
+### 2.15 Round eight: one body fitted to both views' keypoints, compared with the merge (2026-11-11)
+
+Round six named the largest remaining lever: one body fitted to both views' 2D keypoints at once, in place of a mean
+of two single-view lifts. This round builds it as an optional stage (`wgvp jointfit`, `wgvp/jointfit.py`), runs it on
+the six rendered sessions and scores it beside the merge on the same frames (`tools/compare_jointfit.py`; every number
+below is in `docs/jointfit.json`). The merge stays the default training target and `jointfit_smpl.npz` is written
+beside it. Two things could not be checked. There is no real two-camera recording with a truth, so every number here
+comes from rendered rooms. And the fit's settings were chosen on these six sessions, with none held out.
+
+**Why it can help.** The merge takes each joint from the view that can vouch for it, but each view was lifted on its
+own. A limb's depth along a camera's line of sight is that lift's guess, and the pelvis path is two monocular depth
+estimates fused. Two views of one body fix both by triangulation once the pose of one camera against the other is
+known. No calibration comes with the videos, so the fit finds it from the walker.
+
+**The fit.** Per recording, in the frame of camera a, which is the merge's reference view.
+
+1. Seeds. The pose of camera b against camera a is the rigid fit of the two lifts' in-camera joints on the frames
+   where both views detected the subject. The body starts at the merge's pose, the pelvis at the lifts' in-camera
+   pelvis, and the world at the rotation that takes the merge's root onto view a's in-camera root.
+2. Unknowns. Per frame a correction of the root and of each body joint and the pelvis position; per recording the
+   body shape, the pose of camera b, the world rotation, and six left/right-mirrored offsets between ViTPose's
+   keypoints and the model's joints (a keypoint marks the surface of a shoulder or a hip and not the joint centre).
+3. Loss. The reprojection of the twelve body keypoints in both views, in metres at the body's depth so that a near
+   and a far camera count alike, under a Geman-McClure loss with a 3 cm scale that sets a keypoint aside once it is
+   about 9 cm off; a prior that holds every correction near zero (root 0.05 rad, limbs 0.20, spine and collars 0.10);
+   smoothness of the corrections and of the pelvis's acceleration; the shape near the lifts' mean.
+4. The up direction, below.
+5. Output. The merge's root with the fitted correction, and the fitted pelvis carried into the merge's world and set
+   on the merge's path by one constant offset. Joints and frames the merge does not output are not output here
+   either: the fit refines what the merge exports and never adds to it. Adam, 150 + 450 steps, 4-7 s per recording
+   on a laptop CPU for 1100-1600 frames.
+
+**The up direction.** Two views cannot see the pelvis's pitch from keypoints, and a world tilted by a few degrees
+costs the reprojection nothing, so the up direction has to be pinned from elsewhere. The lifts give it, in part: each
+lift knows its camera's roll to 1-2 deg and not its pitch (the high side camera looks 31 deg down and its lift reads
+about 10 deg less). The image direction that is level in the world needs the roll only, and the two cameras' level
+directions, 75-85 deg apart, fix the up direction as their cross product. With it the fitted world's up is 0.8-4.3 deg
+off the truth on five recordings and 8.5 on Sub 002, and 0.9-2.7 deg when the true camera pose is given. The world's
+yaw stays free and is held by the root prior, so the output's heading is the merge's.
+
+**The measure.** The truth is an SMPL body and both estimates are SMPL-X, and one posture has different joint
+rotations in the two models. An SMPL-X body fitted to the truth's joint positions to 0.9 cm still differs from the
+truth's rotations by 2.6 deg at the root, 4.8 at the legs, 19.1 at the spine and 6.0 at the arms. The three-axis
+rotation errors of the earlier rounds therefore stand on a floor no estimate can go under, and they are kept in the
+table but are not the measure of this round. The primary measures come from joint positions: the direction of each
+limb segment after one yaw fit per recording; the knee's angle and the thigh's sagittal angle (RMSE, and gain as the
+slope of estimate on truth); the pelvis frame from the two hips and the first spine joint, its constant offset
+removed; joint positions about the pelvis; the path after one rigid fit; the speed. Frames are the merge's export,
+and a joint counts where the merge outputs it and every joint above it in the chain, for all three columns alike.
+
+**Result.** Medians over the six recordings. "True cameras" is the same fit with the renderer's camera pose passed in
+and held: the bound that a calibration would reach.
+
+| | merge | joint fit | joint fit, true cameras |
+|---|---|---|---|
+| thigh direction (deg) | 6.05 | 3.81 | 4.27 |
+| shank direction (deg) | 5.48 | 4.70 | 3.78 |
+| upper arm direction (deg) | 8.95 | 5.98 | 5.42 |
+| forearm direction (deg) | 6.87 | 5.84 | 5.23 |
+| trunk direction (deg) | 4.03 | 3.54 | 3.37 |
+| knee angle RMSE (deg) / gain | 6.23 / 0.74 | 5.61 / 0.77 | 5.65 / 0.77 |
+| thigh sagittal RMSE (deg) / gain | 5.68 / 0.76 | 4.37 / 0.83 | 4.47 / 0.85 |
+| ankle position (cm) | 8.56 | 6.79 | 6.80 |
+| limb position (cm) | 7.93 | 7.24 | 7.03 |
+| path, median / 90th percentile (m) | 0.202 / 0.443 | 0.046 / 0.123 | 0.016 / 0.033 |
+| speed, estimate over truth | 0.974 | 1.038 | 1.003 |
+| speed RMSE (m/s) | 0.169 | 0.067 | 0.044 |
+| pelvis frame (deg) | 5.06 | 4.78 | 4.66 |
+| heading (deg) | 2.98 | 3.16 | 3.11 |
+| leg directions at rest / walking / turning (deg) | 4.15 / 6.66 / 6.89 | 3.22 / 4.84 / 4.78 | 3.31 / 4.86 / 4.37 |
+| TUG seated: root rotation (deg) | 21.53 | 22.55 | 22.71 |
+| TUG seated: thigh / shank direction (deg) | 17.74 / 6.21 | 15.18 / 5.01 | 14.05 / 3.75 |
+| root rotation, three-axis (deg) | 9.44 | 9.77 | 9.53 |
+| leg / spine / arm rotations, three-axis (deg) | 10.87 / 9.41 / 16.06 | 10.13 / 9.18 / 15.90 | 10.34 / 9.16 / 15.88 |
+
+Per recording, merge then joint fit then true cameras:
+
+| | Sub 001 self-paced | Sub 001 TUG | Sub 002 self-paced | Sub 003 self-paced | Sub 003 hurried | Sub 004 on the mat |
+|---|---|---|---|---|---|---|
+| thigh direction (deg) | 4.2 / 3.7 / 4.1 | 9.6 / 6.5 / 6.2 | 4.4 / 3.2 / 4.3 | 6.6 / 3.9 / 4.2 | 6.8 / 5.2 / 4.8 | 5.5 / 3.4 / 3.7 |
+| shank direction (deg) | 5.0 / 3.8 / 2.9 | 5.8 / 4.6 / 4.1 | 6.3 / 4.9 / 3.4 | 5.2 / 5.0 / 4.7 | 7.4 / 4.8 / 4.2 | 4.0 / 2.6 / 2.5 |
+| ankle position (cm) | 11.0 / 7.8 / 7.6 | 11.3 / 9.9 / 7.3 | 8.1 / 6.6 / 6.4 | 8.7 / 6.9 / 6.6 | 8.4 / 6.7 / 7.0 | 6.4 / 5.7 / 6.1 |
+| path, median (m) | 0.162 / 0.050 / 0.008 | 0.194 / 0.103 / 0.037 | 0.329 / 0.042 / 0.015 | 0.181 / 0.042 / 0.016 | 0.342 / 0.064 / 0.017 | 0.210 / 0.019 / 0.016 |
+| pelvis frame (deg) | 3.6 / 3.2 / 3.1 | 8.4 / 8.5 / 8.5 | 6.3 / 6.1 / 5.6 | 4.7 / 4.4 / 4.3 | 5.1 / 4.6 / 4.3 | 5.0 / 5.0 / 5.0 |
+| root rotation (deg) | 8.1 / 8.1 / 7.8 | 15.1 / 15.1 / 15.2 | 12.5 / 12.5 / 12.0 | 7.4 / 7.7 / 7.6 | 10.5 / 10.6 / 10.1 | 8.4 / 9.0 / 8.9 |
+| camera rotation / position error | 2.4 deg / 0.12 m | 3.4 / 0.32 | 7.2 / 0.57 | 1.6 / 0.05 | 3.4 / 0.32 | 3.7 / 0.05 |
+| fitted over true camera distance | 1.016 | 1.057 | 1.003 | 1.005 | 1.010 | 0.999 |
+| reprojection median, camera a / b (px) | 2.1 / 1.5 | 2.6 / 2.2 | 1.2 / 4.2 | 1.4 / 2.2 | 1.9 / 2.3 | 2.0 / 2.4 |
+
+**What improves.** The thigh, the shank, the ankle's position and the path are better than the merge's on every one of
+the six recordings. The path is the largest step: 0.20 to 0.05 m at the median and 0.44 to 0.12 m at the 90th
+percentile, with the speed's RMSE from 0.17 to 0.07 m/s. The thigh's direction goes from 6.0 to 3.8 deg, the upper
+arm's from 9.0 to 6.0, and the thigh's sagittal gain from 0.76 to 0.83: the depth each view lacks is where the merge
+lost amplitude, and a second view supplies it. The step grows with the motion: 0.9 deg on the leg directions at rest,
+1.8 walking and 2.1 turning.
+
+**What does not.** The root's rotation is unchanged (9.4 and 9.8 deg), the heading is unchanged (3.0 and 3.2), and the
+seated root of the TUG is unchanged (21.5 and 22.6). The first two follow from the design: the root is held to the
+merge's by a tight prior, since twelve keypoints fix where the pelvis is and say little about how it is turned. The
+seated root is the lifter's reading of a sitting body in both views, which no second view of the same keypoints
+corrects; the seated thigh improves by 2.6 deg and stays at 15. A looser prior on the root was tried and did not
+improve it. The knee's gain moves from 0.74 to 0.77 and no
+further. The three-axis rotation medians move by less than 1 deg in either direction, as the floor predicts.
+
+**Self-calibration.** The fitted camera pose is 1.6-3.7 deg and 0.05-0.32 m off the true one on five recordings, and
+it moved 3.7-7.9 deg from its seed. The gap between the second and third columns is what that error costs: the path
+(0.046 against 0.016 m), the shank's direction (4.7 against 3.8 deg) and, on the TUG, the ankle (9.9 against 7.3 cm).
+Scale is the other part. Reprojection fixes the scene up to one factor, which the body's size as the lifts saw it
+sets: the fitted distance between the cameras is 0-6 % long, and the speed reads 1.04 times the truth where the true
+cameras give 1.00. A measured camera pose, or the subject's height, would remove both.
+
+On Sub 002 the along camera stands so close that both views show the whole body in 30 % of the frames. There the
+calibration is the worst of the six (7.2 deg, 0.57 m, up 8.5 deg off), the robust loss sets aside 28 % of that view's
+keypoints (0.1-5 % elsewhere), and the limbs still come out better than the merge's (thigh 4.4 to 3.2 deg, path 0.33
+to 0.04 m). The stage notes the case in `jointfit.json` (`views_complete_frac` below 0.5).
+
+The choice of camera a matters through the calibration only. In an earlier setting of the fit, with the left view as
+camera a on every recording, Sub 002's thigh direction was 7.1 deg, and with the right view 3.2; on the other five the
+two orders differed by 0.4 deg or less in that measure, and with the true cameras they agreed to 0.1 deg at the
+median. The rule in the code, camera a = the merge's reference view, picks the right view on Sub 002 and on the
+hurried walk. It was set after seeing these six.
+
+**A body at rest.** The fit follows the keypoints frame by frame, and a standing body shimmered: the limbs' second
+difference at rest was 0.22 cm per frame squared, against 0.08 for the truth's own motion and 0.06 for the merge. The
+output is therefore a 3-frame moving average inside runs of emitted frames (the merge uses 5). That brings the rest
+figure to 0.09 and costs the knee 0.14 deg of RMSE and 0.01 of gain; 5 frames would cost 0.45 deg and 0.04. While
+walking both estimates are smoother than the truth (0.56 and 0.60 against 0.90).
+
+**Three defects found on the way, all fixed.** They concern the merge and the demo, not only the new stage.
+
+- The moving average cut its window on the outer side only at the end of a run, which pulls a moving value toward the
+  run's inside. The merged pelvis path lost half of its last two steps when the walker was moving at the cut (Sub 001
+  self-paced: 2.5, 2.4, then 1.2 and 1.1 cm; now 2.3 and 2.1), and a joint's rotation lagged on the two frames at
+  either end of each of its runs. The position and rotation smoothers now shrink the window on both sides
+  (`moving_average_in_runs(..., centred=True)`, `smooth_rotations`). In the path four frames per recording changed, by
+  up to 2.1 cm. In the pose 4 to 44 frames per recording changed (614 joint-frames in all, median 0.1 deg, 90th
+  percentile 1.1; the largest, 37 deg, is an elbow on the last frame before Sub 002's arm is dropped), and the legs by
+  4 deg at most. No median of the merge in the table above moves at its second decimal. The slow mat-velocity trend
+  keeps the one-sided rule, which is right for it.
+- The demo drew its "reconstruction" panel from the stored pose after a second 5-frame smoothing, so that panel
+  looked steadier than the file it stood for. It now draws the stored pose; only the red fill for joints no view
+  vouched for is smoothed. Demo videos rendered before this round are not comparable with later ones in that panel.
+- `wgvp merge` counted a recording whose merge had raised an error as merged, and the file of the earlier run stayed
+  in place. It now says how many failed and returns a non-zero exit code.
+
+**The demo.** `wgvp demo --target jointfit` draws the same video with `jointfit_smpl.npz` in place of the merge
+(`<recording>_demo_jointfit.mp4`), so the two can be watched side by side.
+
+**What stays open.** A real two-camera recording with a truth. A held-out session for the settings. The camera pose:
+the true-camera column is the case for measuring it once per room, or for carrying one fitted pose across a session's
+recordings instead of fitting each alone. The scale, from the subject's height. The seated root. The walkway path
+(`transl_mat`) is not refitted and is taken from the merge. A mirrored view is handled in the code and tested on
+fabricated data only. The body IMUs are not used here either. The suite is at 92 tests (nine for the fit on a
+synthetic two-camera walker, one for the centred moving average).
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

@@ -66,8 +66,27 @@ def test_smooth_rotations_reduces_jitter_and_respects_gaps():
     assert step_stats(sm)["p99_deg"] < step_stats(noisy)["p99_deg"]                                        # and steadier frame to frame
     err = lambda x: np.degrees(np.nanmean(np.abs(x[:120, 0, 0] - clean[:120, 0, 0])))
     assert err(sm) < err(noisy)                                                                             # closer to the clean motion, not just smoother
-    # the frame right after the gap must not be pulled toward the frames before it
-    assert abs(sm[150, 0, 0] - noisy[150:155, 0, 0].mean()) < abs(sm[150, 0, 0] - noisy[115:120, 0, 0].mean())
+    # the frame right after the gap is not pulled toward the frames before it, nor toward the run's inside: the window shrinks on both sides
+    assert np.allclose(sm[150], noisy[150], atol=1e-6) and np.allclose(sm[119], noisy[119], atol=1e-6) and not np.allclose(sm[152], noisy[152], atol=1e-3)
+    # a one-frame hole splits a joint's track into two runs: the frames beside it stand alone, their neighbours average three
+    holed = noisy.copy(); holed[200, 1] = np.nan; sh = smooth_rotations(holed, 5)
+    assert np.isnan(sh[200, 1]).all() and np.isfinite(sh[200, 0]).all() and np.isfinite(sh[[198, 199, 201, 202], 1]).all()
+    assert np.allclose(sh[199, 1], holed[199, 1], atol=1e-6) and np.allclose(sh[201, 1], holed[201, 1], atol=1e-6)
+    assert np.allclose(sh[:, 0], sm[:, 0], atol=1e-9, equal_nan=True)                                       # the other joint is untouched
+
+
+def test_a_path_keeps_its_last_steps_under_the_centred_moving_average():
+    """A walker crossing a run's end at constant speed: the one-sided window halves the last two steps of the path
+    (a smoother for slow trends), the centred one keeps every step."""
+    from wgvp.fusion import moving_average_in_runs
+    x = np.arange(40, dtype=float)[:, None] * [0.04, 0.0, 0.01]; x[18:22] = np.nan
+    one, cen = moving_average_in_runs(x, 5), moving_average_in_runs(x, 5, centred=True)
+    assert (np.isfinite(one) == np.isfinite(x)).all() and (np.isfinite(cen) == np.isfinite(x)).all()
+    assert np.allclose(cen[np.isfinite(x[:, 0])], x[np.isfinite(x[:, 0])])                                 # a straight path is its own centred average, ends included
+    assert np.isclose(one[1, 0] - one[0, 0], 0.02) and np.isclose(one[17, 0] - one[16, 0], 0.02)          # the one-sided ends move at half speed
+    rng = np.random.default_rng(0); n = x + rng.normal(0, 0.01, x.shape); k = np.r_[3:15, 25:37]
+    assert np.allclose(moving_average_in_runs(n, 5, centred=True)[k], moving_average_in_runs(n, 5)[k])     # away from the ends the two are the same average
+    assert np.allclose(moving_average_in_runs(n[:, 0], 5, centred=True), moving_average_in_runs(n, 5, centred=True)[:, 0], equal_nan=True)
 
 
 def test_fuse_root_is_continuous_and_prefers_the_view_that_sees_more():
