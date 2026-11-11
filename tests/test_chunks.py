@@ -49,3 +49,39 @@ def test_no_absence_one_chunk_and_threshold_is_configurable():
     ts, subj, imu = _scene([(20.0, 21.5)])
     assert len(plan_chunks(ts, subj, 2.0, imu, prm, 30.0)) == 1                     # 1.5 s < 2 s: bridged
     assert len(plan_chunks(ts, subj, 2.0, imu, {**prm, "absence_split_s": 1.0}, 30.0)) == 2   # unless the threshold says otherwise
+
+
+def _rest_scene(absences, boxes=None):
+    """_scene with the subject standing still for the first 13 s on the IMU clock (video 2-15 s), then walking."""
+    ts, subj, imu = _scene(absences)
+    imu["events"] = [("Standing", 0.0, 13.0), ("Walk", 13.0, imu["duration_s"])]
+    if boxes is not None:
+        subj["box"] = boxes(ts.pts_ms[subj["pos"]] / 1000.0)
+    return ts, subj, imu
+
+
+def test_rest_hold_keeps_the_box_where_the_imu_says_the_body_is_at_rest():
+    """A detector that loses a standing subject for 4 s does not end the chunk: the IMU labels the body at rest, the
+    boxes on either side of the loss are the same box, so the frames keep it and are flagged rest_held. The same loss
+    while walking is an absence, and so is one whose two ends do not show the same box."""
+    from wgvp.session import rest_hold, subject_presence
+    prm = dict(DEFAULT_CONFIG["params"])
+    ts, subj, imu = _rest_scene([(6.0, 10.0)])                                         # lost at video 6-10 s = IMU 4-8 s: standing
+    chunks = plan_chunks(ts, subj, 2.0, imu, prm, 30.0); assert len(chunks) == 1, _spans(ts, chunks)
+    present, box, held = subject_presence(ts, subj, 2.0, imu, prm)
+    t = ts.pts_ms / 1000.0; gap = (t >= 6.0) & (t < 10.0)
+    assert held[gap].all() and not held[~gap].any() and not present[gap].any() and np.allclose(box[gap], [100.0, 50.0, 200.0, 400.0])
+    assert len(plan_chunks(ts, subj, 2.0, imu, {**prm, "rest_hold": False}, 30.0)) == 2                       # the switch
+    ts, subj, imu = _rest_scene([(20.0, 24.0)])                                        # the same loss while walking: an exit
+    assert len(plan_chunks(ts, subj, 2.0, imu, prm, 30.0)) == 2 and not subject_presence(ts, subj, 2.0, imu, prm)[2].any()
+    moved = lambda tt: np.where((tt < 8.0)[:, None], [100.0, 50.0, 200.0, 400.0], [300.0, 50.0, 400.0, 400.0])
+    ts, subj, imu = _rest_scene([(6.0, 10.0)], boxes=moved)                            # labelled at rest, but the box moved: no hold
+    assert len(plan_chunks(ts, subj, 2.0, imu, prm, 30.0)) == 2 and not subject_presence(ts, subj, 2.0, imu, prm)[2].any()
+    # one-sided: no detection until 5 s into the stand, and none in its last 3 s. The stand's frames take the first
+    # and the last detection's box, up to 0.3 s short of the walk label (the recording's own start is not trimmed).
+    ts, subj, imu = _rest_scene([(0.0, 7.0), (12.0, 16.5)])
+    present, box, held = subject_presence(ts, subj, 2.0, imu, prm); ti = t - 2.0
+    assert held[(ti >= 0.0) & (t < 7.0)].all() and not held[ti < -1e-9].any()
+    assert held[(t >= 12.0) & (ti <= 12.7 - 1e-6)].all() and not held[ti > 12.7 + 1e-6].any()
+    chunks = plan_chunks(ts, subj, 2.0, imu, prm, 30.0); assert len(chunks) == 1 and abs(_spans(ts, chunks)[0][0] - 2.0) < 0.05   # lifted from the IMU start
+    h, bh = rest_hold(ti, present, box, {"duration_s": 46.0, "events": [("Walk", 0.0, 46.0)]}); assert not h.any() and np.isnan(bh).all()   # no rest label, no hold

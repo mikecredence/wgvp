@@ -46,11 +46,13 @@ def write_bbx_pt(gvhmr_root: Path, pred_root: Path, stem: str, bbox_xyxy: np.nda
     torch.save({"bbx_xyxy": bb, "bbx_xys": xys}, d / "bbx.pt")
 
 
-def run_demo(gvhmr_root: Path, video: Path, pred_root: Path, timeout: int, log_path: Path) -> dict:
+def run_demo(gvhmr_root: Path, video: Path, pred_root: Path, timeout: int, log_path: Path, f_mm: float | None = None) -> dict:
     demo = gvhmr_root / "tools/demo/demo.py"
     has_guard = "GVHMR_RENDER" in demo.read_text()
     env = dict(os.environ, GVHMR_RENDER="0")
     cmd = [sys.executable, str(demo), "--video", str(video), "--output_root", str(pred_root), "-s"]
+    if f_mm:                         # the view's focal length (35 mm equivalent, on the diagonal); demo.py takes whole millimetres
+        cmd += ["--f_mm", str(int(round(float(f_mm))))]
     t0 = time.time()
     with open(log_path, "a") as lf:
         lf.write(f"\n=== {' '.join(cmd)}\n")
@@ -100,7 +102,7 @@ def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int) -> dict:
         if (pred_root / stem).exists():
             shutil.rmtree(pred_root / stem)
         write_bbx_pt(gvhmr_root, pred_root, stem, smooth_boxes(bbox))
-        r = run_demo(gvhmr_root, video.resolve(), pred_root.resolve(), timeout, work / "gvhmr_run.log")
+        r = run_demo(gvhmr_root, video.resolve(), pred_root.resolve(), timeout, work / "gvhmr_run.log", f_mm=meta.get("focal_35mm"))
         meta["gvhmr_run"] = r
         if not res_pt.exists():
             meta["status"] = "failed"; meta["error"] = f"GVHMR produced no hmr4d_results.pt (rc {r['returncode']}); see gvhmr_run.log"
@@ -150,6 +152,7 @@ def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) 
     meta0 = metas[0]
     pts = np.concatenate([np.array(m["pts_ms"]) for m in metas]); fidx = np.concatenate([np.array(m["frame_idx"]) for m in metas])
     imu_t = np.concatenate([np.array(m["imu_t_s"]) for m in metas]); vis = np.concatenate([np.array(m["visible"]) for m in metas])
+    held = np.concatenate([np.array(m.get("rest_held") or [False] * len(m["visible"]), bool) for m in metas])
     lut = {int(f): i for i, f in enumerate(fidx)}
     sel = [lut[int(f)] for f in frames]
     deliver_dir.mkdir(parents=True, exist_ok=True)
@@ -167,9 +170,11 @@ def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) 
         d = (R.from_rotvec(bp[:-1].reshape(-1, 3)).inv() * R.from_rotvec(bp[1:].reshape(-1, 3))).magnitude().reshape(len(frames) - 1, -1)
         step[1:] = np.degrees(d.max(1)); step[1:][chunk_ids[1:] != chunk_ids[:-1]] = np.nan
     common = dict(frame_idx=frames.astype(np.int64), pts_ms=pts[sel].astype(np.float64), imu_t_s=imu_t[sel].astype(np.float64),
-                  visible=vis[sel].astype(bool), chunk_id=chunk_ids, edge_truncated=edge.astype(bool), pose_step_deg=step,
+                  visible=vis[sel].astype(bool), rest_held=held[sel].astype(bool), chunk_id=chunk_ids, edge_truncated=edge.astype(bool), pose_step_deg=step,
                   fps_source=float(meta0["fps_source"]), gvhmr_fps_assumed=30.0, frame_step=int(meta0["frame_step"]),
-                  fields_doc="visible: the subject was detected in this frame (False = bridged gap, pose not to be trusted); edge_truncated: the subject box touches a view edge; "
+                  fields_doc="visible: the subject was detected in this frame (False = no detection: the box is interpolated over a short gap, or held at rest); "
+                             "rest_held: no detection, but the IMU labels the body at rest and the box of the neighbouring detection is kept (the merge uses such a frame "
+                             "when its keypoints agree with that detection's, see wgvp.fusion.seen_frames; any other frame without a detection is not to be trusted); edge_truncated: the subject box touches a view edge; "
                              "pose_step_deg: largest per-joint rotation step from the previous frame (NaN at a chunk start); chunk_id: separate GVHMR runs, split at long absences")
     for fr in ("global", "incam"):
         np.savez_compressed(deliver_dir / f"smpl_{fr}.npz", global_orient=gather(f"{fr}_global_orient"), body_pose=gather(f"{fr}_body_pose"),
@@ -185,11 +190,11 @@ def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) 
                         K_fullimg_cut=poses[meta0["chunk_id"]]["K_fullimg"], cut_scale=sc, view_box=np.array(crop),
                         keypoint_order="COCO-17 (x, y full-frame px, conf); face points NaN unless --keep-face-keypoints; K_fullimg_cut is for the cut frame", **common)
     jumps = frames[np.nan_to_num(step, nan=0.0) > 30.0]
-    gm = {"n_frames": int(len(frames)), "n_visible": int(vis[sel].sum()), "n_bridged": int((~vis[sel]).sum()), "n_edge_truncated": int(edge.sum()),
+    gm = {"n_frames": int(len(frames)), "n_visible": int(vis[sel].sum()), "n_bridged": int((~vis[sel] & ~held[sel]).sum()), "n_rest_held": int(held[sel].sum()), "n_edge_truncated": int(edge.sum()),
           "n_pose_jumps_over_30deg": int(len(jumps)), "pose_jump_frames": jumps[:200].tolist(), "pose_step_deg_p99": (None if not np.isfinite(step).any() else float(np.nanpercentile(step, 99))),
           "chunks": [{k: m[k] for k in ("chunk_id", "n_frames", "status") if k in m} | {"gvhmr_run": m.get("gvhmr_run")} for m in metas],
           "frame_step": int(meta0["frame_step"]), "cut_scale": float(meta0["cut_scale"]), "view_box": meta0.get("crop"), "fps_source": float(meta0["fps_source"]),
-          "gvhmr": {"static_camera": True, "checkpoint": "gvhmr_siga24_release.ckpt", "render": False},
+          "gvhmr": {"static_camera": True, "checkpoint": "gvhmr_siga24_release.ckpt", "render": False, "focal_35mm": meta0.get("focal_35mm")},
           "files": ["smpl_global.npz", "smpl_incam.npz", "kp2d_vitpose.npz"]}
     (deliver_dir / "gvhmr_meta.json").write_text(json.dumps(gm, indent=1))
     return {"ok": True, "n_frames": int(len(frames)), "n_chunks": len(metas)}

@@ -142,11 +142,65 @@ def flash_candidates(ts: TrackSet) -> list[dict]:
     return sorted(cands, key=lambda c: c["onset_t_s"])
 
 
+REST_LABELS = ("Standing", "Sitting")
+
+
+def _box_iou(a, b) -> float:
+    w = min(a[2], b[2]) - max(a[0], b[0]); h = min(a[3], b[3]) - max(a[1], b[1])
+    inter = max(w, 0.0) * max(h, 0.0); union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return float(inter / union) if union > 0 else 0.0
+
+
+def rest_hold(t_imu: np.ndarray, present: np.ndarray, box: np.ndarray, imu: dict, trim_s: float = 0.3, min_iou: float = 0.8):
+    """Frames without a detection of the subject on which the subject's box can be held, because the IMU labels say the
+    body is at rest there (Standing, Sitting) and the camera does not move: a body at rest is where its last
+    detection left it, whether or not the detector fires on it (a small, still figure far from the camera sits under
+    the detector's threshold for seconds at a time). Inside each rest interval that holds a detection:
+      - a gap between two detections keeps the box (interpolated between them) when the two boxes are the same box
+        (IoU >= min_iou); when they are not, the premise failed (the body moved, or the track changed) and the gap
+        stays an ordinary gap;
+      - the frames before the interval's first detection and after its last take that detection's box.
+    A rest interval is trimmed by trim_s where it borders another event (the labels' edges are not that sharp), not at
+    the recording's own start and end. Nothing is asserted about what the lifter will find in a held box: the merge
+    checks its keypoints against the neighbouring detection's (fusion.rest_held_seen) before using the frame.
+    t_imu (F,) frame times on the IMU clock; present (F,) bool; box (F, 4), read only where present.
+    Returns (held (F,) bool, box_held (F, 4), NaN except on held frames)."""
+    F = len(t_imu); held = np.zeros(F, bool); box_held = np.full((F, 4), np.nan); dur = float(imu["duration_s"])
+    for lab, a, b in imu["events"]:
+        if lab not in REST_LABELS:
+            continue
+        a2 = a + trim_s if a > 1e-3 else a; b2 = b - trim_s if b < dur - 1e-3 else b
+        inn = np.flatnonzero((t_imu >= a2) & (t_imu <= b2)); det = inn[present[inn]]
+        if len(det) == 0:
+            continue
+        for g, d in ((inn[inn < det[0]], det[0]), (inn[inn > det[-1]], det[-1])):
+            held[g] = True; box_held[g] = box[d]
+        for d0, d1 in zip(det[:-1], det[1:]):
+            if d1 - d0 > 1 and _box_iou(box[d0], box[d1]) >= min_iou:
+                g = np.arange(d0 + 1, d1); w = ((g - d0) / (d1 - d0))[:, None]
+                held[g] = True; box_held[g] = (1 - w) * box[d0] + w * box[d1]
+    return held, box_held
+
+
+def subject_presence(ts: TrackSet, subj: dict, offset_s: float, imu: dict, params: dict):
+    """(present, box, held): the frames with a detection of the subject, the subject's box on every frame that has one
+    (detected, or held at rest; NaN elsewhere), and the frames whose box is held (rest_hold; none with
+    params.rest_hold false)."""
+    F = len(ts.frame_idx); present = np.zeros(F, bool); present[subj["pos"]] = True
+    box = np.full((F, 4), np.nan); box[subj["pos"]] = subj["box"]; held = np.zeros(F, bool)
+    if params.get("rest_hold", True):
+        held, box_held = rest_hold(ts.pts_ms / 1000.0 - offset_s, present, box, imu)
+        box[held] = box_held[held]
+    return present, box, held
+
+
 def plan_chunks(ts: TrackSet, subj: dict, offset_s: float, imu: dict, params: dict, fps_meas: float) -> list[dict]:
     dur = imu["duration_s"]; m = params["margin_s"]
     t = ts.pts_ms / 1000.0
-    present = np.zeros(len(t), bool); present[subj["pos"]] = True
-    lo, hi = max(offset_s - m, subj["pts_ms"][0] / 1000.0), min(offset_s + dur + m, subj["pts_ms"][-1] / 1000.0)
+    present, _, held = subject_presence(ts, subj, offset_s, imu, params)
+    present = present | held                                    # a held frame is lifted like a detected one
+    there = np.flatnonzero(present)
+    lo, hi = max(offset_s - m, t[there[0]]), min(offset_s + dur + m, t[there[-1]])
     pos = np.where((t >= lo) & (t <= hi))[0]
     step = 2 if fps_meas > params["fps_downsample_above"] else 1
     pos = pos[::step]
@@ -154,7 +208,8 @@ def plan_chunks(ts: TrackSet, subj: dict, offset_s: float, imu: dict, params: di
         return []
     # split at long absences (no subject for > absence_split_s) so the lifter never runs across an exit: a new
     # chunk starts at the first frame the subject is seen again. Shorter gaps (brief occlusion, a lost detection)
-    # are bridged with interpolated boxes and flagged visible=False in the output.
+    # are bridged with interpolated boxes and flagged visible=False in the output. A frame whose box is held at rest
+    # (rest_hold) is no absence: the body is in the picture, and the output flags it rest_held.
     split_s = float(params.get("absence_split_s", 2.0))
     segs, cur = [], [pos[0]]
     last_seen = pos[0] if present[pos[0]] else None
@@ -191,7 +246,8 @@ def plan_chunks(ts: TrackSet, subj: dict, offset_s: float, imu: dict, params: di
     return chunks
 
 
-def prepare_gvhmr_inputs(work: Path, cid: str, rid: str, video: Path, ts: TrackSet, subj: dict, offset_s: float, imu: dict, params: dict, fps_meas: float, log) -> dict:
+def prepare_gvhmr_inputs(work: Path, cid: str, rid: str, video: Path, ts: TrackSet, subj: dict, offset_s: float, imu: dict, params: dict, fps_meas: float, log,
+                         focal_35mm: float | None = None) -> dict:
     cdir = work / cid / rid / "chunks"
     if cdir.exists():
         shutil.rmtree(cdir)
@@ -202,8 +258,7 @@ def prepare_gvhmr_inputs(work: Path, cid: str, rid: str, video: Path, ts: TrackS
     bx0, by0, bx1, by1 = ts.box; pw = bx1 - bx0
     scale = min(1.0, params["gvhmr_max_width"] / pw)
     F = len(ts.frame_idx)
-    box_full = np.full((F, 4), np.nan); box_full[subj["pos"]] = subj["box"]
-    vis = np.zeros(F, bool); vis[subj["pos"]] = True
+    vis, box_full, held = subject_presence(ts, subj, offset_s, imu, params)
     idx = np.arange(F)
     for j in range(4):
         ok = np.isfinite(box_full[:, j]); box_full[:, j] = np.interp(idx, idx[ok], box_full[ok, j])
@@ -217,11 +272,16 @@ def prepare_gvhmr_inputs(work: Path, cid: str, rid: str, video: Path, ts: TrackS
         np.save(cdir / f"{name}_bbox.npy", box_local[pos].astype(np.float32))
         meta = {"chunk_id": c["chunk_id"], "video": f"{name}.mp4", "bbox": f"{name}_bbox.npy", "n_frames": int(len(frames)), "frame_idx": frames.tolist(),
                 "pts_ms": ts.pts_ms[pos].tolist(), "imu_t_s": (ts.pts_ms[pos] / 1000.0 - offset_s).tolist(), "visible": vis[pos].tolist(),
+                "rest_held": held[pos].tolist(),
                 "frame_step": c["frame_step"], "cut_scale": scale, "crop": list(ts.box), "fps_source": fps_meas, "status": "pending", "cut": info,
                 "camera_id": cid, "recording_id": rid}
+        if focal_35mm:
+            meta["focal_35mm"] = float(focal_35mm)
         (cdir / f"{name}.json").write_text(json.dumps(meta))
         out.append({"chunk_id": c["chunk_id"], "n_frames": int(len(frames)), "t_video_s": [float(ts.pts_ms[pos[0]] / 1000), float(ts.pts_ms[pos[-1]] / 1000)]})
-    return {"n_chunks": len(out), "chunks": out, "frame_step": chunks[0]["frame_step"], "cut_scale": scale, "crop": list(ts.box)}
+    in_chunks = np.unique(np.concatenate([c["pos"] for c in chunks]))
+    return {"n_chunks": len(out), "chunks": out, "frame_step": chunks[0]["frame_step"], "cut_scale": scale, "crop": list(ts.box),
+            "n_frames": int(len(in_chunks)), "n_detected": int(vis[in_chunks].sum()), "n_rest_held": int(held[in_chunks].sum())}
 
 
 def export_subject_track(subj: dict, out: Path, view_box: list, keep_face: bool = False):
@@ -396,11 +456,13 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
             thumbs = write_thumbnails(ts, dec["track_ids"], bundle / "thumbnails", walkway=sconf.get(f"walkway_{vid}"), light=light, tag=f"{rid}__{vid}", offset_frame=sync["offset_frame"])
             item["thumbnails"] = [str(Path(t).relative_to(deliver)) for t in thumbs]
             if subj is not None and sync["offset_s"] is not None:
-                prep = prepare_gvhmr_inputs(work, vid, rid, video, ts, subj, sync["offset_s"], imu, params, fps_meas, log)
+                prep = prepare_gvhmr_inputs(work, vid, rid, video, ts, subj, sync["offset_s"], imu, params, fps_meas, log,
+                                            focal_35mm=(cfg["gvhmr"].get("focal_35mm") or {}).get(vid))
                 item["gvhmr_prep"] = prep
                 if prep["n_chunks"] == 0:
                     item["flags"].append(prep["reason"]); item["status"] = _status_merge(item["status"], "WARN")
-                log(f"    [{key}] lifter inputs: {prep['n_chunks']} chunk(s), step {prep.get('frame_step')}, scale {prep.get('cut_scale')}")
+                log(f"    [{key}] lifter inputs: {prep['n_chunks']} chunk(s), step {prep.get('frame_step')}, scale {prep.get('cut_scale')}"
+                    + (f"; {prep['n_rest_held']} of {prep['n_frames']} frames on a box held at rest (IMU labels)" if prep.get("n_rest_held") else ""))
                 t_hip, x_hip = hip_vertical_signal(subj)
                 cam_results[rid][vid] = {"fps": fps_meas, "sync": sync, "hip": (t_hip - sync["offset_s"], x_hip), "pose": None, "view_offset_s": item["view_offset_s"]}
             else:
@@ -475,7 +537,7 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> d
             step = z["pose_step_deg"] if "pose_step_deg" in z.files else np.zeros(0)
             n_jump = int((np.nan_to_num(step, nan=0.0) > 30.0).sum())
             item["gvhmr"] = {"n_frames": int(len(z["frame_idx"])), "finite": bool(np.isfinite(z["body_pose"]).all()), "visible_frames": int(z["visible"].sum()),
-                             "bridged_frames": int((~z["visible"]).sum()), "edge_truncated_frames": (int(z["edge_truncated"].sum()) if "edge_truncated" in z.files else None),
+                             "bridged_frames": int((~z["visible"]).sum()), "rest_held_frames": (int(z["rest_held"].sum()) if "rest_held" in z.files else 0), "edge_truncated_frames": (int(z["edge_truncated"].sum()) if "edge_truncated" in z.files else None),
                              "pose_jumps_over_30deg": n_jump, "n_chunks": int(len(np.unique(z["chunk_id"]))) if "chunk_id" in z.files else None}
             item["flags"] = [f for f in item.get("flags", []) if "GVHMR frame(s) with a joint-rotation jump" not in f and f != "non-finite SMPL parameters"]   # re-runs must not repeat them
             if not item["gvhmr"]["finite"]:

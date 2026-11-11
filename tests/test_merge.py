@@ -11,7 +11,7 @@ from scipy.spatial.transform import Rotation as R
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wgvp.fusion import geodesic, heading_yaw_deg   # noqa: E402
-from wgvp.merge import merge_recording             # noqa: E402
+from wgvp.merge import align_to_reference, merge_recording, moving_frames   # noqa: E402
 
 BOX = {"left": [0, 0, 500, 600], "right": [500, 0, 1400, 500]}
 
@@ -189,6 +189,11 @@ def test_walkway_calibration_recovers_each_views_depth_scale(tmp_path):
     # the pelvis path ON THE MAT (footprints + the video pose) covers the walk and beats the video's own path against the truth
     okm = np.isfinite(m["transl_mat"]).all(1); assert okm.mean() > 0.8 and np.isfinite(m["transl_from_walkway"][okm]).all()
     err_mat = err(m["transl_from_walkway"]); assert np.nanmedian(err_mat) < 0.08 and np.nanmedian(err_mat) < 0.5 * np.nanmedian(err_raw), (np.nanmedian(err_mat), np.nanmedian(err_raw))
+    # the exported velocity keeps the video path's stride profile; the mat path sets its mean over a stride and a half
+    # (frame to frame the mat path carries the footprints' scatter), and nothing steps where the mat path begins or ends
+    def hspeed(p): return np.linalg.norm(np.gradient(np.asarray(p, float), t, axis=0)[:, [0, 2]], axis=1)
+    sp = np.linalg.norm(m["root_vel_heading_rel_m_s"][:, [0, 2]], axis=1); st = hspeed(transl); sm = hspeed(m["transl_from_walkway"])
+    assert np.sqrt(np.nanmean((sp - st) ** 2)) < 0.12 and np.sqrt(np.nanmean((sm - st) ** 2)) > 0.25 and abs(np.nanmean(sp[okm]) - st[okm].mean()) < 0.03
     # (this fabricated walker has no stance phase, its feet travel with the body, so the footfall rows pin the pelvis to ~5 cm;
     # the scale calibration removes the pure depth error exactly here, which no real lift offers)
 
@@ -238,3 +243,71 @@ def test_agreement_factor_counts_a_dissenting_view_by_its_share(tmp_path):
     assert np.nanmedian(err[225:245, [3, 4]]) < 3.0, np.nanmedian(err[225:245, [3, 4]])      # the merged knees are the right view's
     assert w.mean() > 0.9, w.mean()                                                            # and the weight says so (the views' knees differ by ~30 deg: read in full, the factor would be ~0.4)
     assert m["weight"][20:100].mean() > 0.9 and np.nanmedian(err[20:100]) < 3.0                # two agreeing views elsewhere: unchanged
+
+
+def test_stride_swing_comes_from_the_view_that_sees_the_walker_from_the_side(tmp_path):
+    """A straight walk seen from behind (left) and from the side (right). The view from behind reads half the knees'
+    swing; the side view reads all of it, on a posture 0.1 rad off. The merge keeps the mean posture of the two and
+    takes the swing from the side view; without the camera-frame files it can only average the two."""
+    T = 300; frames = np.arange(T); t = frames / 30.0; sw = 0.4 * np.sin(2 * np.pi * 0.9 * t); betas = np.zeros(10)
+
+    def body(gain, offset):
+        b = np.zeros((T, 21, 3)); b[:, 3, 0] = 0.5 + offset + gain * sw; b[:, 4, 0] = 0.5 + offset - gain * sw; return b
+    root = np.zeros((T, 3)); transl = np.c_[np.zeros(T), np.full(T, 0.95), 1.2 * t]; conf = np.full(T, 0.9); vis = np.ones(T, bool)
+    rec = tmp_path / "deliver" / "s_selfpace"
+    _view(rec / "left", "left", frames, body(0.5, 0.0), root, transl, betas, conf, vis)
+    _view(rec / "right", "right", frames, body(1.0, 0.1), root, transl, betas, conf, vis)
+    cam = {"left": (np.zeros((T, 3)), transl + [0.0, 0.0, 4.0]),                                                    # behind the walker, looking along the walk
+           "right": (np.tile(R.from_euler("y", 90, degrees=True).as_rotvec(), (T, 1)), np.c_[1.2 * t - 6.0, np.zeros(T), np.full(T, 30.0)])}   # far to the side of the walkway
+    for v, (r_c, t_c) in cam.items():
+        np.savez(rec / v / "smpl_incam.npz", global_orient=r_c.astype(np.float32), transl=t_c.astype(np.float32), frame_idx=frames)
+
+    def knee(s_):
+        k = np.load(rec / "merged_smpl.npz")["body_pose"].reshape(T, 21, 3)[60:240, 3, 0]; return float(np.polyfit(sw[60:240], k, 1)[0]), float(k.mean() - 0.5)
+    s = merge_recording(rec, log=lambda *a: None); gain, off = knee(s); z = np.load(rec / "merged_smpl.npz")
+    assert s["flexion"]["rule"].startswith("two bands") and s["per_view"]["left"]["side_on_mean"] < 0.05 < 0.9 < s["per_view"]["right"]["side_on_mean"]
+    assert z["side_on"].shape == (2, T) and gain > 0.93 and abs(off - 0.05) < 0.02, (gain, off)
+    for v in cam:
+        (rec / v / "smpl_incam.npz").unlink()
+    s = merge_recording(rec, log=lambda *a: None); gain, off = knee(s)
+    assert s["flexion"]["rule"] == "the views' weighted mean" and 0.7 < gain < 0.8 and abs(off - 0.05) < 0.02, (gain, off)
+
+
+
+def test_pelvis_path_takes_each_views_step_across_its_line_of_sight(tmp_path):
+    """A straight walk at 1.2 m/s seen from behind (left) and from the side (right). The view from behind reads the
+    forward path at half its length (a change of depth); the side view reads it in full. With the camera-frame
+    files the merged path takes the forward step from the side view; without them it can only average the two."""
+    T = 300; frames = np.arange(T); t = frames / 30.0; betas = np.zeros(10); body = np.zeros((T, 21, 3)); root = np.zeros((T, 3))
+    true = np.c_[np.zeros(T), np.full(T, 0.95), 1.2 * t]; half = true * [1.0, 1.0, 0.5]; conf = np.full(T, 0.9); vis = np.ones(T, bool)
+    rec = tmp_path / "deliver" / "s_selfpace"
+    _view(rec / "left", "left", frames, body, root, half, betas, conf, vis); _view(rec / "right", "right", frames, body, root, true, betas, conf, vis)
+    cam = {"left": (np.zeros((T, 3)), true + [0.0, 0.0, 4.0]),
+           "right": (np.tile(R.from_euler("y", 90, degrees=True).as_rotvec(), (T, 1)), np.c_[1.2 * t - 6.0, np.zeros(T), np.full(T, 30.0)])}
+    for v, (r_c, t_c) in cam.items():
+        np.savez(rec / v / "smpl_incam.npz", global_orient=r_c.astype(np.float32), transl=t_c.astype(np.float32), frame_idx=frames)
+
+    def speed():
+        z = np.load(rec / "merged_smpl.npz"); return float(np.polyfit(t[30:270], z["transl"][30:270, 2], 1)[0]), float(np.nanmedian(z["root_vel_heading_rel_m_s"][30:270, 2])), z
+    s = merge_recording(rec, log=lambda *a: None); v_path, v_out, z = speed()
+    assert s["translation"]["rule"].endswith("line of sight") and z["sight_line"].shape == (2, T, 3)
+    assert abs(np.nanmedian(np.abs(z["sight_line"][0, :, 2])) - 1.0) < 0.05 and abs(np.nanmedian(np.abs(z["sight_line"][1, :, 0])) - 1.0) < 0.05   # left looks along the walk, right across it
+    assert v_path > 1.15 and v_out > 1.15, (v_path, v_out)
+    assert not [f for f in s["flags"] if "pelvis position differs" in f and not f.startswith("info:")]
+    for v in cam:
+        (rec / v / "smpl_incam.npz").unlink()
+    s = merge_recording(rec, log=lambda *a: None); v_path, v_out, z = speed()
+    assert "no lines of sight" in s["translation"]["rule"] and 0.85 < v_path < 0.95 and np.isnan(z["sight_line"]).all(), v_path
+
+
+def test_views_position_residual_is_taken_where_the_walker_moves():
+    """A walker who stands for most of the recording and whose two views then disagree on the walk: the median over
+    all shared frames is set by the standing frames (they agree after any offset); over the moving frames it is not."""
+    T = 200; fps = 30.0; z = np.zeros(T); z[120:] = np.arange(80) * (1.2 / fps)                  # stands 4 s, then walks at 1.2 m/s
+    t_ref = np.stack([np.zeros(T), np.zeros(T), z], 1); t_v = t_ref * np.array([1.0, 1.0, 1.5])   # the other view reads the walk half again as long
+    root = np.zeros((T, 3)); mask = np.ones(T, bool); mov = moving_frames(t_ref, fps)
+    assert not mov[:110].any() and mov[130:190].all()
+    a = align_to_reference(root, t_ref, root, t_v, mask); b = align_to_reference(root, t_ref, root, t_v, mask, mov)
+    assert a["transl_residual_m"] < 0.01 and a["transl_residual_frames"] == "all"
+    assert b["transl_residual_m"] > 0.5 and b["transl_residual_frames"] == "moving" and b["offset_m"] == a["offset_m"] and b["yaw_deg"] == a["yaw_deg"]
+    still = align_to_reference(root, t_ref, root, t_v, mask, np.zeros(T, bool)); assert still["transl_residual_frames"] == "all"

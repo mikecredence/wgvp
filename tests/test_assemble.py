@@ -45,6 +45,11 @@ def test_assemble_quality_fields(tmp_path):
     assert (z["chunk_id"][:100] == 0).all() and (z["chunk_id"][100:] == 1).all()
     gm = json.loads((deliver / "gvhmr_meta.json").read_text())
     assert gm["n_bridged"] == 10 and gm["n_edge_truncated"] == 25 and gm["n_pose_jumps_over_30deg"] == 1 and gm["pose_jump_frames"] == [90]
+    assert "rest_held" in z.files and not z["rest_held"].any() and gm["n_rest_held"] == 0          # chunk records from before the field: nothing held
+    m0 = json.loads((work / "chunk_0.json").read_text()); m0["rest_held"] = [70 <= i < 76 for i in range(100)]; (work / "chunk_0.json").write_text(json.dumps(m0))
+    assemble(work, deliver); z = np.load(deliver / "smpl_global.npz"); k = np.load(deliver / "kp2d_vitpose.npz")
+    gm = json.loads((deliver / "gvhmr_meta.json").read_text())
+    assert z["rest_held"][70:76].all() and z["rest_held"].sum() == 6 and k["rest_held"].sum() == 6 and gm["n_rest_held"] == 6 and gm["n_bridged"] == 4
 
 
 def test_assemble_reports_missing_chunk_dumps_instead_of_crashing(tmp_path):
@@ -55,3 +60,16 @@ def test_assemble_reports_missing_chunk_dumps_instead_of_crashing(tmp_path):
     _chunk(work, 0, f0, b0, np.zeros((30, 63)), np.ones(30, bool)); (work / "chunk_0_pose.npz").unlink()
     r = assemble(work, deliver); assert r["ok"] is False and r["reason"] == "chunk pose file(s) missing" and r["already_assembled"] is False
     (deliver / "smpl_global.npz").write_bytes(b""); r = assemble(work, deliver); assert r["already_assembled"] is True
+
+
+def test_lifter_call_carries_the_view_focal_length(tmp_path):
+    """A view with a focal length in the config is lifted with it (whole millimetres); a view without one is lifted
+    with the lifter's default, so the option is never passed."""
+    from wgvp.gvhmr_stage import run_demo
+    root = tmp_path / "GVHMR"; (root / "tools/demo").mkdir(parents=True)
+    (root / "tools/demo/demo.py").write_text("import json, sys\nopen('argv.json', 'w').write(json.dumps(sys.argv[1:]))\n")
+    video = tmp_path / "chunk_0.mp4"; video.write_bytes(b"")
+    r = run_demo(root, video, tmp_path / "pred", 60, tmp_path / "run.log", f_mm=28.31); assert r["returncode"] == 0
+    argv = json.loads((root / "argv.json").read_text()); assert argv[argv.index("--f_mm") + 1] == "28"
+    r = run_demo(root, video, tmp_path / "pred", 60, tmp_path / "run.log"); assert r["returncode"] == 0
+    assert "--f_mm" not in json.loads((root / "argv.json").read_text())
