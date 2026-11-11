@@ -176,7 +176,25 @@ for a wide room camera and turns the walker's heading with their position in the
 `hfov`, the focal length in pixels is `f_px = (W / 2) / tan(hfov / 2)` and the number to enter is
 `f_px * 43.27 / sqrt(W^2 + H^2)`; from a diagonal field of view `dfov` it is `21.63 / tan(dfov / 2)`. If a panel is
 a crop of the camera's picture and not a resize of it, the field of view is the crop's. The value used is recorded
-in each view's `gvhmr_meta.json`. `params.rest_hold` (default true) keeps the subject's box through detector
+in each view's `gvhmr_meta.json`.
+
+When the lens is not known, `python tools/estimate_focal.py <video> [--box x0 y0 x1 y1] [--out folder]` reads the
+number from the room. It finds the straight edges in nine frames, or in those at `--times` (walls, floor, door frames),
+sorts them into the three directions a room's edges run in, and solves for the focal length at which those three
+directions stand at right angles. It needs a camera that sees two of the three directions at a slant. A camera
+square to a wall, or looking straight down a walkway's grid, leaves the focal length free, and the tool then prints
+that the room's lines do not fix it and returns no number. Its checks so far:
+
+| picture | known | read |
+|---|---|---|
+| rendered side camera, four subjects | 21.2 mm | 20.9, 21.1, 21.1, 21.4 |
+| rendered along camera, square to the floor grid, four subjects | 28.3 mm | refused, four of four |
+| bundled phone clip against its own two zoomed panels | 1.171 and 1.858 times the clip's | 17.3, then 20.2 and 32.2 (predicted 20.2 and 32.1) |
+
+`--out` writes each frame with its edges coloured by direction, which is the thing to look at before trusting a
+number. `--box` is the panel's box in a tiled video (`views` in the scan report).
+
+`params.rest_hold` (default true) keeps the subject's box through detector
 dropouts while the IMU events say they stand or sit (see "Partial bodies, exits and re-entries").
 
 Label export for the optional cross-check, in MATLAB with the labeler session open or the `gTruth` object loaded:
@@ -706,8 +724,9 @@ focal length, which is 1.5 and 2.1 times too long for these two cameras, moves t
 the heading from 5.9 to 3.1 at the mean, the path from 0.38 to 0.24 m, and the worst heading error inside a turn
 from 18.0 to 10.5 deg (mean over the 24 turns). The legs and the knee do not move, and the spine is 0.4 deg worse.
 A second pair of lifts, without the rest hold, gave the same step (root 12.8 to 10.2 deg, heading 5.6 to 3.0). The
-samples' config carries the two focal lengths. A real camera's has to be read from its lens or measured, and no
-clinic recording has had that yet.
+samples' config carries the two focal lengths. A real camera's has to be read from its lens or from the picture
+(`tools/estimate_focal.py`, under "Expected input"), and no clinic recording has had either yet.
+The bundled phone clip has: see "When there is no truth" below.
 
 **Amplitude.** The lifter draws every stride toward an average one. In a share-weighted mean of the two views the
 knee's flexion has 0.71 of its true range and the hip's 0.62 (the slope of the estimate on the truth, outside the
@@ -738,7 +757,8 @@ the pixel, and it is the only route to the depth each view lacks, which is behin
 (it needs the cameras' relative pose, which the mat gives); (2) the seated posture, where the root is 21.5 deg off,
 the legs 26.5 and the knee 14 deg short while the two views agree; (3) the arms, at 16 deg the least accurate part
 of the export and outside the export rule by design; (4) for real cameras, a measured field of view, worth 3 deg of
-root and close to half of the heading error on these renders.
+root and close to half of the heading error on these renders (`tools/estimate_focal.py` reads it from the room where
+the camera sees the room's edges at a slant).
 
 ### When there is no truth: a real clip
 
@@ -750,30 +770,70 @@ mode, lifted on a T4 like the rest:
 
 ![demo without a truth](docs/figures/demo_no_truth.png)
 
-*One frame of `wgvp demo` on the two-view composite of the bundled phone clip (OWN02, 393 frames, 100 %
-exported): the left panel is marked as the mirror image it is and shown reflected back, each view's own lift
-stands beside the reconstruction and the export, the path from above replaces the aerial truth, and the bottom
-chart is the two views' leg disagreement (5.4 deg median) in place of an error against a truth. On real video the
-close-ups show a floor and no mat (the mat is drawn only when the room is known, i.e. for a rendered truth), and a
-leg pair the 2D detector put on one leg is drawn in amber: on the rendered sessions that happens on 0.1-23 % of a
-view's frames (a side-on walker's legs cross once a stride) and the lifter's leg error on those frames is 8-19 deg
+*One frame of `wgvp demo` on the two-view composite of the bundled phone clip (OWN02, 393 frames, 100 % exported),
+lifted with the field of view read from the corridor's own lines: the right panel is marked as the mirror image it
+is and shown reflected back, each view's own lift stands beside the reconstruction and the export, the path from
+above replaces the aerial truth, the text column ends with each view's lifted floor slope, and the bottom chart is
+the two views' leg disagreement (5.1 deg median) in place of an error against a truth. On real video the close-ups
+show a floor and no mat (the mat is drawn only when the room is known, i.e. for a rendered truth), and a leg pair
+the 2D detector put on one leg is drawn in amber: on the rendered sessions that happens on 0.1-23 % of a view's
+frames (a side-on walker's legs cross once a stride) and the lifter's leg error on those frames is 8-19 deg
 against 9-25 elsewhere, so the merge does not weight them down. The single-view clip (OWN01: 95 % exported, two
 runs with a 0.7-s gap where the walker turned at the far end) renders the same way with one view.*
 
-The two-view composite of the same clip (OWN02) is built the way a careless second camera would be: the left
-panel is the clip zoomed in a little, the right panel the clip **mirrored** and zoomed in hard (1.16x and 1.64x,
+The two-view composite of the same clip (OWN02) is built the way a careless second camera would be: the left panel
+is the clip zoomed in a little, the right panel the clip **mirrored** and zoomed in hard (1.16x and 1.64x,
 different letterboxing; head and feet leave the right panel when the walker is close), which makes the right
 panel's left leg the walker's right leg. On its lift the merge's mirror check reads the knees 44 deg apart as
 lifted and 8 deg apart with the sides swapped, reflects that view back, and the two "views" then agree on the legs
-to 5.4 deg with their knee curves on top of each other (root residual 8 deg; the pelvis positions still differ by
-0.54 m, the depth estimate being what two zoom levels disagree about). It is still one camera (the two panels
-carry the same information), so the synthetic sessions above remain the test of the merge itself; what this clip
-tests is the panel detector on two zoom levels, the per-view scale, the mirror detection, truncation and the
-no-truth layout. The truncation found a limit worth knowing: on the frames where the walker's feet are below the
-hard-zoomed panel, ViTPose still reports ankles with confidence 0.9 some 200 px inside the panel, so the
-usable-joint rule (confident and inside the panel) does not notice, and the lifter extrapolates the legs there;
-the two views' agreement factor is what discounts those frames. A geometric truncation test (the body's box
-against the panel edge) is the open item.
+to 5.1 deg with their knee curves on top of each other (root residual 7 deg, pelvis positions 0.10 m apart). It is
+still one camera (the two panels carry the same information), so the synthetic sessions above remain the test of
+the merge itself; what this clip tests is the panel detector on two zoom levels, the per-view scale, the mirror
+detection, truncation, the field of view and the no-truth layout. The truncation found a limit worth knowing: on
+the frames where the walker's feet are below the hard-zoomed panel, ViTPose still reports ankles with confidence
+0.9 some 200 px inside the panel, so the usable-joint rule (confident and inside the panel) does not notice, and
+the lifter extrapolates the legs there; the two views' agreement factor is what discounts those frames. A
+geometric truncation test (the body's box against the panel edge) is the open item.
+
+**The clip's field of view.** The file does not say which of the phone's lenses filmed it, and the lifter's
+default assumes a 43.3-mm one. `tools/estimate_focal.py` reads 17.3 mm from the corridor's edges (quartiles 17.2
+to 17.5 over 12 frames, a 103-deg diagonal, wider than a phone's main camera), and 20.2 and 32.2 mm from the two
+panels of the composite. With no truth for the body, the check on that number is the floor: the corridor is level,
+so the lifted pelvis should neither climb nor sink along the walk. `merge.json` now carries that slope per view
+(`floor_slope_deg`) and the demo prints it. The clip was lifted again at a ladder of focal lengths, each panel
+given the full picture's value times its own zoom:
+
+| focal length at the lifter (mm, 35-mm equivalent, full picture) | lifted floor slope (deg): full view, left panel, right panel | pelvis height range over the walk (m) | the two panels' pelvis positions apart (m, median) |
+|---|---|---|---|
+| 43.3 (the lifter's default, both panels alike) | 21.9, 17.9, 5.2 | 2.83 | 0.54 |
+| 33 | 14.7, 15.2, 14.9 | 1.90 | 0.10 |
+| 27 | 9.7, 10.1, 9.0 | 1.31 | 0.08 |
+| 20 | 3.1, 2.8, 1.6 | 0.58 | 0.10 |
+| 18 | 1.3, 1.1, 0.0 | 0.41 | 0.11 |
+| **17 (what the bundled config's 17.3 becomes at the lifter)** | **0.5, 0.5, 0.4** | **0.34** | **0.10** |
+| 16 | 0.2, 0.1, 0.9 | 0.26 | 0.10 |
+| 14 | 0.6, 0.4, 0.9 | 0.17 | 0.10 |
+
+Under the default the walker climbs 2.8 m along a level corridor, and moves at 2.8 to 3.1 m/s in the camera's
+frame while the world-frame path says 1.25: the lifter set the body two and a half times too far away (camera
+depth out to 21 m, against 8.6 at 17 mm). At 17 mm the floor is level to 0.5 deg in all three views, the two
+speeds are 1.16 to 1.24 and 1.10 to 1.13 m/s, and the walk reaches 6.8 m instead of 7.8. The 0.54 m by which the
+two panels' pelvis positions differed was the same error, two zoom levels handed one lens: given their own focal
+lengths they agree to about 0.10 m at every rung. What does not move is the body. Export fraction, mirror check, leg
+agreement (5.3 deg under the default, 5.1 at 17 mm), forward lean (5 to 6 deg) and the knee curves are the same at
+every rung, so the demo's close-ups look as before and the change is in where the body is, i.e. in the exported
+path.
+
+The floor does not pick 17.3 by itself. It is level to 1.3 deg or better anywhere from 14 to 18 mm (the signed slope
+crosses zero near 16 mm for the full view and the left panel and at 18 mm for the right), so it brackets the lens
+and the room's lines choose inside the bracket. Three limits go with that. The slope senses the field of view only
+through the camera's tilt (this one looks about 14 deg down), so a level camera reads zero whatever the lens, and
+it is an indicator and not a measurement: on the six rendered sessions, whose cameras are known, handing the
+lifter the true field of view takes the median slope over the twelve views from 2.6 to 0.9 deg and levels 8 of the
+12, while one view goes from 11.3 to 18.4. The 0.34 m of height range left at 17 mm, against the few centimetres a
+pelvis rises and falls in a stride, says the lifted floor is level on average and not flat. And the clip is
+hand-held, with about 26 deg of pan in its first 3 s, under a lift that assumes a fixed camera; neither the pan
+nor the lens has been checked against anything but the picture.
 
 ## Outputs
 
@@ -788,7 +848,7 @@ QC_SUMMARY.html, qc_summary.csv, qc_summary.json, manifest.json        cross-ses
    <recording>/reconcile.json         agreement between the two views on the IMU timeline (2D and, after GVHMR, SMPL joints)
    <recording>/pose_agreement_<a>_<b>.npz   after GVHMR: per-frame, per-joint disagreement between the two views (t_imu_s, geodesic_deg (T,21), legs_median_deg)
    <recording>/merged_smpl.npz        after GVHMR: THE TRAINING TARGET, one pose per frame from the two views (see "The training target" above)
-   <recording>/merge.json             its numbers: export fraction, continuity, view alignment, body shapes, flags
+   <recording>/merge.json             its numbers: export fraction, continuity, view alignment, body shapes, each view's floor slope, flags
    <recording>/qc.json                walk-bout coverage per view, flags
    <recording>/<view>/subject_track.npz   frame_idx, pts_ms, bbox_xyxy, kp2d (COCO-17, face points blanked), visibility, source fragment id
    <recording>/<view>/smpl_global.npz     GVHMR SMPL-X parameters per frame, gravity-aligned world frame: global_orient (T,3), body_pose (T,63), betas (T,10), transl (T,3), frame_idx, pts_ms, imu_t_s,
@@ -872,7 +932,8 @@ has been run on the public recordings (1,574 files parse; stances alternate feet
 pelvis path on the mat has only been checked against a rendered truth whose footprints were fabricated from that
 truth, never against a real mat under a real video. The field of view at the lift was measured on rendered pinhole cameras whose
 intrinsics are known exactly: a real lens's distortion, and a panel that the recording software has cropped or
-scaled, are untested. The rest hold has been run only on rendered people. The step-summed path,
+scaled, are untested. `tools/estimate_focal.py` has read one real camera, a phone's, and no clinic camera; on that
+clip the only check of its number is the lifted floor coming out level. The rest hold has been run only on rendered people. The step-summed path,
 the stride-band flexion rule and the velocity on the mat were tuned and scored on the same six rendered recordings.
 The decisive number, the subject's `r_fine` in real footage, comes out of the first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
 section 4 the questions to settle with a dataset's owners before that run.
@@ -897,7 +958,8 @@ examples/        bundled/ (our own clip + a two-view composite of it, runs offli
 tests/           unit tests (python -m pytest tests -q)
 tools/           make_sample.py (how the samples were rendered), make_partner_layout.py (the six samples in a
                  Sub 00N/Video + IMU layout), make_readme_figures.py, two_view_fusion.py (the fusion experiment
-                 against the truth), make_target_figure.py
+                 against the truth), make_target_figure.py, estimate_focal.py (a camera's field of view from the
+                 room's straight edges)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), figures/
 ```
