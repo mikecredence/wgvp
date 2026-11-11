@@ -1507,11 +1507,41 @@ walking both estimates are smoother than the truth (0.56 and 0.60 against 0.90).
 **The demo.** `wgvp demo --target jointfit` draws the same video with `jointfit_smpl.npz` in place of the merge
 (`<recording>_demo_jointfit.mp4`), so the two can be watched side by side.
 
+**The fit on the bundled phone clip, and what one camera knows about distance.** The composite of our own clip
+(OWN02) is two panels cut from one camera, so the fit is a test of what it does when the second view adds nothing.
+It ran in 3 s, met the keypoints to 1.1 and 1.5 px, and placed the second camera 2.4 cm from the first and 0.16 deg
+turned against it. The level axes of the two views are 0.24 deg apart, so the up direction fell back to the first
+view's gravity estimate. `jointfit.json` now flags a baseline under 0.3 m (`min_baseline_m`; the six rendered rooms
+have 5.2 to 6.6 m): the views are one viewpoint, and the distance to the walker rests on the body's size in the
+picture and on the lens. The pose stays within 0.5 deg (root), 1.3 (legs) and 0.9 (arms) of the merge's at the median.
+The path does not: 0.48 m apart at the median and 0.69 at the 90th percentile, a reach of 7.7 m against 6.9, a median
+walking speed of 1.29 m/s against 1.09, a pelvis slope of 0.5 deg against 0.1.
+
+Which path is right cannot be measured on the clip, so the question was put to the rendered sessions
+(`tools/one_camera_speed.py`, `docs/one_camera.json`): each view alone, its pelvis speed read from the lifter's own
+world path and from the fit handed that view twice, on the frames where the truth walks faster than 0.25 m/s and the
+view's legs are usable. Walking along the camera's line of sight (the along camera, 459 to 891 frames a recording),
+the lifter reads 0.51, 0.95, 0.55, 0.87, 0.83 and 0.80 of the true speed and the fit 1.00, 1.06, 0.94, 1.02, 1.04 and
+0.99, with a speed RMSE of 0.22 to 0.63 m/s against 0.13 to 0.22. Walking across it (the side camera, 409 to 786
+frames) the two agree: 1.01 to 1.12 and 1.07 to 1.12. This is the reason for `PATH_ALONG_SIGHT` seen from the other
+side: a lifted step along the sight line is short as well as noisy. The clip's merge has only such steps, and its
+speed is 0.85 of the fit's, so the fit's length is the likelier one. The rendered lenses are known and the clip's is
+an estimate, which the fit's distance scales with.
+
+The fit has two faults on the clip. The camera is hand-held and the fit holds it still, so in the seconds of pan (the
+first 3 s and around second 13) the body slides sideways at 0.3 to 0.5 m/s. And the slower ankle moves at 0.40 m/s
+while walking, 0.32 of the pelvis's speed, against 0.04 m/s in the merge: the path grew by 11 % while the legs'
+swing along the sight line, which no panel sees, stayed as lifted. That measure is not a test of a path by itself. On
+the six rendered recordings it reads 0.18 to 0.24 m/s for the merge (0.20 to 0.30 of the pelvis's speed) and 0.13 to
+0.18 for the joint fit (0.15 to 0.22), where the fit's path is the better one on both path scores against the truth; the
+merge's 0.04 on the clip is the lifter's foot lock applied to a path that is too short. A one-view mode of the fit,
+with the camera's rotation per frame among the unknowns, is what these two findings point to. It is not built.
+
 **What stays open.** A real two-camera recording with a truth. A held-out session for the settings. The camera pose:
 the true-camera column is the case for measuring it once per room, or for carrying one fitted pose across a session's
 recordings instead of fitting each alone. The scale, from the subject's height. The seated root. The walkway path
 (`transl_mat`) is not refitted and is taken from the merge. A mirrored view is handled in the code and tested on
-fabricated data only. The body IMUs are not used here either. The suite is at 92 tests (nine for the fit on a
+fabricated data only. The body IMUs are not used here either. The suite is at 93 tests (ten for the fit on a
 synthetic two-camera walker, one for the centred moving average).
 
 ## 3. What has not been tested on real clinic recordings

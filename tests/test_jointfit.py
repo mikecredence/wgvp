@@ -5,6 +5,7 @@ find the cameras' relative pose, put the path and the knees right, take the up d
 level axes instead of either lift's gravity, and write every documented field. The SMPL-X model file is not in the
 repository, so the tests run on the mean skeleton (no shape directions)."""
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -167,6 +168,14 @@ def test_a_mirrored_view_is_reflected_back(tmp_path):
         assert np.allclose(a[1][k], b[1][k], atol=1e-4), k                                                                    # float32 keypoints on disk
     s = jointfit_recording(d1, mean_skeleton(), params=FAST, log=lambda *_: None)
     assert s["status"] == "WARN" and any("mirrored" in f for f in s["flags"]) and s["reprojection_px"]["right"]["median"] < 1.5
+
+
+def test_two_panels_of_one_camera_are_flagged_as_one_viewpoint(tmp_path):
+    d = tmp_path / "twin" / "Rec05"; _recording(d); shutil.rmtree(d / "right"); shutil.copytree(d / "left", d / "right")       # the second "view" is the first camera again
+    s = jointfit_recording(d, mean_skeleton(), params=FAST, log=lambda *_: None)
+    assert s["status"] == "WARN" and s["cameras"]["baseline_m"] < 0.05 and any("one viewpoint" in f for f in s["flags"])
+    d = tmp_path / "pair" / "Rec05"; _recording(d); s = jointfit_recording(d, mean_skeleton(), params=FAST, log=lambda *_: None)
+    assert s["cameras"]["baseline_m"] > 1.0 and not any("one viewpoint" in f for f in s["flags"])
 
 
 def test_recordings_the_fit_cannot_take_are_skipped(tmp_path):

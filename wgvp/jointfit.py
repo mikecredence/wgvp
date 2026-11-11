@@ -64,7 +64,7 @@ OFF_SD_M = [0.05, 0.05, 0.05, 0.15, 0.05, 0.05]                                 
 TRUNK = [2, 5, 8, 12, 13]                                                       # spine and collars (body index): five joints seen through two shoulder points
 SEED_TORSO = [0, 1, 2, 5, 8]                                                    # hips and spine: what a view must vouch for to seed the world from its root
 PARAMS = {"iters": (150, 450), "lr": 0.01, "sd_kp_m": 0.03, "sd_root_rad": 0.05, "sd_body_rad": 0.20, "sd_trunk_rad": 0.10, "w_up": 100.0,
-          "smooth_frames": 3, "min_conf": 0.3, "margin_px": 8.0, "min_kp": 4, "min_level_cross": 0.35, "min_shared_frames": 30, "complete_kp": 10, "complete_frac_warn": 0.5}
+          "smooth_frames": 3, "min_conf": 0.3, "margin_px": 8.0, "min_kp": 4, "min_level_cross": 0.35, "min_shared_frames": 30, "complete_kp": 10, "complete_frac_warn": 0.5, "min_baseline_m": 0.3}
 FIELDS_DOC = (
     "frame_idx, imu_t_s: the merge's timeline (same rows as merged_smpl.npz); "
     "body_pose (T,63): SMPL-X body pose from the joint two-view fit, axis-angle, NaN for the joints the merge does not output; "
@@ -390,11 +390,15 @@ def jointfit_recording(rec_dir: Path, skeleton, params: dict | None = None, cams
         flags.append("the two cameras' level axes are nearly parallel: the up direction is the first view's own gravity estimate, whose pitch is not reliable")
     if any(v["mirrored"] for v in V):
         flags.append(f"{[v['name'] for v in V if v['mirrored']]} mirrored: reflected back before the fit (checked on fabricated data only)")
+    base = float(np.linalg.norm(sol["t_ab"]))
+    if base < P["min_baseline_m"]:
+        flags.append(f"the two cameras stand {base:.2f} m apart: the views are one viewpoint, so the distance to the walker (and with it the path's length) rests on the body's size in "
+                     "the picture and on the lens, not on two lines of sight")
     summary = {"recording": rec_dir.name, "status": "WARN" if any(not f.startswith("info:") for f in flags) else "PASS", "flags": flags, "views": views, "n_frames": int(T), "n_export_frames": int(ex.sum()),
                "frames_seen_by_both": int(sb.sum()), "frames_seen_by_one": int((sol["seen"] & ~sb).sum()), "export_frames_without_keypoints": int((ex & ~sol["seen"]).sum()),
                "views_complete_frac": cfrac, "reprojection_px": {v: p for v, p in zip(views, px)},
                "cameras": {"given": bool(sol["cams_given"]), "b_from_a_rotvec_deg": [float(x) for x in np.degrees(R.from_matrix(sol["R_ab"]).as_rotvec())],
-                           "b_from_a_t_m": [float(x) for x in sol["t_ab"]], "baseline_m": float(np.linalg.norm(sol["t_ab"])),
+                           "b_from_a_t_m": [float(x) for x in sol["t_ab"]], "baseline_m": base,
                            "moved_from_seed_deg": _angle(sol["R_ab"], sol["R_ab_seed"]), "moved_from_seed_m": float(np.linalg.norm(sol["t_ab"] - sol["t_ab_seed"]))},
                "up": {"rule": "cross product of the two cameras' level axes" if sol["up_from_levels"] else "the first view's own gravity estimate",
                       "level_axes_angle_deg": sol["level_axes_angle_deg"], "world_moved_from_seed_deg": _angle(sol["R_aw"], sol["R_aw_seed"])},

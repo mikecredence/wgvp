@@ -1,0 +1,234 @@
+{
+ "Sub001_selfpace": {
+  "left": {
+   "all": {
+    "n": 679,
+    "lifter_speed_ratio": 0.5230043116843769,
+    "fit_speed_ratio": 0.9998208098739707,
+    "lifter_speed_rmse": 0.6251380652317989,
+    "fit_speed_rmse": 0.13337612879751692
+   },
+   "along": {
+    "n": 661,
+    "lifter_speed_ratio": 0.5082174848345741,
+    "fit_speed_ratio": 1.001977852814439,
+    "lifter_speed_rmse": 0.6287905894243432,
+    "fit_speed_rmse": 0.13362863770245823
+   }
+  },
+  "right": {
+   "all": {
+    "n": 677,
+    "lifter_speed_ratio": 1.0037085701328894,
+    "fit_speed_ratio": 1.0394591516630025,
+    "lifter_speed_rmse": 0.133746524060563,
+    "fit_speed_rmse": 0.13074523235846572
+   },
+   "across": {
+    "n": 489,
+    "lifter_speed_ratio": 1.0198803822870037,
+    "fit_speed_ratio": 1.0723659011991484,
+    "lifter_speed_rmse": 0.13734740556751857,
+    "fit_speed_rmse": 0.11275871384547949
+   }
+  }
+ },
+ "Sub001_tug": {
+  "left": {
+   "all": {
+    "n": 966,
+    "lifter_speed_ratio": 0.9588854774742207,
+    "fit_speed_ratio": 1.082578406195236,
+    "lifter_speed_rmse": 0.22094203157795048,
+    "fit_speed_rmse": 0.16542910556244142
+   },
+   "along": {
+    "n": 891,
+    "lifter_speed_ratio": 0.9472595156260377,
+    "fit_speed_ratio": 1.0647167004893987,
+    "lifter_speed_rmse": 0.21668629281190713,
+    "fit_speed_rmse": 0.15415717836776127
+   }
+  },
+  "right": {
+   "all": {
+    "n": 967,
+    "lifter_speed_ratio": 1.0936835683798805,
+    "fit_speed_ratio": 1.1004919308628442,
+    "lifter_speed_rmse": 0.1717847704293306,
+    "fit_speed_rmse": 0.11554954179220091
+   },
+   "along": {
+    "n": 35,
+    "lifter_speed_ratio": 0.8302372505827453,
+    "fit_speed_ratio": 0.6932476685884051,
+    "lifter_speed_rmse": 0.11875892493261962,
+    "fit_speed_rmse": 0.15311095330210447
+   },
+   "across": {
+    "n": 786,
+    "lifter_speed_ratio": 1.1172484602886799,
+    "fit_speed_ratio": 1.121624995456828,
+    "lifter_speed_rmse": 0.17851689248721223,
+    "fit_speed_rmse": 0.11654566181606879
+   }
+  }
+ },
+ "Sub002_selfpace": {
+  "left": {
+   "all": {
+    "n": 566,
+    "lifter_speed_ratio": 0.5539812570758635,
+    "fit_speed_ratio": 0.9440575721525335,
+    "lifter_speed_rmse": 0.5879391423561554,
+    "fit_speed_rmse": 0.23602513566161037
+   },
+   "along": {
+    "n": 559,
+    "lifter_speed_ratio": 0.5494024283588633,
+    "fit_speed_ratio": 0.935670860288388,
+    "lifter_speed_rmse": 0.5910915934455494,
+    "fit_speed_rmse": 0.2240659879709187
+   }
+  },
+  "right": {
+   "all": {
+    "n": 679,
+    "lifter_speed_ratio": 0.9933330119382502,
+    "fit_speed_ratio": 1.0398080370816487,
+    "lifter_speed_rmse": 0.15394527875592565,
+    "fit_speed_rmse": 0.13665705131980185
+   },
+   "across": {
+    "n": 489,
+    "lifter_speed_ratio": 1.0093220844363961,
+    "fit_speed_ratio": 1.0739920555716684,
+    "lifter_speed_rmse": 0.16316001846638892,
+    "fit_speed_rmse": 0.11634289240812774
+   }
+  }
+ },
+ "Sub003_selfpace": {
+  "left": {
+   "all": {
+    "n": 829,
+    "lifter_speed_ratio": 0.8617599549253839,
+    "fit_speed_ratio": 1.0114335052827774,
+    "lifter_speed_rmse": 0.35481096530211964,
+    "fit_speed_rmse": 0.18578674626406716
+   },
+   "along": {
+    "n": 741,
+    "lifter_speed_ratio": 0.872470939787301,
+    "fit_speed_ratio": 1.0175736414676506,
+    "lifter_speed_rmse": 0.36881572456327644,
+    "fit_speed_rmse": 0.19411504944292438
+   }
+  },
+  "right": {
+   "all": {
+    "n": 823,
+    "lifter_speed_ratio": 1.0358856040097162,
+    "fit_speed_ratio": 1.0634267250035683,
+    "lifter_speed_rmse": 0.2343029165063708,
+    "fit_speed_rmse": 0.1464294180274371
+   },
+   "along": {
+    "n": 39,
+    "lifter_speed_ratio": 0.9907215795644214,
+    "fit_speed_ratio": 1.1836526796429916,
+    "lifter_speed_rmse": 0.33544266365184255,
+    "fit_speed_rmse": 0.43045423158562895
+   },
+   "across": {
+    "n": 551,
+    "lifter_speed_ratio": 1.0204779718998822,
+    "fit_speed_ratio": 1.0711833228710614,
+    "lifter_speed_rmse": 0.211264159291868,
+    "fit_speed_rmse": 0.0937067303330574
+   }
+  }
+ },
+ "Sub003_hurriedpace": {
+  "left": {
+   "all": {
+    "n": 716,
+    "lifter_speed_ratio": 0.8360023004222819,
+    "fit_speed_ratio": 1.0367044473279712,
+    "lifter_speed_rmse": 0.42436188673724534,
+    "fit_speed_rmse": 0.17405861090871214
+   },
+   "along": {
+    "n": 648,
+    "lifter_speed_ratio": 0.8342882413517635,
+    "fit_speed_ratio": 1.0365447596051882,
+    "lifter_speed_rmse": 0.4417653175317733,
+    "fit_speed_rmse": 0.17772859293288082
+   }
+  },
+  "right": {
+   "all": {
+    "n": 715,
+    "lifter_speed_ratio": 1.0009173724100089,
+    "fit_speed_ratio": 1.0503622763669873,
+    "lifter_speed_rmse": 0.23177504535910415,
+    "fit_speed_rmse": 0.1315304427551255
+   },
+   "across": {
+    "n": 553,
+    "lifter_speed_ratio": 1.0137359001990762,
+    "fit_speed_ratio": 1.074657924568501,
+    "lifter_speed_rmse": 0.23409676147911945,
+    "fit_speed_rmse": 0.11224694226592932
+   }
+  }
+ },
+ "Sub004_selfpace_mat": {
+  "left": {
+   "all": {
+    "n": 572,
+    "lifter_speed_ratio": 0.8193046704893995,
+    "fit_speed_ratio": 1.003584648664703,
+    "lifter_speed_rmse": 0.34867617062045864,
+    "fit_speed_rmse": 0.1869677372576151
+   },
+   "along": {
+    "n": 459,
+    "lifter_speed_ratio": 0.8016210314160028,
+    "fit_speed_ratio": 0.9904728087665424,
+    "lifter_speed_rmse": 0.3737245512792912,
+    "fit_speed_rmse": 0.18950960426842475
+   },
+   "across": {
+    "n": 54,
+    "lifter_speed_ratio": 0.7961921051587639,
+    "fit_speed_ratio": 1.0798694637784452,
+    "lifter_speed_rmse": 0.17825868918378804,
+    "fit_speed_rmse": 0.10850392386653172
+   }
+  },
+  "right": {
+   "all": {
+    "n": 569,
+    "lifter_speed_ratio": 1.038301968864079,
+    "fit_speed_ratio": 1.0360643142629524,
+    "lifter_speed_rmse": 0.23657080564722854,
+    "fit_speed_rmse": 0.12927364280206644
+   },
+   "along": {
+    "n": 45,
+    "lifter_speed_ratio": 0.44845491910712965,
+    "fit_speed_ratio": 0.6149516414832098,
+    "lifter_speed_rmse": 0.25377245959363237,
+    "fit_speed_rmse": 0.19172967452841003
+   },
+   "across": {
+    "n": 409,
+    "lifter_speed_ratio": 1.0707132309154954,
+    "fit_speed_ratio": 1.0721402013709047,
+    "lifter_speed_rmse": 0.23365275695613832,
+    "fit_speed_rmse": 0.11591503711578854
+   }
+  }
+ }
+}
