@@ -75,6 +75,7 @@ AGREE_SCALE_DEG = 20.0 # the agreement factor is 0.5 at AGREE_FREE_DEG + this
 BETAS_DIFF_WARN = 3.0  # |betas_a - betas_b| above which the two views may not hold the same person
 ALIGN_MIN_FRAMES = 30
 MOVING_M_S = 0.25       # the pelvis moves faster than this: a frame of walking, for the views' position residual
+SLOPE_MIN_REACH_M = 2.0  # a view's floor slope is reported for a walk at least this long
 WALKWAY_MIN_ROWS = 8   # footfalls (stances) needed before the mat's pose and the translation scale are fitted
 MAT_GAP_S = 0.5        # the walkway-derived path is interpolated across gaps up to this long (a foot off the mat's edge)
 MAT_RAMP_S = 0.12      # a stance's say in the walkway-derived path ramps in and out over this long
@@ -118,6 +119,22 @@ def moving_frames(transl: np.ndarray, fps: float, min_speed: float = MOVING_M_S,
         with np.errstate(all="ignore"):
             sp[k:T - k] = np.nan_to_num(np.linalg.norm(transl[2 * k:] - transl[:T - 2 * k], axis=1), nan=0.0) / (2 * k / fps)
     return sp > min_speed
+
+
+def path_slope_deg(transl: np.ndarray, fps: float, min_reach_m: float = SLOPE_MIN_REACH_M) -> float | None:
+    """Slope (deg) of the pelvis height along the walk's main horizontal direction, over the frames of walking.
+    A walker on a level floor gives 0. A lift whose assumed field of view is wrong, from a camera that looks down
+    or up at the walker, puts the path on a ramp instead: the walker stays upright and sinks or climbs with distance.
+    None when the walk is shorter than `min_reach_m`. An indicator, not a measurement of the field of view: a camera
+    held level gives 0 whatever the lens."""
+    transl = np.asarray(transl, float); mv = moving_frames(transl, fps) & np.isfinite(transl).all(1)
+    if mv.sum() < ALIGN_MIN_FRAMES:
+        return None
+    P = transl[mv]; xz = P[:, [0, 2]] - P[:, [0, 2]].mean(0)
+    s = xz @ np.linalg.eigh(xz.T @ xz)[1][:, -1]
+    if np.ptp(s) < min_reach_m:
+        return None
+    return float(np.degrees(np.arctan(abs(np.polyfit(s, P[:, 1], 1)[0]))))
 
 
 def align_to_reference(root_ref, transl_ref, root_v, transl_v, mask, moving=None) -> dict:
@@ -542,6 +559,7 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                "walkway": ({**ww_info, "fit": wfit, "per_view": {v: wfits[i] for i, v in enumerate(views)}} if ww is not None else {**ww_info, "fit": None, "note": "no usable walkway footfalls in the recording CSV"}),
                "mirror_check": mirror_info, "views_mirrored": [v for i, v in enumerate(views) if mirrored[i]],
                "camera_fit_rms_m": {v: r_ for v, r_ in zip(views, cam_rms)},
+               "floor_slope_deg": {v: path_slope_deg(transl[i], fps) for i, v in enumerate(views)},
                "imu_time_mismatch_s": t_mismatch, "files": ["merged_smpl.npz", "merge.json"],
                "note": "the body IMUs are not used anywhere in this file: the recording CSV serves the sync and the subject identity only"}
     if write:

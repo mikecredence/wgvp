@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 
 from .fusion import ARMS, LEGS, SPINE, chordal_mean, collapsed_legs, fit_yaw, geodesic, mirror_body, mirror_root, seen_frames, smooth_rotations
+from .merge import path_slope_deg
 from .tracking import FACE_KP, SKELETON
 
 COL = {"ok": [150, 160, 200], "missing": [220, 70, 70], "truth": [170, 170, 170]}
@@ -109,6 +110,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     # ---- per view, dense over the video's frames
     body, root_al, usable, lifted, vis, kp_draw, held = {}, {}, {}, {}, {}, {}, {}
     yaw_al = {v: float(y) for v, y in zip(views, M["view_alignment_yaw_deg"])}
+    slope = {v: s_ for v in views if (s_ := path_slope_deg(Z[v]["transl"], fps)) is not None} if G is None else {}      # no truth: the level floor is a check that needs none
     mirrored = {v: bool(m) for v, m in zip(views, M["view_mirrored"])} if "view_mirrored" in M.files else {v: False for v in views}
     collapsed = {}
     for i, v in enumerate(views):
@@ -472,6 +474,8 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
                  "legs usable so far: " + "  ".join(f"{v} {leg_ok[v][win & (tt <= t)].mean():.0%}" for v in views) + f"  any {np.any([leg_ok[v] for v in views], axis=0)[win & (tt <= t)].mean():.0%}"]
         if err_hist:
             lines += [f"median leg error so far: {np.nanmedian(err_hist):.1f} deg"]
+        if slope:
+            lines += ["lifted floor slope (0 = level): " + "  ".join(f"{v} {s_:.1f}" for v, s_ in slope.items()) + " deg"]
         for k_, ln in enumerate(lines):
             cv2.putText(canvas, ln, (xt, yb + AH + 26 + 22 * k_), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (230, 230, 230), 1, cv2.LINE_AA)
         yt = yb + RH + 20; cx = cursor_x(t)

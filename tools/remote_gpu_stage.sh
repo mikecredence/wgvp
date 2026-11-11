@@ -26,7 +26,7 @@ until $SSH true 2>/dev/null; do sleep 15; done
 GPU=$($SSH 'nvidia-smi --query-gpu=name,utilization.gpu,memory.used --format=csv,noheader,nounits'); echo "GPU: $GPU"
 MEM=$(echo "$GPU" | awk -F', ' '{print $3}'); [ "$MEM" -lt 1000 ] || { echo "GPU busy ($MEM MiB), aborting"; exit 1; }
 $SSH "rm -rf $B && mkdir -p $B/root"
-rsync -a --exclude '.git' --exclude '__pycache__' --exclude 'examples' --exclude 'docs' --exclude 'sample' --exclude 'sample_v2' --exclude 'wgvp_output' "$PKG/" "$H:$B/pkg/"
+rsync -a --exclude '.git' --exclude '__pycache__' --exclude 'examples' --exclude 'docs' --exclude 'sample' --exclude 'sample_v*' --exclude 'wgvp-env' --exclude '*.egg-info' --exclude 'wgvp_output' "$PKG/" "$H:$B/pkg/"
 rsync -a "$ROOT/wgvp_config.json" "$H:$B/root/" 2>/dev/null || true
 rsync -a --exclude 'gvhmr/' "$ROOT/wgvp_output/" "$H:$B/root/wgvp_output/"
 echo "uploaded $(du -sh "$ROOT/wgvp_output" | cut -f1) of CPU-stage outputs"

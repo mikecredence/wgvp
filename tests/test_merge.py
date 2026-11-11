@@ -311,3 +311,18 @@ def test_views_position_residual_is_taken_where_the_walker_moves():
     assert a["transl_residual_m"] < 0.01 and a["transl_residual_frames"] == "all"
     assert b["transl_residual_m"] > 0.5 and b["transl_residual_frames"] == "moving" and b["offset_m"] == a["offset_m"] and b["yaw_deg"] == a["yaw_deg"]
     still = align_to_reference(root, t_ref, root, t_v, mask, np.zeros(T, bool)); assert still["transl_residual_frames"] == "all"
+
+
+def test_path_slope_reads_a_ramp_and_a_level_floor():
+    from wgvp.merge import path_slope_deg
+    fps = 30.0; t = np.arange(300) / fps; s = 1.2 * t                                # 10 s of walking at 1.2 m/s
+    heading = np.radians(35.0); bob = 0.03 * np.sin(2 * np.pi * 1.8 * t)
+    level = np.c_[s * np.cos(heading), 0.9 + bob, s * np.sin(heading)]
+    assert path_slope_deg(level, fps) < 0.5
+    ramp = level.copy(); ramp[:, 1] -= np.tan(np.radians(12.0)) * s                  # the pelvis sinks as the walker goes
+    assert abs(path_slope_deg(ramp, fps) - 12.0) < 0.5
+    out_back = np.r_[ramp, ramp[::-1]]                                               # there and back on the same ramp
+    assert abs(path_slope_deg(out_back, fps) - 12.0) < 0.5
+    assert path_slope_deg(level[:40], fps) is None                                   # 1.6 m: too short to say
+    still = np.tile(level[:1], (300, 1))
+    assert path_slope_deg(still, fps) is None
