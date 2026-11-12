@@ -323,9 +323,13 @@ def panel_preview(path: str | Path, panels: list[dict], out_png: str | Path, mod
         img = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     if mode == "edges":   # two levels again after the resize: a textured scene (grass, gravel) must stay a line drawing
         img = cv2.cvtColor(np.where(img >= 96, 255, 0).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    cols = [(60, 220, 60), (60, 160, 255), (220, 60, 220)]
     for k, p in enumerate(panels):
-        x0, y0, x1, y1 = (int(round(v * s)) for v in p["box"]); col = [(60, 220, 60), (60, 160, 255), (220, 60, 220)][k % 3]
+        x0, y0, x1, y1 = (int(round(v * s)) for v in p["box"]); col = cols[k % 3]
         cv2.rectangle(img, (x0, y0), (x1 - 1, y1 - 1), col, 3)
         cv2.putText(img, f"{p['id']} {p['box'][2] - p['box'][0]}x{p['box'][3] - p['box'][1]}", (x0 + 8, y0 + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, col, 2)
+    if mode == "edges":   # exactly black, white and the box colours: OpenCV 5 draws text with blended edges whatever the line type
+        pal = np.array([(0, 0, 0), (255, 255, 255)] + cols, np.int32)
+        img = pal[np.argmin(((img[:, :, None, :].astype(np.int32) - pal) ** 2).sum(-1), axis=2)].astype(np.uint8)
     Path(out_png).parent.mkdir(parents=True, exist_ok=True); cv2.imwrite(str(out_png), img)
     return str(out_png)
