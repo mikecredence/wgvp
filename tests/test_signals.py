@@ -214,6 +214,29 @@ def test_panel_detection(tmp_path):
     assert pan3["layout"] == "single" and abs(pan3["panels"][0]["box"][1] - 60) <= 12, pan3
 
 
+def test_single_view_with_a_wall_corner_is_not_split(tmp_path):
+    """One still camera, a hard vertical scene edge mid-frame (a wall corner) and a walker crossing it: one view, and
+    its edge-map preview passes the privacy check even though the whole frame is textured."""
+    import cv2
+    from wgvp.qc import is_skeleton_only
+    from wgvp.video_io import detect_panels, panel_preview
+    rng = np.random.default_rng(11)
+    W, H, C = 1280, 720, 700
+    bg = np.empty((H, W), np.uint8); bg[:, :C] = 70; bg[:, C:] = 190
+    bg = bg + rng.normal(0, 12, (H, W))                                          # grass-like grain everywhere
+    out = tmp_path / "corner.mp4"; w = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), 30, (W, H))
+    for f in range(240):
+        fr = np.repeat(np.clip(bg + rng.normal(0, 14, (H, W)), 0, 255).astype(np.uint8)[..., None], 3, 2)   # sensor noise
+        x = int(C + 160 * np.sin(2 * np.pi * f / 240)); cv2.rectangle(fr, (x - 40, 300), (x + 40, 440), (130, 130, 130), -1)
+        w.write(fr)
+    w.release()
+    pan = detect_panels(out)
+    assert pan["detail"]["score"] >= 1.6, pan          # the corner alone scores as a seam
+    assert pan["layout"] == "single" and pan["detail"].get("vetoed"), pan
+    png = panel_preview(out, pan["panels"], tmp_path / "preview.png", mode="edges")
+    assert is_skeleton_only(Path(png))
+
+
 def test_skeleton_only_accepts_dense_renders_and_rejects_photos(tmp_path):
     """The privacy check must pass a crowd of skeletons (many lines, few colours) and fail anything photographic."""
     import cv2

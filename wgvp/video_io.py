@@ -214,6 +214,8 @@ def detect_panels(path: str | Path, n_samples: int = 40, black_level: int = 28, 
        two independent views do not co-vary across the seam - combined with a jump in the non-black row (column)
        extent (letterboxing differs between panels);
     3. panel boxes = the tight non-black box on each side of the seam. Falls back to a single panel.
+    4. veto: a seam that moving content crosses is a scene edge inside one view (a wall corner, a post), not a seam -
+       nothing moves from one tiled view into the other. Black separator bands are exempt.
     Boxes are in full-resolution pixels [x0, y0, x1, y1] (x1/y1 exclusive).
     """
     F, idx = sample_frames(path, n_samples)
@@ -246,17 +248,25 @@ def detect_panels(path: str | Path, n_samples: int = 40, black_level: int = 28, 
         jump = np.abs(np.diff(ext))                                   # letterboxing differs between panels
         score = np.where(valid, np.log1p(edge_ratio) * (1 - 0.5 * np.clip(np.nan_to_num(corr, nan=0.0), 0, 1)) + 0.5 * jump, 0.0)
         # black separator bands strictly inside the content extent with content on both sides
-        content_lines = np.where(ext >= 0.5)[0]
+        content_lines = np.where(ext >= 0.5)[0]; seps = set()
         if len(content_lines):
             lo_c, hi_c = content_lines[0], content_lines[-1]
             for s0, s1 in _runs(ext < 0.2, 1):
                 if s0 > lo_c and s1 - 1 < hi_c and ext[max(lo_c, s0 - 4):s0].max() >= 0.5 and ext[s1:min(hi_c + 1, s1 + 4)].max() >= 0.5:
-                    score[max(0, (s0 + s1) // 2 - 1)] = max(score[max(0, (s0 + s1) // 2 - 1)], 3.0)
-        return score, corr, ext, edge_ratio
+                    score[max(0, (s0 + s1) // 2 - 1)] = max(score[max(0, (s0 + s1) // 2 - 1)], 3.0); seps.add(max(0, (s0 + s1) // 2 - 1))
+        return score, corr, ext, edge_ratio, seps
+
+    def crossings(axis: int, i: int, level: float = 20.0, min_len: float = 0.04) -> tuple[int, int]:
+        """Frames in which moving content (pixels off their temporal median) sits on both sides of boundary i|i+1 at
+        the same positions, and frames in which it sits on either side. -> (both, either)."""
+        A = X if axis == 1 else np.transpose(X, (0, 2, 1))
+        fg = np.abs(A - np.median(A, 0)) > level
+        a = fg[:, :, max(0, i - 2):i].any(2); b = fg[:, :, i + 3:i + 5].any(2); n = min_len * A.shape[1]
+        return int(((a & b).sum(1) >= n).sum()), int(((a | b).sum(1) >= n).sum())
 
     best = None
     for axis, name in ((1, "horizontal"), (0, "vertical")):
-        score, corr, ext, edge_ratio = seam_profile(axis)
+        score, corr, ext, edge_ratio, seps = seam_profile(axis)
         L = len(score) + 1
         lo, hi = int(min_panel_frac * L), int((1 - min_panel_frac) * L)
         if hi <= lo + 2:
@@ -267,12 +277,20 @@ def detect_panels(path: str | Path, n_samples: int = 40, black_level: int = 28, 
                 s[i] = -1
         i = int(np.argmax(s))
         cand = {"layout": name, "seam_small": i + 1, "score": float(s[i]), "corr_at_seam": float(corr[i]) if np.isfinite(corr[i]) else None,
-                "edge_ratio_at_seam": float(edge_ratio[i]), "median_corr": float(np.nanmedian(corr)) if np.isfinite(corr).any() else None}
+                "edge_ratio_at_seam": float(edge_ratio[i]), "median_corr": float(np.nanmedian(corr)) if np.isfinite(corr).any() else None,
+                "separator": i in seps, "axis": axis}
         if best is None or cand["score"] > best["score"]:
             best = cand
     out = {"width": W, "height": H, "n_samples": len(idx), "panels": [], "layout": "single", "seam": None, "detail": best}
     full = _content_box(nonblack, 0, w, 0, h)
-    if best is not None and best["score"] >= seam_min_score:
+    if best is not None and best["score"] >= seam_min_score and not best["separator"]:
+        both, either = crossings(best.pop("axis"), best["seam_small"] - 1)
+        best["frames_crossing_seam"] = [both, either]
+        if both >= 2 and both >= 0.2 * either:
+            best["vetoed"] = "moving content crosses the candidate seam: a scene edge inside one view"
+    if best is not None:
+        best.pop("axis", None)
+    if best is not None and best["score"] >= seam_min_score and not best.get("vetoed"):
         c = best["seam_small"]
         if best["layout"] == "horizontal":
             boxes = [("left", _content_box(nonblack, 0, c, 0, h)), ("right", _content_box(nonblack, c, w, 0, h))]
@@ -292,21 +310,22 @@ def detect_panels(path: str | Path, n_samples: int = 40, black_level: int = 28, 
 
 
 def panel_preview(path: str | Path, panels: list[dict], out_png: str | Path, mode: str = "edges", frame: int = 0, max_width: int = 1400) -> str:
-    """PNG of one frame with the panel boxes drawn; mode 'edges' (Canny, no photographic pixels) or 'pixels'."""
+    """PNG of one frame with the panel boxes drawn; mode 'edges' (two-level Canny map, no photographic pixels) or 'pixels'."""
     img = None
     for i, pts, fr in iter_frames(path, start=frame, end=frame + 1):
         img = fr
     if img is None:
         raise RuntimeError("frame not readable")
-    if mode == "edges":
-        e = cv2.Canny(cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0), 60, 140)
-        img = cv2.cvtColor(e, cv2.COLOR_GRAY2BGR)
-    for k, p in enumerate(panels):
-        x0, y0, x1, y1 = p["box"]; col = [(60, 220, 60), (60, 160, 255), (220, 60, 220)][k % 3]
-        cv2.rectangle(img, (x0, y0), (x1 - 1, y1 - 1), col, 3)
-        cv2.putText(img, f"{p['id']} {x1 - x0}x{y1 - y0}", (x0 + 8, y0 + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, col, 2)
     s = min(1.0, max_width / img.shape[1])
+    if mode == "edges":
+        img = cv2.Canny(cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0), 60, 140)
     if s < 1:
         img = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+    if mode == "edges":   # two levels again after the resize: a textured scene (grass, gravel) must stay a line drawing
+        img = cv2.cvtColor(np.where(img >= 96, 255, 0).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    for k, p in enumerate(panels):
+        x0, y0, x1, y1 = (int(round(v * s)) for v in p["box"]); col = [(60, 220, 60), (60, 160, 255), (220, 60, 220)][k % 3]
+        cv2.rectangle(img, (x0, y0), (x1 - 1, y1 - 1), col, 3)
+        cv2.putText(img, f"{p['id']} {p['box'][2] - p['box'][0]}x{p['box'][3] - p['box'][1]}", (x0 + 8, y0 + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, col, 2)
     Path(out_png).parent.mkdir(parents=True, exist_ok=True); cv2.imwrite(str(out_png), img)
     return str(out_png)

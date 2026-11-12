@@ -13,9 +13,12 @@ Per video (CPU, one decode pass, cached by file hash):
    difference across the boundary where both sides are content, relative to a typical boundary), tempered by the
    temporal co-fluctuation of the two sides (independent views do not co-vary) and with a bonus for a change of
    letterboxing; black separator bands between two content regions are explicit candidates. Horizontal versus
-   vertical by the better score; otherwise a single view. Each panel's content box trims edge-adjacent all-black
+   vertical by the better score; otherwise a single view. A seam that moving content crosses is vetoed (pixels off
+   their temporal median on both sides of the boundary at the same positions, in at least two sampled frames and a
+   fifth of the frames with motion at the boundary): nothing moves from one tiled view into the other, so such a
+   line is a wall corner or a post inside one view. Separator bands are exempt. Each panel's content box trims edge-adjacent all-black
    lines only, so a black walkway mat inside a view is not taken for a border. The boxes are written to the QC and
-   drawn on an edge-map preview; `views.override` in the config forces boxes per file.
+   drawn on a two-level edge-map preview; `views.override` in the config forces boxes per file.
 2. **Tracking per view.** YOLOv8n-pose + ByteTrack (one tracker per view), frames downscaled to 960 px for the
    detector, keypoints reported in full-frame pixels, with per detection a torso colour histogram (12 x 4 H-S bins,
    for re-identification only, kept in `work/`) and a visibility class (full: shoulders, hips and ankles seen;
@@ -164,7 +167,8 @@ scores > 0.4 lower; double-integration phase; light-step detection and rejection
 search under exposure drift; the selection and sync decision rules; two-view reconciliation with different frame
 rates; the privacy check; folder-scan conventions (subject folders, task families, candidate videos, label export,
 unmatched files); panel detection on a 520 + 900 x 500 letterboxed frame, a stacked layout with a black separator
-and side bars, and a single letterboxed view; the fabricated example recording read back through the IMU reader.
+and side bars, a single letterboxed view, and a single view with a wall corner mid-frame that a walker crosses;
+the fabricated example recording read back through the IMU reader.
 
 ### 2.2 Panel detection on the real layout
 
@@ -1541,7 +1545,7 @@ with the camera's rotation per frame among the unknowns, is what these two findi
 the true-camera column is the case for measuring it once per room, or for carrying one fitted pose across a session's
 recordings instead of fitting each alone. The scale, from the subject's height. The seated root. The walkway path
 (`transl_mat`) is not refitted and is taken from the merge. A mirrored view is handled in the code and tested on
-fabricated data only. The body IMUs are not used here either. The suite is at 93 tests (ten for the fit on a
+fabricated data only. The body IMUs are not used here either. The suite is at 94 tests (ten for the fit on a
 synthetic two-camera walker, one for the centred moving average).
 
 ## 3. What has not been tested on real clinic recordings
