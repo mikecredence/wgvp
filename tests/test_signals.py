@@ -235,6 +235,9 @@ def test_single_view_with_a_wall_corner_is_not_split(tmp_path):
     assert pan["layout"] == "single" and pan["detail"].get("vetoed"), pan
     png = panel_preview(out, pan["panels"], tmp_path / "preview.png", mode="edges")
     assert is_skeleton_only(Path(png))
+    three = [{"id": n, "box": [x, 0, x + 420, H]} for n, x in (("left", 0), ("middle", 430), ("right", 860))]   # three labels: the drawing stays on its palette
+    png3 = panel_preview(out, three, tmp_path / "preview3.png", mode="edges")
+    assert is_skeleton_only(Path(png3)) and len(np.unique(cv2.imread(png3).reshape(-1, 3), axis=0)) <= 5
 
 
 def test_skeleton_only_accepts_dense_renders_and_rejects_photos(tmp_path):
