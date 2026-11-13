@@ -14,7 +14,7 @@ import pytest
 from scipy.spatial.transform import Rotation as R
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wgvp.cli import main as cli_main   # noqa: E402
+from wgvp.cli import main as cli_main, merged_sessions   # noqa: E402
 from wgvp.fusion import geodesic   # noqa: E402
 from wgvp.jointfit import (KPJ, KPS, KP_MIRROR, body_joints, jointfit_recording, kabsch, level_axis, lift_up, load_skeleton, load_views,   # noqa: E402
                            mean_skeleton, unmirror_view, up_from_levels)
@@ -195,3 +195,12 @@ def test_cli_needs_the_model_file(tmp_path, capsys):
     d = tmp_path / "wgvp_output" / "Sub 001" / "deliver" / "Rec05"; _recording(d)
     assert cli_main(["jointfit", str(tmp_path), "--body-models", str(tmp_path / "no_models")]) == 1 and "SMPLX_NEUTRAL" in capsys.readouterr().out
     assert not (d / "jointfit_smpl.npz").exists()
+
+
+def test_the_demo_finds_its_sessions_without_being_told(tmp_path):
+    """`wgvp demo <root>` with no --session renders every session that holds a merged recording: the session is the
+    folder two above the recording's, not the `deliver` folder between them."""
+    for sid, rec in (("Sub 001", "Sub001_selfpace"), ("Sub 001", "Sub001_tug"), ("Sub 002", "Sub002_selfpace")):
+        d = tmp_path / "wgvp_output" / sid / "deliver" / rec; d.mkdir(parents=True); (d / "merged_smpl.npz").write_bytes(b"")
+    (tmp_path / "wgvp_output" / "Sub 003" / "deliver" / "Sub003_selfpace").mkdir(parents=True)      # lifted, not merged
+    assert merged_sessions(tmp_path) == ["Sub 001", "Sub 002"] and merged_sessions(tmp_path / "nothing") == []

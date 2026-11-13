@@ -9,6 +9,11 @@ from pathlib import Path
 from . import __version__
 
 
+def merged_sessions(root: Path) -> list[str]:
+    """The sessions under <root>/wgvp_output that hold a merged recording (deliver/<recording>/merged_smpl.npz)."""
+    return sorted({d.parents[2].name for d in (Path(root) / "wgvp_output").glob("*/deliver/*/merged_smpl.npz")})
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     ap = argparse.ArgumentParser(prog="wgvp", description=f"WearGait video-to-pose pipeline {__version__}")
@@ -71,8 +76,7 @@ def main(argv=None):
         build_summary(root, cfg, gvhmr=r); return 0 if r.get("returncode", 1) == 0 else 1
     if a.cmd == "demo":
         from .demo import render_demo
-        root = Path(a.root); sessions = [a.session] if a.session else sorted(d.parent.parent.name for d in (root / "wgvp_output").glob("*/deliver/*/merged_smpl.npz"))
-        sessions = sorted(set(sessions))
+        root = Path(a.root); sessions = [a.session] if a.session else merged_sessions(root)
         if not sessions:
             print("no merged recording under wgvp_output (run the GPU stage, then `wgvp merge`)"); return 1
         for sid in sessions:

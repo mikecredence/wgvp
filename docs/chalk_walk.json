@@ -2,6 +2,7 @@
  "OWN03, lenses 26.2 and 30.4 mm": {
   "truth": {
    "view": "left",
+   "from_another_run": false,
    "distance_m": 3.9624,
    "marks_px": [
     [
@@ -28,6 +29,14 @@
     20.93,
     26.43
    ],
+   "by_height": {
+    "subject_height_m": 1.651,
+    "box_m": 1.6642080000000001,
+    "distance_in_boxes": 2.5918682878089476,
+    "distance_m": 4.313407939517954,
+    "camera_height_m": 0.8374867415799732,
+    "slope_factor": 0.9186239872417028
+   },
    "vanishing_point_px": [
     974.1926605504588,
     474.91743119266056
@@ -80,7 +89,12 @@
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9550363492440954
+    "slope_in_body_heights": 0.9550363492440954,
+    "slope_body_rescaled": 1.0313868447127508,
+    "by_height": {
+     "slope": 1.0217397687985619,
+     "slope_body_rescaled": 0.9474566956786659
+    }
    },
    "joint fit": {
     "n": 765,
@@ -109,7 +123,12 @@
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0431508222961847
+    "slope_in_body_heights": 1.0431508222961847,
+    "slope_body_rescaled": 1.1265456398797118,
+    "by_height": {
+     "slope": 1.0883942204096675,
+     "slope_body_rescaled": 1.0348718475160563
+    }
    },
    "left alone, lifter path": {
     "n": 765,
@@ -138,7 +157,12 @@
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9424180433025674
+    "slope_in_body_heights": 0.9424180433025674,
+    "slope_body_rescaled": 1.017759766789535,
+    "by_height": {
+     "slope": 1.00824015173631,
+     "slope_body_rescaled": 0.9349385350223881
+    }
    },
    "left alone, keypoint fit": {
     "n": 765,
@@ -167,7 +191,12 @@
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0170906612022512
+    "slope_in_body_heights": 1.0170906612022512,
+    "slope_body_rescaled": 1.098402096081979,
+    "by_height": {
+     "slope": 1.075267038531935,
+     "slope_body_rescaled": 1.0090185130974716
+    }
    },
    "right alone, lifter path": {
     "n": 765,
@@ -196,7 +225,12 @@
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0172356503291824
+    "slope_in_body_heights": 1.0172356503291824,
+    "slope_body_rescaled": 1.0985586763820498,
+    "by_height": {
+     "slope": 1.090685390620825,
+     "slope_body_rescaled": 1.009162351517046
+    }
    },
    "right alone, keypoint fit": {
     "n": 765,
@@ -225,7 +259,12 @@
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.284978655886974
+    "slope_in_body_heights": 1.284978655886974,
+    "slope_body_rescaled": 1.387706428627006,
+    "by_height": {
+     "slope": 1.3587023995313952,
+     "slope_body_rescaled": 1.2747804125862838
+    }
    }
   },
   "body_m": {
@@ -736,6 +775,292 @@
    "reproj_px_median": [
     3.94454288482666,
     5.566803932189941
+   ],
+   "seen_both_frac": 1.0
+  }
+ },
+ "OWN03, side view cut below the head": {
+  "truth": {
+   "view": "left",
+   "from_another_run": true,
+   "distance_m": 3.9624,
+   "marks_px": [
+    [
+     148.0,
+     829.0
+    ],
+    [
+     246.0,
+     787.0
+    ],
+    [
+     1783.0,
+     758.0
+    ],
+    [
+     1703.0,
+     730.0
+    ]
+   ],
+   "turns_s": [
+    5.37,
+    10.43,
+    15.8,
+    20.93,
+    26.43
+   ],
+   "by_height": {
+    "subject_height_m": 1.651,
+    "box_m": 1.6642080000000001,
+    "distance_in_boxes": 2.5918682878089476,
+    "distance_m": 4.313407939517954,
+    "camera_height_m": 0.8374867415799732,
+    "slope_factor": 0.9186239872417028
+   },
+   "vanishing_point_px": [
+    974.1926605504588,
+    474.91743119266056
+   ],
+   "ground_rise_deg": 2.6580139183604716,
+   "level": {
+    "camera_height_m": 0.7633981651376147,
+    "lines_m": [
+     -1.7812623853211011,
+     2.1811376146788994
+    ],
+    "stature_m": 1.5263354292250284,
+    "stature_sd_m": 0.11003786892026034
+   },
+   "sloped": {
+    "camera_height_m": 0.7693354098122565,
+    "lines_m": [
+     -2.0532470165558774,
+     1.9091529834441228
+    ],
+    "stature_m": 1.5287813885595398,
+    "stature_sd_m": 0.017008954583114872
+   }
+  },
+  "estimates": {
+   "merge": {
+    "n": 765,
+    "slope": 1.1919674834993819,
+    "rms_m": 0.14001050694567058,
+    "off_axis_rms_m": 0.13023341977375705,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.382577597084792,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.8866420715039975,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.892364880740667,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.458042170963655,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0209523853556521,
+    "slope_body_rescaled": 1.102572546235923,
+    "by_height": {
+     "slope": 1.0949699223546607,
+     "slope_body_rescaled": 1.0128495886464803
+    }
+   },
+   "joint fit": {
+    "n": 765,
+    "slope": 1.264279390769065,
+    "rms_m": 0.04648042062924288,
+    "off_axis_rms_m": 0.04473628676109702,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.568950492132237,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 5.377918326949178,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 5.2248101903341,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.897601517217985,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0694727261328485,
+    "slope_body_rescaled": 1.1549718514751306,
+    "by_height": {
+     "slope": 1.1613973749357893,
+     "slope_body_rescaled": 1.0609848473540162
+    }
+   },
+   "left alone, lifter path": {
+    "n": 765,
+    "slope": 1.1862175119097507,
+    "rms_m": 0.12812011912941554,
+    "off_axis_rms_m": 0.19967832189852788,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.31204567069936,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.841099279094749,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.878907542501564,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.431086661479,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9997409487706097,
+    "slope_body_rescaled": 1.0796653588094054,
+    "by_height": {
+     "slope": 1.0896878605264673,
+     "slope_body_rescaled": 0.9918064967962398
+    }
+   },
+   "left alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.263133713806866,
+    "rms_m": 0.03995285099031479,
+    "off_axis_rms_m": 0.0784496299014967,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.722808460779962,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 5.3190233392439445,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 5.216541630423221,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.871721508536399,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0546202227270056,
+    "slope_body_rescaled": 1.1389319629033896,
+    "by_height": {
+     "slope": 1.1603449285966831,
+     "slope_body_rescaled": 1.046250220959331
+    }
+   },
+   "right alone, lifter path": {
+    "n": 765,
+    "slope": 1.183866377237331,
+    "rms_m": 0.24741335303256462,
+    "off_axis_rms_m": 0.12756050177080797,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.183349997377954,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.647363663802243,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.945475773537813,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.367441421694969,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0140135687547338,
+    "slope_body_rescaled": 1.0950790051097385,
+    "by_height": {
+     "slope": 1.0875280518191468,
+     "slope_body_rescaled": 1.005965842018585
+    }
+   },
+   "right alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.48265327143074,
+    "rms_m": 0.10388388686094448,
+    "off_axis_rms_m": 0.04266200198217476,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 6.388934970304212,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 6.156921668666466,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 6.094184715923346,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 5.602990350487309,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.2859599591963224,
+    "slope_body_rescaled": 1.3887661823470985,
+    "by_height": {
+     "slope": 1.362000859898661,
+     "slope_body_rescaled": 1.2757539277741292
+    }
+   }
+  },
+  "body_m": {
+   "merge": 1.784860617086678,
+   "joint fit": 1.8072520741469098,
+   "left alone, lifter path": 1.813937157641755,
+   "left alone, keypoint fit": 1.8310433190222386,
+   "right alone, lifter path": 1.784860617086678,
+   "right alone, keypoint fit": 1.7626153216051965
+  },
+  "camera_b": {
+   "baseline_m": 6.258814320090183,
+   "axis_angle_deg": 91.69234995914029,
+   "reproj_px_median": [
+    5.638735771179199,
+    4.505859375
    ],
    "seen_both_frac": 1.0
   }

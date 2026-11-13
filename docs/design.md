@@ -167,7 +167,8 @@ scores > 0.4 lower; double-integration phase; light-step detection and rejection
 search under exposure drift; the selection and sync decision rules; two-view reconciliation with different frame
 rates; the privacy check; folder-scan conventions (subject folders, task families, candidate videos, label export,
 unmatched files); panel detection on a 520 + 900 x 500 letterboxed frame, a stacked layout with a black separator
-and side bars, a single letterboxed view, and a single view with a wall corner mid-frame that a walker crosses;
+and side bars, a single letterboxed view, a single view with a wall corner mid-frame that a walker crosses, and a
+view that fills only a strip of the frame beside a full-height view;
 the fabricated example recording read back through the IMU reader.
 
 ### 2.2 Panel detection on the real layout
@@ -1562,7 +1563,7 @@ scale turns on it (below). Neither lens is measured: the tablet was run at 26.2 
 heading or the path off the walk's axis.
 
 **The pipeline on it.** Nothing was changed for the recording. The merge passes its checks and exports 100 % of the
-930 frames. The joint fit ends with a median reprojection of 4.1 and 6.8 px in the two panels, sets the phone 5.79 m
+930 frames. The joint fit ends with a median reprojection of 4.1 and 7.8 px in the two panels, sets the phone 5.79 m
 from the tablet with the two optical axes 90.4 deg apart, and has both views on the walker in every frame.
 
 **The truth.** The two chalk lines are parallel on the ground, so their images meet at a vanishing point on the
@@ -1641,13 +1642,183 @@ number per subject, it removes the common factor, and it leaves the 5 % and 4 % 
 how the 13 ft was measured. A scale taken from a measured height. A truth for the joint angles on real video, which
 needs markers or body IMUs. A recording with the cameras where a clinic has them (one high to the side, one along
 the walkway), with the lenses read. The suite is at 98 tests (four for the chalk truth on a synthetic camera over
-level and rising ground).
+level and rising ground). Section 2.17 has the subject's height and what it changes.
+
+### 2.17 Round ten: the walker's height, the side view cut below the head, and a wider panel detector (2026-11-12)
+
+Round nine left OWN03's height open. It is now on record: the subject stands 1.651 m (65 in). They also report that
+the chalk lines were "probably just over 13 feet" apart, from the middle of one line to the middle of the other, and
+that the tablet stood on a box and looked down a little. This round reads the recording again with the height, then
+repeats it with the side view cut below the head, as a clinic's side camera frames a walker, to see what the end view
+then has to carry. Three things could not be checked. The height and the 13 ft disagree by 8.8 %, and the recording
+cannot say which is off. The cut run has no truth of its own: it is scored against the truth read from the full side
+view of the same frames. And there is still no truth for the neck, head or arms on real video, so what the cut does to
+them is measured as a change and not as an error.
+
+**The height against the tape.** The picture puts the lines 2.592 walker boxes apart (2.16). A walker of 1.651 m has a
+box of 1.664 m in mid-stride with shoes on (0.990 of the standing height, plus 0.03 m). That puts the lines 4.313 m
+apart (14.15 ft) and not 3.962 m, and the tablet 0.84 m over the pavement and not 0.77 m. Read the other way, lines 13
+ft apart need a walker of 1.52 m. These were checked and do not close the gap: the tablet's tilt (the lines' vanishing
+point is 65 px above the picture's centre, about 2.7 deg of downward tilt, which agrees with the subject's account and
+moves the gauge by 1.2 % the wrong way); where on the shoe the box ends (1.1 %); the clicks (0.4 %); slack in the
+tracked box; a lens that bends lines; the width of the chalk. The height is the firmer of the two numbers, so
+`tools/chalk_walk.py` now prints the reading that trusts it beside the other (`--subject-height-m`), each as delivered
+and with the body rescaled to the subject's height (slope = estimate on truth, 765 frames):
+
+| estimate | 13 ft trusted, as delivered | 13 ft, body rescaled | height trusted, as delivered | height, body rescaled |
+|---|---|---|---|---|
+| merge | 1.112 | 1.031 | 1.022 | 0.947 |
+| joint fit | 1.185 | 1.127 | 1.088 | 1.035 |
+| side view alone, lifter's path | 1.098 | 1.018 | 1.008 | 0.935 |
+| side view alone, keypoint fit | 1.171 | 1.098 | 1.075 | 1.009 |
+| end view alone, lifter's path | 1.187 | 1.099 | 1.091 | 1.009 |
+| end view alone, keypoint fit | 1.479 | 1.388 | 1.359 | 1.275 |
+
+With the height trusted the bodies are 7.8 % (the lifter's, 1.780 m) and 5.1 % (the joint fit's, 1.736 m) too tall,
+not 15 to 18 %. As delivered, the merge then reads the walk 2 % long and the joint fit 9 % long: the merge's short
+path and tall body nearly cancel, and the fit's two errors add. Rescaled to the subject they read 5 % short and 4 %
+long, which is the body-height column of 2.16 again, as it has to be. The choice made in 2.16 stands. Its "larger
+finding" depends on which number is right: in metres the two targets are 2 and 9 % long if the height is, 11 and 19 %
+if the tape is. Measuring the lines again would settle it.
+
+**The side view cut below the head.** Rows 300 to 880 of the side picture's 1080 were kept and tiled as a strip (1920
+x 580) beside the full-height end view, which is untouched. In the full run the top of the walker's head sits at row
+157 at the median (120 and 198 at the 10th and 90th percentiles) and the shoulder keypoints at row 278 (246 and 325).
+So the head is out of the picture in every frame, and the cut passes through the shoulders or the upper chest: the
+full run's shoulder keypoints are above it in 73 % of the frames, by 22 px at the median, a tenth of the length from
+shoulders to hips. A fixed crop cannot do better, because the walker's shoulders move through about 80 rows along the
+walk. The strip's lens was set to keep the picture's scale; the stage rounds a lens to whole millimetres, which leaves
+the focal length 1.5 % apart (1344 against 1324 px). The strip's centre is 50 px below the camera's, 2.2 deg of tilt
+that the lifter is not told about. Nothing in the pipeline was changed for the run, but the panel detector had to be
+fixed before it would start (below).
+
+**What the merge took from each view.**
+
+| | full side view | side view cut |
+|---|---|---|
+| reference view | side | end |
+| frames exported | 100 % | 100 % |
+| root: share taken from the side / end view | 0.51 / 0.49 | 0.47 / 0.53 |
+| legs: from both views / the end view alone | 99.6 / 0.4 % | 99.3 / 0.6 % |
+| spine: both / end alone / side alone | 96.3 / 0 / 3.7 % | 79.6 / 17.1 / 3.3 % |
+| neck and head: both / end alone / side alone | 96.6 / 0 / 3.4 % | 79.9 / 17.1 / 3.0 % |
+| arms: both / end alone / side alone | 95.7 / 0.9 / 3.4 % | 89.8 / 7.0 / 3.2 % |
+| the two views' paths apart, median (m) | 0.33 | 0.21 |
+
+The end view gained less than the cut suggests. The reference passed to it (the merge takes the view with more usable
+joints), and the trunk, neck and head came from it alone in 17 % of the frames. In the other 80 % the side view's neck
+and head were still mixed in, although that view never shows the head (below).
+
+**Scores against the chalk truth** (765 frames, lines at 13 ft, as delivered; with the height trusted every slope is
+0.919 of the one shown):
+
+| estimate | slope, full / cut | spread about that line (m) | off the walk's axis (m) | body (m) |
+|---|---|---|---|---|
+| merge | 1.112 / 1.192 | 0.041 / 0.140 | 0.118 / 0.130 | 1.780 / 1.785 |
+| joint fit | 1.185 / 1.264 | 0.035 / 0.046 | 0.042 / 0.045 | 1.736 / 1.807 |
+| side view alone, lifter's path | 1.098 / 1.186 | 0.063 / 0.128 | 0.119 / 0.200 | 1.780 / 1.814 |
+| side view alone, keypoint fit | 1.171 / 1.263 | 0.022 / 0.040 | 0.046 / 0.078 | 1.759 / 1.831 |
+| end view alone, lifter's path | 1.187 / 1.184 | 0.267 / 0.247 | 0.121 / 0.128 | 1.784 / 1.785 |
+| end view alone, keypoint fit | 1.479 / 1.483 | 0.105 / 0.104 | 0.043 / 0.043 | 1.760 / 1.763 |
+
+How far each pose moved between the two runs (deg, median with the 90th percentile in brackets; the side view alone is
+the lift of that view before any merging):
+
+| joints | merge | joint fit | side view alone |
+|---|---|---|---|
+| legs | 1.6 (3.6) | 1.5 (3.3) | 4.2 (7.5) |
+| spine | 1.3 (2.6) | 1.4 (2.8) | 2.7 (6.1) |
+| neck and head | 6.0 (11.3) | 6.0 (11.3) | neck 16.6 (22.9), head 10.8 (16.3) |
+| arms | 3.8 (7.7) | 3.6 (6.9) | shoulders 7.7 (12.7), elbows 10.0 (31.3), wrists 8.2 (16.6) |
+| root, after one yaw between the runs' worlds | 2.3 (3.8) | 2.1 (3.5) | |
+
+**What the cut did.**
+
+1. Both targets' paths grew by about 7 % (the merge's by 7.2 %, the joint fit's by 6.7 %), and the side view is the
+   cause. Its lifter puts the cut walker 9.6 % further from the camera (median depth 3.80 to 4.16 m; 8 % once the 1.5
+   % in the focal length is taken out) and gives the body another shape, and its path grows by 8.0 %. The end view's
+   lift is the same within 0.3 %. The walker's box is 23 % shorter without the head, and the lifter reads depth from
+   the box: that it allows for most of a cut body and not all of it is the likely reason, and it was not isolated. The
+   side view's keypoint fit grows by the same 7.9 %, with a body 4 % taller. Rescaling to the subject's height removes
+   little of this from the merge (0.947 to 1.013, still 7.0 %) and more than half from the joint fit (1.035 to 1.061,
+   2.5 %). So on this recording a side camera that cuts the head reads the walk 7 to 8 % longer than one that shows
+   the whole body.
+2. The merge's path lost its shape and the fit's did not. The merge's spread about its line rose from 0.041 to 0.140
+   m: its four passes read 5.38, 4.89, 4.89 and 4.46 m where the full view gave 4.91, 4.74, 4.67 and 4.32, so the
+   first pass grew by 0.47 m and the others by 0.14 to 0.22 m. Its reference is now the end view, whose own lifted
+   path has a spread of 0.25 m, and the cut side view's spread doubled. The joint fit's spread stayed under 0.05 m and
+   its path stayed straight. In metres the merge is still the nearer of the two in every reading (1.192 against 1.264
+   with the tape trusted, 1.095 against 1.161 with the height).
+3. The legs held. The merge's leg joints moved by 1.6 deg at the median; its knee flexion differs from the full run's
+   by 1.8 deg rms (correlation 0.993) and its hip flexion by 2.2 deg (0.991), and the joint fit's by 1.8 and 2.0 deg.
+   The side view by itself moved its legs by 4.2 deg, so the second view takes up more than half of what the cut does
+   to them.
+4. The neck, head and arms moved, by 6.0 and 3.8 deg at the median in the merge and the same in the joint fit. In the
+   side view alone the neck moved by 16.6 deg and an elbow by 10.0 (31.3 at the 90th percentile). There is no truth
+   for these joints here.
+5. The joint fit found the same pair of cameras. The two runs' self-calibrated poses agree within 1.3 deg in rotation
+   and 1.3 deg in the direction between the cameras; the distance between them went from 5.79 to 6.26 m, 8 % more,
+   like the side view's depth. The median reprojection is 4.5 px in the strip and 6.5 px in the end view (4.1 and 7.8
+   px in the full run), and both views have the walker complete in 93 % of the frames (98 %).
+
+**A neck taken from a view that does not show it.** The usable-joint rule judges the neck and head by the shoulder
+keypoints (face keypoints are dropped by design), with a margin of 4 px at the top of the picture (2.13). In the cut
+run the keypoint model still marks shoulders, 7 px below the top edge at the median (4 and 25 at the 10th and 90th
+percentiles) and with a confidence of 0.62 where the full view has 0.97, although the true shoulders are above the
+edge in 73 % of the frames. So the trunk passes the rule in 83 % of the side view's frames, and the neck and head that
+go into the merge from that view are the lifter's guess. Section 2.13 found the same on rendered views. It was
+measured again on the six rendered sessions (15,446 view frames), by how far the shoulder keypoints are below the top
+edge in trunk lengths (r; median error against the truth, deg):
+
+| r | view frames | neck | head | upper spine |
+|---|---|---|---|---|
+| under 0.05 | 1658 | 27.2 | 17.5 | 6.4 |
+| 0.05 to 0.15 | 2322 | 21.2 | 10.0 | 5.0 |
+| 0.15 to 0.25 | 841 | 17.1 | 8.5 | 5.4 |
+| 0.25 to 0.35 | 1201 | 14.2 | 11.7 | 8.3 |
+| 0.35 to 0.65 | 3902 | 11.1 to 11.5 | 8.6 to 10.4 | 5.2 to 5.5 |
+| 0.65 to 1.0 | 814 | 10.7 to 14.6 | 10.9 to 11.3 | 6.8 to 7.8 |
+| 1.0 to 1.5 | 1026 | 17.2 | 22.8 | 10.1 |
+| 1.5 and over | 3661 | 11.6 | 7.8 | 7.5 |
+
+A neck whose shoulders are within 0.15 trunk lengths of the edge is 21 to 27 deg off, twice what it is with the head
+in the picture, and the spine does not care. (The row at 1.0 to 1.5 is out of line; half of its frames fail the usable
+rule already, and it was not looked into.) OWN03's cut side view has a median r of 0.05. The plain remedy is to take
+the neck and head from the view that shows the head when only one view does. It was tested on the same sessions and
+not adopted. With the head counted as shown from r = 0.35 (1972 frames with it in one view only), the merge's neck is
+11.6 deg off and its head 9.1; the view with the head alone gives 10.8 and 12.2, and the other view 14.8 and 10.3.
+From r = 0.55 (4037 frames) the merge gives 10.6 and 8.2 and the view with the head 9.7 and 7.9. On the frames that
+look most like OWN03's cut (one view at 0.35 or over, the other under 0.15; 306 frames) the merge gives 12.2 and 7.5
+and the view with the head 9.3 and 9.7. Choosing the view gains 1 to 3 deg on the neck and loses up to 3 on the head,
+so the merge is unchanged. The larger error is elsewhere: where neither view shows the head (1375 frames at 0.35) the
+merge's neck is 22.7 deg off, there is nothing to choose from, and the export does not say so.
+
+**Fixes made on the way.**
+
+* The panel detector read the cut composite as a single view. A view that fills only a strip of the frame has black
+  above and below it, so the black separator next to it failed the test that asks for picture on both sides. A band
+  that is black over its whole length now counts as a separator when the picture beside it covers at least a quarter
+  of the frame's other dimension. The cut composite reads as `[0, 721, 1923, 1299]` and `[1952, 0, 3032, 1920]` (tiled
+  at `[0, 720, 1920, 1300]` and `[1952, 0, 3032, 1920]`), and the full composite and every earlier layout read as
+  before.
+* `wgvp demo <root>` without `--session` looked for its sessions one folder too high and found none. It now finds
+  every session that holds a merged recording.
+* `tools/chalk_walk.py` takes `--subject-height-m` (the second reading above) and `--truth-root` (the truth from
+  another run of the same recording, for a view that cuts the body).
+
+**What stays open.** Which of the height and the 13 ft is off; measuring the lines again answers it. The longer path
+from a head-cut side view rests on one recording and one crop: whether it holds for a clinic's camera, which stands
+higher and looks down, is not known, and no correction is built. The neck and head where no view shows the head, which
+are a guess in the export and are not flagged. A truth for the upper body on real video. The suite is at 100 tests (a
+known height against a wrong distance, a strip view beside a full-height view, and the demo finding its sessions).
 
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
   injected per-panel motion) and on the rendered sample; real encoder noise, camera jitter or a third panel are
-  untested. The GUI preview and `views.override` are the fallback.
+  untested. A view that fills only a strip of the frame beside a full-height view was read as a single view until
+  round ten (2.17); that layout has met one tiled recording of our own and a synthetic case. The GUI preview and
+  `views.override` are the fallback.
 * YOLOv8n-pose on clinic lighting, clothing, black sensor straps and de-identification blur (if faces are blurred,
   the face keypoints are irrelevant; the selection uses the pelvis). Partial bodies in the along-walkway view were
   tested on rendered meshes, not on real truncated people.
@@ -1681,9 +1852,15 @@ level and rising ground).
   rendered bodies.
 * The pelvis path fused from steps, the stride-swing rule and the velocity on the mat (2.13), all tuned and scored on
   the same six rendered recordings, two cameras near right angles.
-* The scale of the lifted body on a real person. On the one real recording with a truth (2.16) the body stands 15 to
-  18 % taller than the walker's picture says if the chalk lines are 13 ft apart, and the subject's height was not on
-  record to settle it. Every distance and speed in metres rests on that height.
+* The scale of the lifted body on a real person. On the one real recording with a truth (2.16, 2.17) the subject
+  stands 1.651 m and the bodies 1.74 and 1.78 m, 5 to 8 % taller, and the taped 13 ft between the chalk lines
+  disagrees with that height by a further 8.8 % that is not resolved. With the side view cut below the head, as a
+  clinic's side camera frames a walker, the same recording's paths came out 7 to 8 % longer. Every distance and speed
+  in metres rests on the body's height and on how much of the body the side view shows.
+* The neck and head where no view shows the head (2.17). The shoulder keypoints at the top edge pass the usable-joint
+  rule, so the lifter's guess is exported: 19 to 23 deg off for the neck on the rendered sessions, with no truth on
+  real video and no flag in the export. A clinic's side view that cuts the head leaves the neck and head to the along
+  view.
 
 Two cautions for a first real run: (1) the acceptance thresholds were set on crowded public footage and a rendered
 sample, and the co-walker case shows that a person walking in step 0.8 s behind the subject is the one configuration
