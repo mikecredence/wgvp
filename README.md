@@ -121,7 +121,8 @@ That is the whole CPU install (numpy, scipy, OpenCV, CPU PyTorch, ultralytics, a
 weights (`weights/yolov8n-pose.pt`, 6 MB) and a synthetic test session (`sample/`, 3 MB) are in the repository.
 `pip install -e .` additionally gives you a `wgvp` command equal to `python -m wgvp`.
 
-**1. Dry run (3-6 min on a laptop CPU).** The bundled session has a known answer; every check must pass:
+**1. Dry run (1-6 min on a laptop CPU; about 70 s on an Apple M-series).** The bundled session has a known answer;
+every check must pass:
 
 ```bash
 python -m wgvp dry-run --cpu-only
@@ -178,8 +179,10 @@ python -m wgvp run  /path/to/data_root --cpu-only
 ```
 
 or open the GUI (`python -m wgvp`): choose the data folder, **Scan**, **Dry run**, **Run all sessions**,
-**Open QC summary**. The GUI needs tkinter, which the python.org installers include; on Debian/Ubuntu
-`sudo apt install python3-tk`.
+**Open QC summary**. After a run each session's row in the list shows its PASS, WARN or FAIL with the reason. The
+GUI needs tkinter, which the python.org installers include; on Debian/Ubuntu `sudo apt install python3-tk`, with a
+Homebrew Python on macOS `brew install python-tk@3.12` (match your Python version). Without tkinter
+`python -m wgvp` prints these fixes and the equivalent commands in place of the window.
 
 **5. The GPU step** (GVHMR, NVIDIA GPU with 8 GB or more, CUDA 12) lives in its own Python environment:
 [env/install_gvhmr.md](env/install_gvhmr.md). Once it exists, `python -m wgvp check-gpu --gvhmr-root <GVHMR>

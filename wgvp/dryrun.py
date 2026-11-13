@@ -18,6 +18,13 @@ from .session import run_root, session_out
 SAMPLE_DIR = Path(__file__).resolve().parent.parent / "sample"
 
 
+def _r(x, n=3):
+    """A measured number as it should read in a check line: three decimals, anything else untouched."""
+    if isinstance(x, dict):
+        return {k: _r(v, n) for k, v in x.items()}
+    return round(float(x), n) if isinstance(x, float) else x
+
+
 def _check(name, ok, detail, checks, log):
     checks.append({"check": name, "ok": bool(ok), "detail": detail}); log(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
 
@@ -94,9 +101,9 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
     ri = ss["items"].get(rid, {})
     off = ri.get("offset_s"); tol = 2.0 / exp["fps"]
     _check("sync offset within 2 frames of truth (pelvis cross-correlation)", off is not None and abs(off - exp["offset_s"]) <= tol and "pelvis" in str(ri.get("sync_source")),
-           f"estimated {off} s vs true {exp['offset_s']} s via {ri.get('sync_source')} (r {ri.get('r_fine')}, margin {ri.get('margin')})", checks, log)
+           f"estimated {_r(off)} s vs true {exp['offset_s']} s via {ri.get('sync_source')} (r {_r(ri.get('r_fine'))}, margin {_r(ri.get('margin'))})", checks, log)
     fx = (ri.get("agreement") or {}).get("flash_minus_xcorr_s")
-    _check("optional light cross-check agrees", fx is not None and abs(fx) <= tol, f"flash - xcorr = {fx} s", checks, log)
+    _check("optional light cross-check agrees", fx is not None and abs(fx) <= tol, f"flash - xcorr = {_r(fx)} s", checks, log)
     for vid, e in exp["views"].items():
         it = ss["items"].get(f"{rid}/{vid}", {}); d = session_out(out, sid) / "deliver" / rid / vid
         st = d / "subject_track.npz"
@@ -114,7 +121,7 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
             errs = np.array(errs); frac = float(np.mean(inside)) if inside else 0.0; near = float((errs < 0.06 * 600).mean()) if len(errs) else 0.0
             _check(f"{vid}: chosen track is the rendered subject", frac >= 0.8 and len(errs) > 30 and wrong < 0.1 * max(len(errs), 1),
                    f"{frac:.0%} of {len(errs)} frames hold the GT hip inside the chosen box ({near:.0%} within 36 px of the detector's hip, median {np.median(errs) if len(errs) else float('nan'):.1f} px); "
-                   f"{wrong} frames claimed while the subject is out of this view; via {it.get('selection_source')}, r {it.get('r_fine')}, margin {it.get('margin')}, fragments {it.get('subject_track_ids')}", checks, log)
+                   f"{wrong} frames claimed while the subject is out of this view; via {it.get('selection_source')}, r {_r(it.get('r_fine'))}, margin {_r(it.get('margin'))}, fragments {it.get('subject_track_ids')}", checks, log)
         else:
             _check(f"{vid}: subject track exists", False, f"no subject_track.npz (selection {it.get('selection_status')}: {it.get('flags')})", checks, log)
         cov = it.get("coverage", {})
@@ -150,7 +157,7 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
     rc = ss["items"].get(f"{rid}/reconcile", {}); pair = next(iter(rc.get("pairs", {}).values()), {}); hip = pair.get("hip_vertical", {}) or {}
     vd = pair.get("view_offset_diff_s")
     _check("two views agree on the IMU timeline (each view's own placement of IMU t=0)", vd is not None and abs(vd) <= 2.0 / 30,
-           f"view offsets {pair.get('view_offsets_s')} differ by {vd} s; 2D pelvis local agreement r {hip.get('r_best')} at lag {hip.get('residual_lag_s')} s", checks, log)
+           f"view offsets {_r(pair.get('view_offsets_s'))} differ by {_r(vd)} s; 2D pelvis local agreement r {_r(hip.get('r_best'))} at lag {_r(hip.get('residual_lag_s'))} s", checks, log)
     if gpu_ran and pair.get("pose"):
         _check("two views agree on SMPL leg joints", pair["pose"].get("legs_median_deg", 99) < 25 and abs(pair["pose"]["knee_residual_lag"].get("residual_lag_s", 9)) <= cfg["params"]["tol_frames"] / 30.0,
                f"legs median {pair['pose'].get('legs_median_deg')} deg, knee residual lag {pair['pose']['knee_residual_lag'].get('residual_lag_s')} s", checks, log)

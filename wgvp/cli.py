@@ -14,6 +14,27 @@ def merged_sessions(root: Path) -> list[str]:
     return sorted({d.parents[2].name for d in (Path(root) / "wgvp_output").glob("*/deliver/*/merged_smpl.npz")})
 
 
+def _q(path) -> str:
+    """A path as it can be pasted into a command line: quoted when it holds a space."""
+    return f'"{path}"' if " " in str(path) else str(path)
+
+
+def no_tkinter_message() -> str:
+    """What to do when this Python has no tkinter: the fix per platform, and the same steps on the command line."""
+    v = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return "\n".join([
+        "The GUI needs tkinter, and this Python was built without it.",
+        f"  macOS, Homebrew Python:  brew install python-tk@{v}",
+        "  Debian / Ubuntu:         sudo apt install python3-tk",
+        "  python.org installers:   tkinter is included; on Windows re-run the installer and tick 'tcl/tk and IDLE'",
+        "Every GUI button has a command, so nothing is blocked:",
+        "  python -m wgvp dry-run --cpu-only            # Dry run (bundled sample)",
+        "  python -m wgvp scan <data folder>            # Scan",
+        "  python -m wgvp run  <data folder> --cpu-only # Run all sessions",
+        "The QC summary is then <data folder>/wgvp_output/QC_SUMMARY.html.",
+    ])
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     ap = argparse.ArgumentParser(prog="wgvp", description=f"WearGait video-to-pose pipeline {__version__}")
@@ -52,21 +73,35 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     if a.cmd in (None, "gui"):
+        try:
+            import tkinter  # noqa: F401
+        except ImportError:
+            print(no_tkinter_message()); return 1
         from .gui import launch
         launch(getattr(a, "root", None)); return 0
+    if getattr(a, "root", None) is not None and not Path(a.root).is_dir():
+        print(f"data folder not found: {a.root}"); return 2
     if a.cmd == "scan":
         from .config import load_config, write_default_config
         from .discovery import manifest_text, scan_root
         from .qc import dump_json
         root = Path(a.root); write_default_config(root); man = scan_root(root, load_config(root))
         (root / "wgvp_output").mkdir(exist_ok=True); dump_json(man, root / "wgvp_output" / "manifest.json")
-        print(manifest_text(man)); return 0
+        print(manifest_text(man))
+        if not man["sessions"]:
+            print("nothing to process here: the data folder should hold one folder per subject, with that subject's recording CSVs "
+                  "and videos inside (README, 'Expected input').")
+            print(f"matching rules: {root / 'wgvp_config.json'} (edit and scan again if your names differ)")
+        return 0
     if a.cmd == "run":
         from .config import load_config, write_default_config
         from .session import run_root
         root = Path(a.root); write_default_config(root)
         s = run_root(root, load_config(root), gvhmr_root=a.gvhmr_root, gvhmr_python=a.gvhmr_python, only=a.only, force=a.force,
                      keep_face=a.keep_face_keypoints, device=a.device, cpu_only=a.cpu_only)
+        if a.cpu_only:
+            print("CPU stages done (subject chosen, sync found, lifter inputs cut). The poses come from the GPU stage: "
+                  f"`python -m wgvp gvhmr {_q(root)}` on the machine with GVHMR (README, Quick start, step 5).")
         print(json.dumps(s["totals"])); return 0 if s["totals"].get("FAIL", 0) == 0 else 1
     if a.cmd == "gvhmr":
         from .config import load_config
@@ -74,6 +109,8 @@ def main(argv=None):
         from .summary import build_summary
         root = Path(a.root); cfg = load_config(root)
         r = run_gvhmr_stage(root, cfg, a.gvhmr_root, a.gvhmr_python, only=a.only)
+        if not r.get("ran"):
+            print(f"GPU stage not run: {r.get('message', 'see the log')}"); return 1
         for d in sorted((root / "wgvp_output").glob("*/deliver/session_summary.json")):
             refresh_session_after_gvhmr(root, d.parent.parent.name, cfg, gvhmr_root=a.gvhmr_root)
         build_summary(root, cfg, gvhmr=r); return 0 if r.get("returncode", 1) == 0 else 1
@@ -117,6 +154,8 @@ def main(argv=None):
     if a.cmd == "summary":
         from .config import load_config
         from .summary import build_summary
+        if not (Path(a.root) / "wgvp_output").is_dir():
+            print(f"nothing has been run under {a.root} yet (no wgvp_output folder): start with `python -m wgvp run {_q(a.root)} --cpu-only`"); return 1
         build_summary(Path(a.root), load_config(Path(a.root))); return 0
     if a.cmd == "dry-run":
         from .dryrun import dry_run
