@@ -40,6 +40,11 @@ DEFAULT_WEIGHTS = PKG_DIR / "weights" / "yolov8n-pose.pt"
 OUT_DIRNAME = "wgvp_output"
 
 
+def _r3(x):
+    """A measured number as it should read in a log line: three decimals; None and text pass through."""
+    return round(float(x), 3) if isinstance(x, float) else x
+
+
 def out_root(root: Path) -> Path:
     return Path(root) / OUT_DIRNAME
 
@@ -366,7 +371,7 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
         for v in cands:
             vc = vcache[v["video_id"]]
             prim = joint_selection(vc["views"], imu, selp, log=log)
-            log(f"    [{rid} vs {v['video_id']}] joint xcorr: ok={prim['ok']} conf={prim['confidence']} r={prim.get('r_fine', 0):.3f} margin={prim.get('margin', 0):.3f} offset={prim.get('offset_s')}")
+            log(f"    [{rid} vs {v['video_id']}] joint xcorr: ok={prim['ok']} conf={prim['confidence']} r={prim.get('r_fine', 0):.3f} margin={prim.get('margin', 0):.3f} offset={_r3(prim.get('offset_s'))}")
             if best is None or (prim.get("r_fine") or 0) > (best[1].get("r_fine") or 0):
                 best = (v, prim)
         v, prim = best
@@ -439,7 +444,7 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
                     "agreement": {"selection": dec["agreement"], "sync": sync["agreement"]}, "coverage": cov}
             if dec["status"] != "PASS":
                 item["flags"].append("selection:" + dec["message"])
-            log(f"    [{key}] selection {dec['status']} via {dec['source']} tracks {dec['track_ids']} (r {item['r_fine']}, margin {item['margin']}); coverage present {item['coverage'].get('present_frac')}, full {item['coverage'].get('full_frac')}, gaps {item['coverage'].get('n_gaps')}")
+            log(f"    [{key}] selection {dec['status']} via {dec['source']} tracks {dec['track_ids']} (r {_r3(item['r_fine'])}, margin {_r3(item['margin'])}); coverage present {_r3(item['coverage'].get('present_frac'))}, full {_r3(item['coverage'].get('full_frac'))}, gaps {item['coverage'].get('n_gaps')}")
             dump_json({k: v for k, v in dec.items() if k not in ("primary", "cross_view")} | {"primary": {kk: vv for kk, vv in (dec.get("primary") or {}).items() if kk != "frame_masks"},
                        "cross_view": {kk: vv for kk, vv in (dec.get("cross_view") or {}).items() if kk != "frame_masks"}}, d_out / "selection.json")
             subj = None

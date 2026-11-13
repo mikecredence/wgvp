@@ -2081,6 +2081,61 @@ full-size runs of OWN03 do reach it and keep the same frames before and after.
 the walker in shoes. A scale from a recorded height, which is not built. The pelvis match's tail window, if a
 recording ever shows the loss there. A truth for the body on real video.
 
+### 2.20 Round thirteen: the package as a first user meets it (2026-11-13)
+
+This round changes no method. It follows the README from a fresh clone, makes the mistakes a first user makes, and
+fixes the cheap ones.
+
+**The path, timed.** On an Apple M-series laptop, in the pinned CPU environment: the clone takes 18 s (145 MB of
+history, 210 MB on disk); `dry-run --cpu-only` passes 10 of 10 checks in about 70 s; `run examples/bundled
+--cpu-only` takes 53 s and `run examples/two_camera --cpu-only` 71 s, and `examples/verify_examples.py` passes on
+both. A second run of a folder reuses its tracks and takes about 10 s. The README said 3 to 6 minutes for the dry
+run; it now says 1 to 6.
+
+**Mistakes, and what now answers them.** Each of these gave a traceback or nothing at all, and now gives a
+sentence. A data folder that does not exist: `data folder not found`, exit 2, for every command that takes one. A
+folder with no subject folders in it: the scan says what layout it expected and where the matching rules are.
+`gvhmr` with no GVHMR configured: the reason, exit 1 (it used to print only the summary line). `summary` before any
+run: what to run first. `python -m wgvp` on a Python without tkinter: the install command per platform and the
+three commands that do what the buttons do. After a `--cpu-only` run the last lines say that the poses come from
+the GPU stage and give the command. Measured numbers in the run log and the dry-run checks are rounded to three
+decimals. `tests/test_cli_messages.py` holds these.
+
+**The GUI.** The pinned environment is a Homebrew Python, which is built without tkinter, so the window had never
+opened on the development machine. `brew install python-tk@3.12` is the fix and is now in the README. For this
+round the real `wgvp/gui.py` was driven under another Python that has Tk, with its pipeline calls relayed to the
+pinned environment, and every widget's text, state and geometry was read back after each step. That shows what
+the window says and when; it does not show the window as pixels, and it is not a test on Windows. What it found
+and what changed:
+
+| found | now |
+|---|---|
+| the panels preview of every session was written under the last session's folder (a loop variable captured late) | each session's own folder |
+| after a run the list still read "1 recording(s), 1 video(s)"; the outcome was a Python dict on the status line | each session's row shows PASS, WARN or FAIL with up to two reasons; the status line reads `finished: PASS 1, WARN 1, FAIL 0 of 2 session(s)` |
+| the bar kept the last run's full state through a dry run | reset at the start of a run; a moving bar during the dry run, which has no steps to count |
+| **Open QC summary** could not reach a dry run's page, which is in a temporary folder | it opens the page of whatever just finished |
+| a folder that does not exist gave "choose the top-level data folder first" | "this folder does not exist" with the path |
+| an empty folder left an empty list and "idle" | the log says what layout was expected |
+
+**The QC page.** `flags`, the reason for a WARN or FAIL, was column 31 of 32, two screens to the right of
+`status` at 1440 px. On the page it now sits beside `status` (the CSV keeps its column order). A line above the
+table says what the three statuses mean. The page sets its own white background, since it set a dark text colour
+and was unreadable in a browser with a dark default canvas. A GPU stage that has not run is a sentence, not
+`{"ran": false}`.
+
+**The bundled example's table.** `examples/README.md` still carried the readings of the composite as it was before
+its right panel was mirrored and zoomed (section 2.10): panel boxes, `r_fine`, `margin` and the size of the flash
+disagreement. They are measured again; the session passes its check as before.
+
+**Verification.** The suite is at 114 tests. The dry run passes, both shipped examples verify, and the driven GUI
+finishes every step with no error in its log.
+
+**What stays open.** The window has not been seen on a screen by us, on any platform, and has not been run on
+Windows at all. It has no stop button, no single-session run (the command line has `--only`), no step inside a
+session for the bar to show (a session of the two-camera example sits still for a minute), and **Check GPU** holds
+the window while it works. The QC table is still 32 columns and 2900 px wide. The README is 1270 lines with the
+quick start at line 108.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

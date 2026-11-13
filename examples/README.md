@@ -16,26 +16,26 @@ python examples/verify_examples.py --data examples/bundled
 | session | what it is | what it exercises |
 |---|---|---|
 | OWN01 | a 13-s portrait phone clip: one of us walks away down an office corridor, turns at the far end and walks back (720 x 1280, 30 fps, 3.6 MB) | a real person, real lighting, a four-fold change of apparent size, and the single-view path |
-| OWN02 | a synthetic two-view file made from OWN01: the clip cropped to its left 85 % as the left panel, the clip mirrored and cropped as the right panel, letterboxed differently, black separator (1230 x 1432, 5.2 MB) | panel detection on the tiled layout, the joint two-view selection, the two-view reconciliation. It is **not** a second camera; it is the same frames twice, so the reconciliation is bound to agree |
+| OWN02 | a synthetic two-view file made from OWN01: the clip zoomed in a little as the left panel (the middle 84 % by 86 %), the clip mirrored and zoomed in hard as the right panel (the middle 50 % by 55 %, so head and feet are cut when the walker is close), letterboxed differently, black separator (1296 x 1280, 4.6 MB) | panel detection on the tiled layout, the joint two-view selection, the two-view reconciliation, the mirror detection of the merge, two zoom levels and truncation. It is **not** a second camera; it is the same frames twice, so the reconciliation is bound to agree |
 
 The recording CSVs are fabricated exactly as for the fetched corpus (below): the walker's own pelvis signal plus
 noise at a displacement SNR of 2, differentiated twice, IMU t = 0 planted 0.8 s into the clip; OWN02 reuses OWN01's
 recording since the frames are the same. The person in the clip consented to its publication; it is released under
 the repository licence.
 
-Measured on 2026-11-02:
+Measured on 2026-11-13:
 
 | session | planted offset | found | subject frames on target | `r_fine` | `margin` | panels | status |
 |---|---|---|---|---|---|---|---|
 | OWN01 | 0.8 s | 0.819 s | 100 % of 374 | 0.85 | 0.64 | single (correct) | PASS |
-| OWN02 | 0.8 s | 0.821 s | 100 % of 374 | 0.86 / 0.82 (left / right) | 0.45 / 0.45 | left [0,0,613,1280] vs true [0,0,612,1280]; right [617,75,1230,1357] vs [618,76,1230,1356] | WARN: `flash_disagrees (+0.112 s)`; reconcile PASS, residual lag 4 ms |
+| OWN02 | 0.8 s | 0.817 s | 100 % of 374 | 0.76 / 0.77 (left / right) | 0.56 / 0.56 | left [0,0,703,1280] vs true [0,0,702,1280]; right [707,63,1296,1217] vs [708,64,1296,1216] | WARN: `flash_disagrees (+0.616 s)`; reconcile PASS, residual lag 5 ms |
 
 The data root's `wgvp_config.json` sets `params.detector_imgsz` to 960. At the default 640 the walker at the far
 end of the corridor (under a tenth of the frame height) drops out of detection for about three seconds and the
 track splits into two 5-s fragments, which the selector declines by design (see *What was tried and left out*).
 This is the one setting a lab whose along-walkway camera sees the participant far away may also need. The WARN on
 OWN02 is the optional sync-light cross-check: the clip has no light, the automatic detector proposes a brightness
-change in the footage, and it misses the cross-correlation by 0.112 s, just over the 3-frame tolerance (on OWN01
+change in the footage, and it misses the cross-correlation by 0.616 s, well outside the 3-frame tolerance (on OWN01
 a different candidate happened to fall inside it and reads "validated by flash"; neither means anything here).
 
 `make_bundled.py` rebuilds both sessions from the original recording.

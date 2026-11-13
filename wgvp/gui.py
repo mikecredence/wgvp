@@ -44,7 +44,7 @@ def launch(initial_root: str | None = None):
     # --- middle: found items
     mid = ttk.Frame(app, padding=(8, 0)); mid.pack(fill="both", expand=True)
     tree = ttk.Treeview(mid, columns=("info", "status"), height=12); tree.heading("#0", text="session / recording / camera"); tree.heading("info", text="file"); tree.heading("status", text="status")
-    tree.column("#0", width=330); tree.column("info", width=520); tree.column("status", width=160)
+    tree.column("#0", width=330); tree.column("info", width=430); tree.column("status", width=250)
     tree.pack(fill="both", expand=True)
     previews = {}
     def _open_preview(e):
@@ -66,8 +66,10 @@ def launch(initial_root: str | None = None):
 
     def root_path():
         r = v_root.get().strip()
-        if not r or not Path(r).is_dir():
+        if not r:
             messagebox.showerror("wgvp", "choose the top-level data folder first"); return None
+        if not Path(r).is_dir():
+            messagebox.showerror("wgvp", f"this folder does not exist:\n{r}"); return None
         return Path(r)
 
     def do_scan():
@@ -79,6 +81,7 @@ def launch(initial_root: str | None = None):
         man = scan_root(r, cfg); state["manifest"] = man
         for i in tree.get_children():
             tree.delete(i)
+        state["rows"] = {}; state["html"] = None
         for s in man["sessions"]:
             n = tree.insert("", "end", text=s["session_id"], values=(Path(s["dir"]).name, f"{len(s['recordings'])} recording(s), {len(s['videos'])} video(s)" + ("; " + "; ".join(s["flags"]) if s["flags"] else "")))
             for rec in s["recordings"]:
@@ -87,23 +90,25 @@ def launch(initial_root: str | None = None):
                     tree.insert(rn, "end", text="video", values=(Path(v["path"]).name, f"task {v['family']}" + (f", tags {v['tags']}" if v.get("tags") else "")))
             for v in s["videos"]:
                 vn = tree.insert(n, "end", text=f"panels: {Path(v['path']).name}", values=("detecting ...", ""))
-                def _detect(vn=vn, v=v):
+                def _detect(vn=vn, v=v, sid=s["session_id"]):
                     try:
                         from .video_io import detect_panels, panel_preview
                         pan = detect_panels(Path(v["path"]), n_samples=cfg["views"]["n_sample_frames"], black_level=cfg["views"]["black_level"], min_panel_frac=cfg["views"]["min_panel_frac"])
-                        prev = Path(r) / "wgvp_output" / s["session_id"] / "work" / Path(v["path"]).stem / "panels_preview.png"
+                        prev = Path(r) / "wgvp_output" / sid / "work" / Path(v["path"]).stem / "panels_preview.png"
                         panel_preview(Path(v["path"]), pan["panels"], prev, mode="pixels")
                         txt_ = f"{pan['layout']}: " + ", ".join(f"{p['id']} {p['box']}" for p in pan["panels"])
                         q.put(("tree", (vn, txt_, str(prev))))
                     except Exception as e:
                         q.put(("tree", (vn, f"panel detection failed: {e}", "")))
                 threading.Thread(target=_detect, daemon=True).start()
-            tree.item(n, open=True)
+            tree.item(n, open=True); state["rows"][s["session_id"]] = n
         if man["unmatched"]:
             un = tree.insert("", "end", text=f"UNMATCHED ({len(man['unmatched'])})", values=("", "not processed"))
             for u in man["unmatched"][:300]:
                 tree.insert(un, "end", text=u["path"], values=(u["reason"], ""))
         log(manifest_text(man))
+        if not man["sessions"]:
+            log("nothing to process here: the data folder should hold one folder per subject, with that subject's recording CSVs and videos inside (README, 'Expected input').")
         log(f"matching rules: {config_path(r)} (edit and re-scan if something is missing)")
         g = cfg.get("gvhmr", {})
         if g.get("root") and not v_groot.get():
@@ -140,17 +145,20 @@ def launch(initial_root: str | None = None):
             return
         save_gvhmr_cfg(r)
         from .session import run_root
-        state["running"] = True; b_run.config(state="disabled"); b_dry.config(state="disabled"); v_prog.set("running ...")
+        state["running"] = True; b_run.config(state="disabled"); b_dry.config(state="disabled"); v_prog.set("running ..."); pb["value"] = 0
         worker(run_root, r, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, cpu_only=v_cpu.get(), log=log, progress=progress)
 
     def do_dry():
         if state["running"]:
             return
         from .dryrun import dry_run
-        state["running"] = True; b_run.config(state="disabled"); b_dry.config(state="disabled"); v_prog.set("dry run ...")
+        state["running"] = True; b_run.config(state="disabled"); b_dry.config(state="disabled")
+        v_prog.set("dry run on the bundled sample (about a minute, up to six on an older laptop) ..."); pb.config(mode="indeterminate"); pb.start(60)
         worker(dry_run, out_dir=None, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, cpu_only=v_cpu.get(), log=log)
 
     def do_open():
+        if state.get("html") and Path(state["html"]).exists():
+            webbrowser.open(Path(state["html"]).as_uri()); return
         r = root_path()
         if r is None:
             return
@@ -167,6 +175,23 @@ def launch(initial_root: str | None = None):
         f = r / "wgvp_output"
         f.mkdir(exist_ok=True); webbrowser.open(f.as_uri())
 
+    def show_session_status():
+        """After a run, each session row carries its PASS / WARN / FAIL and the reason."""
+        r = Path(v_root.get().strip())
+        try:
+            from .summary import collect_rows
+            why = {}
+            for row in collect_rows(r, r / "wgvp_output")[0]:
+                for f in row.get("flags") or []:
+                    if f not in why.setdefault(row["session"], []):
+                        why[row["session"]].append(f)
+            for sid, n in state.get("rows", {}).items():
+                ss = json.loads((r / "wgvp_output" / sid / "deliver" / "session_summary.json").read_text())
+                flags = why.get(sid) or ([ss["error"]] if ss.get("error") else [])
+                tree.set(n, "status", ss.get("status", "?") + (": " + ", ".join(map(str, flags[:2])) if flags else ""))
+        except Exception as e:
+            log(f"(session results not shown in the list: {e})")
+
     def poll():
         try:
             while True:
@@ -177,7 +202,7 @@ def launch(initial_root: str | None = None):
                     stage, i, n, msg = payload
                     if stage == "root":
                         pb["maximum"] = max(n, 1); pb["value"] = i
-                    v_prog.set(f"{stage}: {i + 1}/{n} {msg}")
+                    v_prog.set(f"session {i + 1} of {n}: {msg}" if stage == "root" else f"recording {i + 1} of {n}: {msg}")
                 elif kind == "tree":
                     vn, txt_, prev = payload
                     try:
@@ -188,10 +213,18 @@ def launch(initial_root: str | None = None):
                         pass
                 elif kind == "done":
                     state["running"] = False; b_run.config(state="normal"); b_dry.config(state="normal")
-                    st = (payload or {}).get("status") or (payload or {}).get("totals")
-                    v_prog.set(f"finished: {st}"); pb["value"] = pb["maximum"]
-                    if isinstance(payload, dict) and payload.get("html"):
-                        log(f"QC summary: {payload['html']}")
+                    payload = payload if isinstance(payload, dict) else {}
+                    pb.stop(); pb.config(mode="determinate"); pb["value"] = pb["maximum"]
+                    t = payload.get("totals")
+                    if payload.get("status"):                      # the dry run, or a run that raised
+                        v_prog.set(f"finished: {payload['status']}" + (f" ({payload['error']}; the traceback is in the log below)" if payload.get("error") else ""))
+                    elif t:
+                        v_prog.set(f"finished: PASS {t.get('PASS', 0)}, WARN {t.get('WARN', 0)}, FAIL {t.get('FAIL', 0)} of {t.get('sessions', 0)} session(s). Open QC summary shows why.")
+                    else:
+                        v_prog.set("finished")
+                    state["html"] = payload.get("html")
+                    if t:
+                        show_session_status()
         except queue.Empty:
             pass
         app.after(200, poll)

@@ -16,6 +16,8 @@ from .qc import dump_json, is_skeleton_only
 COLS = ["session", "recording", "view", "status", "video", "n_fragments", "selection_source", "subject_tracks", "r_fine", "margin",
         "present_frac", "full_frac", "partial_frac", "n_gaps", "lag_ambiguity", "sync_source", "offset_s", "offset_frame", "flash_minus_xcorr_s", "labels_minus_xcorr_s",
         "sheet_minus_xcorr_s", "walk_bouts_ok", "gvhmr_frames", "reconcile_status", "residual_lag_s", "legs_median_deg", "merge_status", "export_frac", "jointfit_status", "target", "flags"]
+# on the page the reason sits beside the status; the CSV keeps COLS as it is
+HTML_COLS = COLS[:4] + ["flags"] + [c for c in COLS[4:] if c != "flags"]
 
 
 def _fmt(v, nd=3):
@@ -68,7 +70,7 @@ def build_summary(root: Path, cfg: dict, gvhmr: dict | None = None, log=print, t
     env = {}
     for f in out_root.glob("*/deliver/validation_bundle/environment.json"):
         env = json.loads(f.read_text()); break
-    css = ("body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:18px;color:#222;max-width:1500px}"
+    css = ("body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:18px;color:#222;background:#fff;max-width:1500px}"
            "table{border-collapse:collapse;font-size:12.5px}th,td{border:1px solid #ddd;padding:3px 6px;vertical-align:top}"
            "th{background:#f3f3f3;position:sticky;top:0}.PASS{background:#e6f6e6}.WARN{background:#fff4d6}.FAIL{background:#ffe0e0}"
            ".k{color:#666;font-size:12px}img{height:110px;border:1px solid #999;margin:2px;background:#000}h2{margin-top:26px}"
@@ -77,19 +79,24 @@ def build_summary(root: Path, cfg: dict, gvhmr: dict | None = None, log=print, t
          f"<h1>WearGait video pipeline - QC summary</h1><p class='k'>wgvp {__version__} - {time.strftime('%Y-%m-%d %H:%M')} - root {html.escape(str(root))}</p>",
          f"<p><b>Sessions:</b> {totals['sessions']} &nbsp; <span class='PASS'>PASS {totals.get('PASS', 0)}</span> &nbsp; <span class='WARN'>WARN {totals.get('WARN', 0)}</span> &nbsp; <span class='FAIL'>FAIL {totals.get('FAIL', 0)}</span>"
          f" &nbsp; <b>recording-camera items:</b> {len(rows)} &nbsp; <b>unmatched files:</b> {len(man.get('unmatched', []))}</p>",
+         "<p class='k'><b>status</b>: PASS; WARN = the subject was chosen but not confirmed, or a cross-check disagrees; FAIL = nothing chosen, no sync, or the lifter failed. "
+         "The reason is in <b>flags</b>, the column beside it.</p>",
          "<p class='k'>What to look at: every row is one recording in one VIEW of its combined video. <b>selection_source</b> should read imu_xcorr with r_fine &gt; 0.35 and a margin &gt; 0.12 over the next person; "
          "<b>present/full/partial_frac</b> say how much of the recording the subject was in that view (fully / partly in frame); <b>n_gaps</b> counts exits; <b>walk_bouts_ok</b> = annotated walk bouts covered by at least one view; "
          "<b>sync_source</b> is the pelvis cross-correlation, '(validated by ...)' lists the cross-checks that agree (light flash, Walk-label export, annotation sheet); "
          "<b>residual_lag_s</b> is how far apart the two views place IMU t=0 (after GVHMR: the knee-angle residual lag; should be ~0); <b>merge_status</b> / <b>export_frac</b>: the merge of the views (merged_smpl.npz) and the share of lifted frames its export keeps; "
          "<b>jointfit_status</b>: one body fitted to both views (jointfit_smpl.npz; SKIP = it does not apply, as with one view); <b>target</b>: the file to train on for that recording, "
          "the fit where it passed and the merge everywhere else (target.json beside the files gives the reason). Thumbnails are skeleton-only renders (green = chosen subject, grey = other people) at the IMU start frame; the panel previews are edge maps with the detected view boxes.</p>"]
-    if gvhmr:
+    if gvhmr and not gvhmr.get("ran"):
+        h.append("<p class='k'>GPU stage: not run" + (f" ({html.escape(str(gvhmr['message']).removeprefix('GPU stage not run: '))})" if gvhmr.get("message") else "")
+                 + ". The columns from gvhmr_frames to target stay empty until it has run (README, Quick start, step 5).</p>")
+    elif gvhmr:
         h.append(f"<p class='k'>GPU stage: {html.escape(json.dumps({k: v for k, v in gvhmr.items() if k != 'cmd'}))}</p>")
     if env:
         h.append("<p class='k'>Environment: " + html.escape(", ".join(f"{k}={v}" for k, v in env.items())) + "</p>")
-    h.append("<h2>Items</h2><table><tr>" + "".join(f"<th>{c}</th>" for c in COLS) + ("<th>skeleton at IMU t=0</th>" if thumbnails else "") + "</tr>")
+    h.append("<h2>Items</h2><table><tr>" + "".join(f"<th>{c}</th>" for c in HTML_COLS) + ("<th>skeleton at IMU t=0</th>" if thumbnails else "") + "</tr>")
     for r in rows:
-        cells = "".join(f"<td>{html.escape(_fmt(r.get(c)))}</td>" for c in COLS)
+        cells = "".join(f"<td>{html.escape(_fmt(r.get(c)))}</td>" for c in HTML_COLS)
         img = ""
         if thumbnails:
             # the thumbnail nearest the sync frame: the one whose name contains the offset frame
@@ -122,5 +129,7 @@ def build_summary(root: Path, cfg: dict, gvhmr: dict | None = None, log=print, t
     summary = {"totals": totals, "n_items": len(rows), "n_unmatched": len(man.get("unmatched", [])), "html": str(out_root / "QC_SUMMARY.html"),
                "csv": str(out_root / "qc_summary.csv"), "gvhmr": gvhmr}
     dump_json(summary, out_root / "qc_summary.json")
-    log(f"QC summary: {summary['totals']} -> {summary['html']}")
+    t = summary["totals"]
+    log(f"QC summary: {t['sessions']} session(s), PASS {t.get('PASS', 0)}, WARN {t.get('WARN', 0)}, FAIL {t.get('FAIL', 0)}")
+    log(f"  open {summary['html']} in a browser; the reason for a WARN or FAIL is in its flags column")
     return summary
