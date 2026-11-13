@@ -77,7 +77,7 @@ def main():
     exp1 = {"session_id": "OWN01", "recording_id": "OWN01_selfpace", "video": "SP/OWN01_SP.mp4", "fps": 30, "offset_s": OFFSET_S, "gt_view": "full",
             "imu_duration_s": float(rec["t"][-1]), "walk_s": rec["walk_s"], "subject_hint": hint, "subject_fragments_at_build": tids,
             "gt_frames": rec["gt_frames"], "gt_hip_px": rec["gt_hip_px"], "detector_imgsz": IMGSZ, "about": ABOUT1}
-    (s1 / "expected.json").write_text(json.dumps(exp1)); (s1 / "README.txt").write_text(ABOUT1 + "\n")
+    (s1 / "expected.json").write_text(json.dumps(exp1), encoding="utf-8"); (s1 / "README.txt").write_text(ABOUT1 + "\n", encoding="utf-8")
     # ---- OWN02: the mirrored, differently zoomed composite. Both panels end up PH pixels tall: the left crop scaled
     # by PH / (0.86 H), the mirrored right crop by PH / (0.68 H); the right panel is letterboxed top and bottom.
     info = probe_video(v1, with_hash=False); W, H = info["width"], info["height"]; PH = H; sep = 6
@@ -98,12 +98,12 @@ def main():
             "imu_duration_s": float(rec["t"][-1]), "walk_s": rec["walk_s"], "panels_true": {"left": [0, 0, pwl, PH], "right": [pwl + sep, pad, pwl + sep + pwr, pad + phr]},
             "zoom": {"left": {"crop_frac": list(ZOOM_L), "scale": sl}, "right": {"crop_frac": list(ZOOM_R), "scale": sr, "mirrored": True}},
             "gt_frames": rec["gt_frames"], "gt_hip_px": gt_hip, "detector_imgsz": IMGSZ, "about": ABOUT2}
-    (s2 / "expected.json").write_text(json.dumps(exp2)); (s2 / "README.txt").write_text(ABOUT2 + "\n")
+    (s2 / "expected.json").write_text(json.dumps(exp2), encoding="utf-8"); (s2 / "README.txt").write_text(ABOUT2 + "\n", encoding="utf-8")
     print(f"OWN02 video {v2.stat().st_size / 1e6:.1f} MB ({pwl + sep + pwr}x{PH}; panels left {exp2['panels_true']['left']} x{sl:.2f}, right {exp2['panels_true']['right']} x{sr:.2f} mirrored)")
     (out / "wgvp_config.json").write_text(json.dumps({"_doc": "bundled offline examples: a portrait phone clip (OWN01) and a two-view composite of it (OWN02: zoomed | mirrored and zoomed more); "
                                                               "detector_imgsz 960 keeps the walker detected at the far end of the corridor; "
                                                               "gvhmr.focal_35mm is each view's field of view as measured from the corridor's lines by tools/estimate_focal.py",
-                                                      "params": {"detector_imgsz": IMGSZ}, "gvhmr": {"focal_35mm": FOCAL_35MM}}, indent=1))
+                                                      "params": {"detector_imgsz": IMGSZ}, "gvhmr": {"focal_35mm": FOCAL_35MM}}, indent=1), encoding="utf-8")
     print(f"done -> {out}\nnext:  python -m wgvp run {out} --cpu-only   then   python examples/verify_examples.py --data {out}")
 
 

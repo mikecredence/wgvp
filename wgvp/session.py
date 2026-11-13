@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -75,7 +76,7 @@ def _load_session_config(cdir: Path) -> dict:
     if cdir.exists():
         for f in cdir.glob("*.json"):
             try:
-                cfg[f.stem] = json.loads(f.read_text())
+                cfg[f.stem] = json.loads(f.read_text(encoding="utf-8"))
             except Exception:
                 pass
     return cfg
@@ -112,7 +113,7 @@ def panels_for(video: Path, cfg: dict, work: Path, log) -> dict:
     return pan
 
 
-def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: Path, log, force=False, device=None) -> tuple[dict, dict, dict]:
+def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: Path, log, force=False, device=None, on_frame=None) -> tuple[dict, dict, dict]:
     """-> ({view_id: TrackSet}, probe info, panels). Cached per video file hash + panel boxes."""
     vdir = work / video.stem; vdir.mkdir(parents=True, exist_ok=True)
     info = probe_video(video); dump_json(info, vdir / "probe.json")
@@ -121,7 +122,7 @@ def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: 
     key = {"sha256": info["sha256"], "boxes": [p["box"] for p in pan["panels"]], "weights": Path(weights).name, "width": cfg["params"]["track_max_width"], "imgsz": imgsz,
            "conf": cfg["params"]["pose_conf"], "rev": TRACK_REV}
     cache = vdir / "tracks_cache.json"
-    if cache.exists() and not force and json.loads(cache.read_text()) == key and all((vdir / f"tracks_{p['id']}.npz").exists() for p in pan["panels"]):
+    if cache.exists() and not force and json.loads(cache.read_text(encoding="utf-8")) == key and all((vdir / f"tracks_{p['id']}.npz").exists() for p in pan["panels"]):
         views = {p["id"]: TrackSet.load(vdir / f"tracks_{p['id']}.npz") for p in pan["panels"]}
         log(f"    tracks cached: " + ", ".join(f"{k} {len(v.track_ids())} fragments" for k, v in views.items()))
         return views, info, pan
@@ -130,10 +131,10 @@ def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: 
         if f"light_{p['id']}" in sconf:
             rois.setdefault(p["id"], {})["light"] = sconf[f"light_{p['id']}"]
     log(f"    tracking {info['width']}x{info['height']} {info['fps_nominal']:.2f} fps, {info['n_frames_nominal']} frames, {len(pan['panels'])} view(s) ...")
-    views = analyze_video(video, weights, pan["panels"], max_width=cfg["params"]["track_max_width"], rois=rois, log=log, device=device, conf=cfg["params"]["pose_conf"], imgsz=imgsz)
+    views = analyze_video(video, weights, pan["panels"], max_width=cfg["params"]["track_max_width"], rois=rois, log=log, device=device, conf=cfg["params"]["pose_conf"], imgsz=imgsz, on_frame=on_frame)
     for vid, ts in views.items():
         split_fragments(ts); ts.meta["video_sha256"] = info["sha256"]; ts.save(vdir / f"tracks_{vid}.npz")
-    cache.write_text(json.dumps(key))
+    cache.write_text(json.dumps(key), encoding="utf-8")
     return views, info, pan
 
 
@@ -283,7 +284,7 @@ def prepare_gvhmr_inputs(work: Path, cid: str, rid: str, video: Path, ts: TrackS
                 "camera_id": cid, "recording_id": rid}
         if focal_35mm:
             meta["focal_35mm"] = float(focal_35mm)
-        (cdir / f"{name}.json").write_text(json.dumps(meta))
+        (cdir / f"{name}.json").write_text(json.dumps(meta), encoding="utf-8")
         out.append({"chunk_id": c["chunk_id"], "n_frames": int(len(frames)), "t_video_s": [float(ts.pts_ms[pos[0]] / 1000), float(ts.pts_ms[pos[-1]] / 1000)]})
     in_chunks = np.unique(np.concatenate([c["pos"] for c in chunks]))
     return {"n_chunks": len(out), "chunks": out, "frame_step": chunks[0]["frame_step"], "cut_scale": scale, "crop": list(ts.box),
@@ -314,10 +315,13 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
     log(f"[{sid}] {len(entry['recordings'])} recording(s), {len(entry['videos'])} video(s)")
     # ---- videos: panels + tracking (cached)
     vcache = {}
-    for v in entry["videos"]:
+    for vi, v in enumerate(entry["videos"]):
         video = Path(v["path"])
+        if progress:
+            progress("video", vi, len(entry["videos"]), video.name)
+        on_frame = (lambda d, t: progress("frames", d, t, "")) if progress else None
         try:
-            views, info, pan = analyze_one_video(video, cfg, work, sconf, Path(weights), log, force=force, device=device)
+            views, info, pan = analyze_one_video(video, cfg, work, sconf, Path(weights), log, force=force, device=device, on_frame=on_frame)
         except Exception as e:
             import traceback
             log(f"    [{video.name}] FAIL: {e}\n{traceback.format_exc()}")
@@ -533,7 +537,7 @@ def refresh_session_targets(root: Path, sid: str) -> dict:
     deliver = session_out(root, sid) / "deliver"; f = deliver / "session_summary.json"
     if not f.exists():
         return {}
-    summ = json.loads(f.read_text())
+    summ = json.loads(f.read_text(encoding="utf-8"))
     for tf in sorted(deliver.glob("*/target.json")):
         summ["items"].update(summary_items(tf.parent))
     return _close_summary(summ, deliver)
@@ -543,12 +547,12 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print, gvhm
     sdir = session_out(root, sid); deliver = sdir / "deliver"; f = deliver / "session_summary.json"
     if not f.exists():
         return {}
-    summ = json.loads(f.read_text()); cams = {}; fit_cache = {}
+    summ = json.loads(f.read_text(encoding="utf-8")); cams = {}; fit_cache = {}
     for key, item in list(summ["items"].items()):
         if not is_view_item(key):
             continue
         rid, vid = key.split("/"); d = deliver / rid / vid
-        sync = json.loads((deliver / rid / "sync.json").read_text()) if (deliver / rid / "sync.json").exists() else {}
+        sync = json.loads((deliver / rid / "sync.json").read_text(encoding="utf-8")) if (deliver / rid / "sync.json").exists() else {}
         entry = {"fps": None, "sync": sync, "hip": None, "pose": None, "view_offset_s": item.get("view_offset_s")}
         st = d / "subject_track.npz"
         if st.exists() and sync.get("offset_s") is not None:
@@ -573,7 +577,7 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print, gvhm
         else:
             chunks = sorted((sdir / "work" / vid / rid / "chunks").glob("chunk_*.json"))
             if chunks:
-                sts = [json.loads(c.read_text()).get("status") for c in chunks]
+                sts = [json.loads(c.read_text(encoding="utf-8")).get("status") for c in chunks]
                 item["gvhmr"] = {"n_frames": 0, "chunk_status": sts}
                 if any(s == "failed" for s in sts):
                     item["flags"].append("GVHMR failed on a chunk (see work/<view>/<recording>/gvhmr_run.log)"); item["status"] = "FAIL"
@@ -603,21 +607,30 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print, gvhm
 
 
 # ----------------------------------------------------------------------------------------------------------------
-def run_gvhmr_stage(root: Path, cfg: dict, gvhmr_root: str | None = None, gvhmr_python: str | None = None, log=print, only: str | None = None) -> dict:
+def run_gvhmr_stage(root: Path, cfg: dict, gvhmr_root: str | None = None, gvhmr_python: str | None = None, log=print, only: str | None = None,
+                    progress=None) -> dict:
     groot = gvhmr_root or cfg["gvhmr"].get("root") or ""; gpy = gvhmr_python or cfg["gvhmr"].get("python") or sys.executable
     if not groot:
         return {"ran": False, "message": "no GVHMR root configured (config gvhmr.root or --gvhmr-root)"}
     cmd = [gpy, "-m", "wgvp.gvhmr_stage", "--root", str(root), "--gvhmr-root", groot, "--timeout", str(cfg["gvhmr"].get("timeout_s", 7200))]
     if only:
         cmd += ["--only", only]
-    env = dict(os.environ, PYTHONPATH=str(PKG_DIR) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    env = dict(os.environ, PYTHONPATH=str(PKG_DIR) + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONUTF8="1")   # one text encoding on every system
     logf = out_root(root) / "logs" / "gvhmr_stage.log"; logf.parent.mkdir(parents=True, exist_ok=True)
     log(f"GVHMR stage: {' '.join(cmd)}  (log: {logf})")
     t0 = time.time()
-    with open(logf, "a") as lf:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True)
+    with open(logf, "a", encoding="utf-8") as lf:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, encoding="utf-8", errors="replace")
+        n_pieces = done = 0
         for line in p.stdout:
             lf.write(line); log("    " + line.rstrip())
+            if progress:                                                     # the stage names every piece as it starts and ends
+                m = re.match(r"\[gvhmr_stage\] (?:(\d+) chunk\(s\)|(run|skip) +(\S+)|( +-> ))", line)
+                if m and m.group(1):
+                    n_pieces = int(m.group(1))
+                elif m and n_pieces:
+                    done += bool(m.group(4)) or m.group(2) == "skip"
+                    progress("lift", min(done, n_pieces), n_pieces, m.group(3) if m.group(2) == "run" else "")
         rc = p.wait()
     return {"ran": True, "returncode": rc, "elapsed_s": time.time() - t0, "cmd": " ".join(cmd), "log": str(logf)}
 
@@ -632,6 +645,10 @@ def run_root(root: Path, cfg: dict | None = None, gvhmr_root: str | None = None,
     man = scan_root(root, cfg); dump_json(man, oroot / "manifest.json")
     sessions = [s for s in man["sessions"] if not only or s["session_id"] in only]
     log(f"scan: {man['n_sessions']} sessions, {man['n_recordings']} recordings, {man['n_videos']} videos, {len(man['unmatched'])} unmatched; running {len(sessions)}")
+    lift = not cpu_only and bool(gvhmr_root or cfg["gvhmr"].get("root"))
+    if progress:
+        sizes = [sum(Path(v["path"]).stat().st_size for v in s["videos"] if Path(v["path"]).exists()) or 1 for s in sessions]
+        progress("plan", int(lift), len(sessions), ",".join(str(b) for b in sizes))      # a session's share of the bar follows its video size
     for i, s in enumerate(sessions):
         if progress:
             progress("root", i, len(sessions), s["session_id"])
@@ -642,13 +659,15 @@ def run_root(root: Path, cfg: dict | None = None, gvhmr_root: str | None = None,
             log(f"[{s['session_id']}] CRASH {e}\n{traceback.format_exc()}")
             dump_json({"session_id": s["session_id"], "status": "FAIL", "error": str(e), "items": {}, "videos": {}}, session_out(root, s["session_id"]) / "deliver" / "session_summary.json")
     gv = {"ran": False}
-    if not cpu_only and (gvhmr_root or cfg["gvhmr"].get("root")):
-        gv = run_gvhmr_stage(root, cfg, gvhmr_root, gvhmr_python, log=log)
+    if lift:
+        gv = run_gvhmr_stage(root, cfg, gvhmr_root, gvhmr_python, log=log, progress=progress)
         for s in sessions:
             refresh_session_after_gvhmr(root, s["session_id"], cfg, log=log, gvhmr_root=gvhmr_root)
     elif not cpu_only:
         gv["message"] = "GPU stage not run: set gvhmr.root / gvhmr.python in wgvp_config.json (or the GUI fields) and run `wgvp gvhmr <root>`"
         log(gv["message"])
+    if progress:
+        progress("wrap", 0, 1, "")
     from .summary import build_summary
     summ = build_summary(root, cfg, gvhmr=gv, log=log)
     if hasattr(log, "close"):

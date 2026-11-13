@@ -177,7 +177,7 @@ def main(argv=None):
         print("too few usable frames: the room's lines do not fix the focal length from this view"); return 1
     print(f"focal_35mm {res['focal_35mm']} (quartiles {res['focal_35mm_iqr'][0]} to {res['focal_35mm_iqr'][1]} over {res['n_used']} frames; pairs of directions on their own: {res['pairs_35mm'][0]} to {res['pairs_35mm'][1]})")
     if a.out:
-        (Path(a.out) / "focal.json").write_text(json.dumps(res, indent=1))
+        (Path(a.out) / "focal.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     return 0
 
 

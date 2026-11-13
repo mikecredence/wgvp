@@ -35,13 +35,13 @@ def load_run(d: Path):
     w = d / "wgvp_output/HC900/work"; dl = d / "wgvp_output/HC900/deliver/hc900_selfpace"
     ts = {v: TrackSet.load(w / f"HC900_SP_DeID/tracks_{v}.npz") for v in ("left", "right")}
     imu = load_imu_ref(w / "imu_ref/hc900_selfpace_imu_ref.npz")
-    sel = json.loads((dl / "selection_joint.json").read_text())
+    sel = json.loads((dl / "selection_joint.json").read_text(encoding="utf-8"))
     for v in ("left", "right"):                       # each view's final choice: the cross-view cue attaches tracks the IMU match alone did not
         pv = dl / v / "selection.json"
         if pv.exists():
-            sel["views"][v]["track_ids"] = json.loads(pv.read_text()).get("track_ids", sel["views"][v]["track_ids"])
-    pan = json.loads((w / "HC900_SP_DeID/panels.json").read_text())
-    exp = json.loads((PKG / "sample/expected.json").read_text())
+            sel["views"][v]["track_ids"] = json.loads(pv.read_text(encoding="utf-8")).get("track_ids", sel["views"][v]["track_ids"])
+    pan = json.loads((w / "HC900_SP_DeID/panels.json").read_text(encoding="utf-8"))
+    exp = json.loads((PKG / "sample/expected.json").read_text(encoding="utf-8"))
     return ts, imu, sel, pan, exp, dl
 
 
@@ -175,7 +175,7 @@ def fig_selection(ts, imu, sel, roles, dl):
     for a, b in walk:
         ax[2].axvspan(a, b, color="0.85", zorder=0)
     ax[2].set_yticks([]); ax[2].set_ylim(-0.6, 1.6); ax[2].set_xlim(-0.8, imu["duration_s"] + 0.5); ax[2].set_xlabel("IMU time (s)")
-    ri = json.loads((dl.parent / "session_summary.json").read_text())["items"]["hc900_selfpace"]
+    ri = json.loads((dl.parent / "session_summary.json").read_text(encoding="utf-8"))["items"]["hc900_selfpace"]
     ax[2].set_title(f"C. Coverage per view on the IMU timeline (grey = annotated Walk bouts); a gap is an exit or an unattached fragment, never another person; bouts covered {ri.get('n_walk_bouts_ok')}/{ri.get('n_walk_bouts')}", loc="left", fontsize=10.5)
     plt.tight_layout(); plt.savefig(OUT / "selection_and_sync.png", dpi=130); plt.close(fig)
 
@@ -183,7 +183,7 @@ def fig_selection(ts, imu, sel, roles, dl):
 def fig_gvhmr(gpu: Path, imu, body_models: str | None):
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     Z = {v: np.load(gpu / v / "smpl_global.npz") for v in ("left", "right")}
-    pose = next(iter(json.loads((gpu / "reconcile.json").read_text())["pairs"].values()))["pose"]
+    pose = next(iter(json.loads((gpu / "reconcile.json").read_text(encoding="utf-8"))["pairs"].values()))["pose"]
     walk = [(a, b) for lab, a, b in imu["events"] if lab == "Walk"]; t0, t1 = walk[1][0], walk[1][1]
     fig, ax = plt.subplots(2, 1, figsize=(11, 7.4), gridspec_kw={"height_ratios": [1.1, 1]})
     for v, c in (("left", "tab:blue"), ("right", "tab:orange")):

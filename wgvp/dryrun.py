@@ -66,7 +66,7 @@ def _check_target(out: Path, sid: str, rid: str, exp: dict, checks: list, log) -
     rec = session_out(out, sid) / "deliver" / rid; tf = rec / "target.json"
     if not tf.exists():
         _check("training target named", False, "no target.json", checks, log); return
-    t = json.loads(tf.read_text()); f = rec / str(t.get("target"))
+    t = json.loads(tf.read_text(encoding="utf-8")); f = rec / str(t.get("target"))
     _check("training target named, and the file is there", t.get("target") is not None and f.exists(), f"{t.get('target')} ({t.get('why')})", checks, log)
     if t.get("method") != "jointfit" or not f.exists():
         return
@@ -80,18 +80,18 @@ def _check_target(out: Path, sid: str, rid: str, exp: dict, checks: list, log) -
            f"legs median {legs:.1f} deg over {int(keep.sum())} exported frames; fitted body height {t.get('body_height_m')} m", checks, log)
 
 
-def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_python: str | None = None, cpu_only: bool = False, log=print, keep: bool = True) -> dict:
-    exp = json.loads((SAMPLE_DIR / "expected.json").read_text())
+def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_python: str | None = None, cpu_only: bool = False, log=print, keep: bool = True, progress=None) -> dict:
+    exp = json.loads((SAMPLE_DIR / "expected.json").read_text(encoding="utf-8"))
     out = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="wgvp_dryrun_"))
     if out.exists() and any(out.iterdir()):
         shutil.rmtree(out)
     shutil.copytree(SAMPLE_DIR / "data", out, dirs_exist_ok=True)      # the default folder comes from mkdtemp and already exists
     log(f"dry run: sample copied to {out}")
     t0 = time.time(); cfg = load_config(out)
-    summ = run_root(out, cfg, gvhmr_root=gvhmr_root, gvhmr_python=gvhmr_python, cpu_only=cpu_only, log=log)
+    summ = run_root(out, cfg, gvhmr_root=gvhmr_root, gvhmr_python=gvhmr_python, cpu_only=cpu_only, log=log, progress=progress)
     checks = []
     sid, rid = exp["session_id"], exp["recording_id"]
-    ss = json.loads((session_out(out, sid) / "deliver" / "session_summary.json").read_text())
+    ss = json.loads((session_out(out, sid) / "deliver" / "session_summary.json").read_text(encoding="utf-8"))
     gpu_ran = bool(summ.get("gvhmr", {}).get("ran")) and summ["gvhmr"].get("returncode") == 0
     vrec = next(iter(ss["videos"].values()), {})
     pan = {p["id"]: p["box"] for p in (vrec.get("panels", {}).get("panels") or [])}
@@ -167,6 +167,6 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
     _check("privacy check on the deliverables", ss.get("privacy_check", {}).get("ok"), f"{ss.get('privacy_check')}", checks, log)
     ok = all(c["ok"] for c in checks)
     res = {"status": "PASS" if ok else "FAIL", "checks": checks, "elapsed_s": time.time() - t0, "out": str(out), "gpu_stage_ran": gpu_ran, "html": str(out / "wgvp_output" / "QC_SUMMARY.html")}
-    (out / "wgvp_output" / "dry_run_result.json").write_text(json.dumps(res, indent=1))
+    (out / "wgvp_output" / "dry_run_result.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     log(f"DRY RUN {res['status']} ({sum(c['ok'] for c in checks)}/{len(checks)} checks, {res['elapsed_s']:.0f}s) -> {out}/wgvp_output")
     return res

@@ -37,6 +37,9 @@ def no_tkinter_message() -> str:
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    for stream in (sys.stdout, sys.stderr):                   # a folder name the console cannot show must not stop a run
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(prog="wgvp", description=f"WearGait video-to-pose pipeline {__version__}")
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("gui", help="open the GUI (default when no command is given)").add_argument("root", nargs="?")

@@ -56,7 +56,7 @@ def test_parse_cells_into_footprints_and_stances():
 def test_make_imu_ref_reads_the_export_form(tmp_path):
     t, X, Y, F, P, truth = _rows()
     rng = np.random.default_rng(0); csv_path = tmp_path / "S9_selfpace_mat.csv"
-    with open(csv_path, "w", newline="") as fh:
+    with open(csv_path, "w", newline="", encoding="utf-8") as fh:
         wr = csv.writer(fh); wr.writerow(["Time", "GeneralEvent", "L Foot Contact", "R Foot Contact", "Walkway_X", "Walkway_Y", "WalkwayPressureLevel", "WalkwayFoot", "LowerBack_FreeAcc_U"])
         for i, ti in enumerate(t):
             wr.writerow([f"{ti:.2f} sec", "Walk", 0, 0, X[i], Y[i], P[i], F[i], f"{rng.normal(0, 0.5):.3f}"])

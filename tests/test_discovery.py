@@ -11,12 +11,12 @@ def test_scan_conventions(tmp_path):
     root = tmp_path
     s1 = root / "study" / "NLS036"; (s1 / "SP").mkdir(parents=True); (s1 / "TUG").mkdir()
     for n in ("NLS036_selfpace.csv", "NLS036_selfpace_mat.csv", "NLS036_tug.csv"):
-        (s1 / n).write_text("Time\n")
+        (s1 / n).write_text("Time\n", encoding="utf-8")
     (s1 / "SP" / "NLS036_SP_DeID_90.mp4").write_bytes(b"x"); (s1 / "TUG" / "NLS036_TUG_DeID_90.mp4").write_bytes(b"x")
-    (s1 / "NLS036_SP_labels.csv").write_text("Time,Walk\n0,0\n")
+    (s1 / "NLS036_SP_labels.csv").write_text("Time,Walk\n0,0\n", encoding="utf-8")
     s2 = root / "study" / "HC100"; (s2 / "selfpace").mkdir(parents=True)
-    (s2 / "hc100_selfpace_matturn.csv").write_text("Time\n"); (s2 / "selfpace" / "visit1.mp4").write_bytes(b"x")
-    (root / "stray.mp4").write_bytes(b"x"); (root / "study" / "readme.csv").write_text("a\n")
+    (s2 / "hc100_selfpace_matturn.csv").write_text("Time\n", encoding="utf-8"); (s2 / "selfpace" / "visit1.mp4").write_bytes(b"x")
+    (root / "stray.mp4").write_bytes(b"x"); (root / "study" / "readme.csv").write_text("a\n", encoding="utf-8")
     man = scan_root(root, load_config(None))
     ids = [s["session_id"] for s in man["sessions"]]
     assert ids == ["study__HC100", "study__NLS036"]
@@ -34,8 +34,8 @@ def test_scan_conventions(tmp_path):
 
 def test_config_roundtrip(tmp_path):
     from wgvp.config import write_default_config
-    p = write_default_config(tmp_path); cfg = json.loads(p.read_text())
-    cfg["tasks"] = {"tug": {"csv_tokens": ["tug"], "dir_names": ["TUG"], "video_tokens": ["TUG"]}}; p.write_text(json.dumps(cfg))
+    p = write_default_config(tmp_path); cfg = json.loads(p.read_text(encoding="utf-8"))
+    cfg["tasks"] = {"tug": {"csv_tokens": ["tug"], "dir_names": ["TUG"], "video_tokens": ["TUG"]}}; p.write_text(json.dumps(cfg), encoding="utf-8")
     c = load_config(tmp_path)
     assert "tug" in c["tasks"] and c["views"]["layout"] == DEFAULT_CONFIG["views"]["layout"]
 

@@ -92,7 +92,7 @@ def test_merge_two_views(tmp_path):
     assert "transl_weight" in m.files and "transl_disagree_m" in m.files and np.nanmedian(m["transl_disagree_m"]) < 0.05 and m["transl_weight"][20:100].mean() > 0.95
     # source bits: left absent over 260-300 -> only the right view (bit 1) there; both elsewhere
     assert (m["source"][270:290] == 2).all() and (m["source"][20:100] == 3).all()
-    assert m["root_weight"].min() >= 0 and m["root_weight"].max() <= 1 and json.loads((rec / "merge.json").read_text())["export"]["n_frames"] == int(m["export_ok"].sum())
+    assert m["root_weight"].min() >= 0 and m["root_weight"].max() <= 1 and json.loads((rec / "merge.json").read_text(encoding="utf-8"))["export"]["n_frames"] == int(m["export_ok"].sum())
 
 
 def test_merge_single_view_and_gaps(tmp_path):

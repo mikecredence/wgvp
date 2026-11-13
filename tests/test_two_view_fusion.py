@@ -47,7 +47,7 @@ def test_fusion_beats_single_views_where_one_is_damaged(tmp_path):
     assert dmg["confidence-weighted"]["all"] < 0.5 * dmg["mean"]["all"] < left_dmg   # weighting by confidence rescues it; a plain mean only halves it
     assert dmg["oracle pick"]["all"] <= dmg["confidence-weighted"]["all"] + 0.5
     assert abs(res["yaw_offset_deg"]["left"] - 35) <= 1.5 and abs(res["yaw_offset_deg"]["right"] + 50) <= 1.5   # heading offsets recovered
-    assert (tmp_path / "out" / "two_view_fusion.md").exists() and json.loads((tmp_path / "out" / "two_view_fusion.json").read_text())["n_frames"] == T
+    assert (tmp_path / "out" / "two_view_fusion.md").exists() and json.loads((tmp_path / "out" / "two_view_fusion.json").read_text(encoding="utf-8"))["n_frames"] == T
 
 
 def test_smooth_rotations_reduces_jitter_and_respects_gaps():

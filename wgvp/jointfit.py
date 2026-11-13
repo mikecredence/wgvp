@@ -404,7 +404,7 @@ def jointfit_recording(rec_dir: Path, skeleton, params: dict | None = None, cams
     def skip(why):
         s = {"recording": rec_dir.name, "status": "SKIP", "flags": [why], "views": views, "merge_stamp": stamp}
         if write:
-            (rec_dir / "jointfit.json").write_text(json.dumps(s, indent=1)); (rec_dir / "jointfit_smpl.npz").unlink(missing_ok=True)
+            (rec_dir / "jointfit.json").write_text(json.dumps(s, indent=1), encoding="utf-8"); (rec_dir / "jointfit_smpl.npz").unlink(missing_ok=True)
         log(f"  [{rec_dir.name}] joint fit: SKIP ({why})"); return s
     if len(views) != 2:
         return skip(f"the joint fit takes two views, this recording has {len(views)}")
@@ -474,7 +474,7 @@ def jointfit_recording(rec_dir: Path, skeleton, params: dict | None = None, cams
                   views=np.array(views), fps=float(m["fps"]) if "fps" in m.files else 30.0, merge_stamp=stamp)
     if write:
         np.savez_compressed(rec_dir / "jointfit_smpl.npz", **arrays, fields_doc=FIELDS_DOC, note=summary["note"])
-        (rec_dir / "jointfit.json").write_text(json.dumps(summary, indent=1))
+        (rec_dir / "jointfit.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     log(f"  [{rec_dir.name}] joint fit: {summary['status']} reprojection {px[0]['median']:.1f} / {px[1]['median']:.1f} px, cameras moved {summary['cameras']['moved_from_seed_deg']:.1f} deg from the seed, "
         f"path moved {stats['path_m_median'] if stats['path_m_median'] is not None else float('nan'):.2f} m against the merge, {sol['seconds']:.0f} s {flags}")
     if return_arrays:
@@ -489,12 +489,12 @@ def record_no_fit(rec_dir: Path, status: str, why: str) -> dict | None:
     if not mf.exists():
         return None
     m = np.load(mf); s = {"recording": rec_dir.name, "status": status, "flags": [why], "views": [str(v) for v in m["views"]], "merge_stamp": merge_stamp(m)}
-    (rec_dir / "jointfit.json").write_text(json.dumps(s, indent=1)); (rec_dir / "jointfit_smpl.npz").unlink(missing_ok=True); return s
+    (rec_dir / "jointfit.json").write_text(json.dumps(s, indent=1), encoding="utf-8"); (rec_dir / "jointfit_smpl.npz").unlink(missing_ok=True); return s
 
 
 def _read_json(f: Path) -> dict | None:
     try:
-        return json.loads(Path(f).read_text())
+        return json.loads(Path(f).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -541,7 +541,7 @@ def settle_target(rec_dir: Path, enabled: bool = True, not_run: str | None = Non
          "jointfit_status": js, "merge_status": (_read_json(rec_dir / "merge.json") or {}).get("status") if merge_error is None else "FAIL", "merge_stamp": stamp,
          "body_height_m": j.get("body_height_m") if fit_on_file else None, "note": TARGET_NOTE}
     if write:
-        tf.write_text(json.dumps(t, indent=1))
+        tf.write_text(json.dumps(t, indent=1), encoding="utf-8")
     log(f"  [{rec_dir.name}] training target: {target} ({why})"); return t
 
 

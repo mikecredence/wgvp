@@ -43,7 +43,7 @@ def main(dest: str, default_camera: bool = False) -> int:
     dest = Path(dest); dest.mkdir(parents=True, exist_ok=True)
     if not default_camera and not config_path(dest).exists():
         cfg = json.loads(json.dumps(DEFAULT_CONFIG)); cfg["gvhmr"]["focal_35mm"] = dict(SAMPLE_FOCAL_35MM)
-        config_path(dest).write_text(json.dumps(cfg, indent=1))
+        config_path(dest).write_text(json.dumps(cfg, indent=1), encoding="utf-8")
         print(f"wgvp_config.json: the sample cameras' field of view (gvhmr.focal_35mm {SAMPLE_FOCAL_35MM})")
     for sub, src, sid, (tdir, ttok, tcsv), pick in SESSIONS:
         if not src.exists():
@@ -53,9 +53,9 @@ def main(dest: str, default_camera: bool = False) -> int:
         shutil.copy2(src / tdir / f"{sid}_{ttok}_DeID.mp4", dest / sub / "Video" / f"{ttok}_combo.mp4")
         shutil.copy2(src / f"{sid.lower()}_{tcsv}.csv", dest / sub / "IMU" / f"{rid}.csv")
         if pick is not None and pick.exists():
-            d = json.loads(pick.read_text()); d["recording_id"] = rid
+            d = json.loads(pick.read_text(encoding="utf-8")); d["recording_id"] = rid
             cdir = dest / "wgvp_output" / sub / "config"; cdir.mkdir(parents=True, exist_ok=True)
-            (cdir / f"pick_{d['camera_id']}_{rid}.json").write_text(json.dumps(d, indent=1))
+            (cdir / f"pick_{d['camera_id']}_{rid}.json").write_text(json.dumps(d, indent=1), encoding="utf-8")
         print(f"{sub}/{ttok}_combo.mp4 <- {sid}" + (" (+ operator pick)" if pick is not None and pick.exists() else ""))
     print(f"-> {dest}: run `python -m wgvp scan \"{dest}\"` then `python -m wgvp run \"{dest}\" --cpu-only`")
     return 0

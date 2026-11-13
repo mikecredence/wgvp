@@ -10,15 +10,19 @@ from pathlib import Path
 from . import __version__
 from .config import config_path, load_config, write_default_config
 from .discovery import manifest_text, scan_root
+from .progress import RunProgress
+
+BAR = 1000       # the progress bar's full length, in its own units
 
 
-def launch(initial_root: str | None = None):
+def launch(initial_root: str | None = None, on_ready=None):
+    """Open the window. on_ready(app), if given, is called once before the event loop starts (the tests drive the window through it)."""
     import tkinter as tk
     from tkinter import filedialog, ttk, messagebox
 
     app = tk.Tk(); app.title(f"WearGait video pipeline (wgvp {__version__})"); app.geometry("1100x760")
     q: queue.Queue = queue.Queue()
-    state = {"manifest": None, "running": False, "summary": None}
+    state = {"manifest": None, "running": False, "summary": None, "rp": RunProgress(), "prefix": ""}
 
     def log(msg):
         q.put(("log", str(msg)))
@@ -60,7 +64,7 @@ def launch(initial_root: str | None = None):
     v_cpu = tk.BooleanVar(value=False); ttk.Checkbutton(bar, text="CPU stages only (skip GVHMR)", variable=v_cpu).pack(side="left", padx=6)
     ttk.Button(bar, text="Open QC summary", command=lambda: do_open()).pack(side="right")
     ttk.Button(bar, text="Open output folder", command=lambda: do_open_folder()).pack(side="right", padx=6)
-    pb = ttk.Progressbar(app, mode="determinate"); pb.pack(fill="x", padx=8)
+    pb = ttk.Progressbar(app, mode="determinate", maximum=BAR); pb.pack(fill="x", padx=8)
     v_prog = tk.StringVar(value="idle"); ttk.Label(app, textvariable=v_prog).pack(anchor="w", padx=8)
     txt = tk.Text(app, height=14, wrap="word"); txt.pack(fill="both", expand=True, padx=8, pady=4)
 
@@ -118,9 +122,9 @@ def launch(initial_root: str | None = None):
 
     def save_gvhmr_cfg(r):
         p = config_path(r)
-        cfg = json.loads(p.read_text()) if p.exists() else {}
+        cfg = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
         cfg.setdefault("gvhmr", {}); cfg["gvhmr"]["root"] = v_groot.get().strip(); cfg["gvhmr"]["python"] = v_gpy.get().strip()
-        p.write_text(json.dumps(cfg, indent=1))
+        p.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
 
     def do_check_gpu():
         from .check_gpu import check, format_rows, run_in_interpreter
@@ -146,6 +150,7 @@ def launch(initial_root: str | None = None):
         save_gvhmr_cfg(r)
         from .session import run_root
         state["running"] = True; b_run.config(state="disabled"); b_dry.config(state="disabled"); v_prog.set("running ..."); pb["value"] = 0
+        state["rp"] = RunProgress(); state["prefix"] = ""
         worker(run_root, r, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, cpu_only=v_cpu.get(), log=log, progress=progress)
 
     def do_dry():
@@ -153,8 +158,10 @@ def launch(initial_root: str | None = None):
             return
         from .dryrun import dry_run
         state["running"] = True; b_run.config(state="disabled"); b_dry.config(state="disabled")
-        v_prog.set("dry run on the bundled sample (about a minute, up to six on an older laptop) ..."); pb.config(mode="indeterminate"); pb.start(60)
-        worker(dry_run, out_dir=None, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, cpu_only=v_cpu.get(), log=log)
+        v_prog.set("dry run on the bundled sample (about a minute, up to six on an older laptop) ..."); pb["value"] = 0
+        state["rp"] = RunProgress(); state["prefix"] = "dry run, "
+        worker(dry_run, out_dir=None, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, cpu_only=v_cpu.get(), log=log,
+               progress=progress)
 
     def do_open():
         if state.get("html") and Path(state["html"]).exists():
@@ -186,7 +193,7 @@ def launch(initial_root: str | None = None):
                     if f not in why.setdefault(row["session"], []):
                         why[row["session"]].append(f)
             for sid, n in state.get("rows", {}).items():
-                ss = json.loads((r / "wgvp_output" / sid / "deliver" / "session_summary.json").read_text())
+                ss = json.loads((r / "wgvp_output" / sid / "deliver" / "session_summary.json").read_text(encoding="utf-8"))
                 flags = why.get(sid) or ([ss["error"]] if ss.get("error") else [])
                 tree.set(n, "status", ss.get("status", "?") + (": " + ", ".join(map(str, flags[:2])) if flags else ""))
         except Exception as e:
@@ -199,10 +206,8 @@ def launch(initial_root: str | None = None):
                 if kind == "log":
                     txt.insert("end", payload + "\n"); txt.see("end")
                 elif kind == "progress":
-                    stage, i, n, msg = payload
-                    if stage == "root":
-                        pb["maximum"] = max(n, 1); pb["value"] = i
-                    v_prog.set(f"session {i + 1} of {n}: {msg}" if stage == "root" else f"recording {i + 1} of {n}: {msg}")
+                    frac, text = state["rp"].update(*payload)            # one bar for the whole run, fed frame by frame
+                    pb["value"] = BAR * frac; v_prog.set(f"{state.get('prefix', '')}{text}  ({frac:.0%})")
                 elif kind == "tree":
                     vn, txt_, prev = payload
                     try:
@@ -214,7 +219,7 @@ def launch(initial_root: str | None = None):
                 elif kind == "done":
                     state["running"] = False; b_run.config(state="normal"); b_dry.config(state="normal")
                     payload = payload if isinstance(payload, dict) else {}
-                    pb.stop(); pb.config(mode="determinate"); pb["value"] = pb["maximum"]
+                    pb["value"] = BAR
                     t = payload.get("totals")
                     if payload.get("status"):                      # the dry run, or a run that raised
                         v_prog.set(f"finished: {payload['status']}" + (f" ({payload['error']}; the traceback is in the log below)" if payload.get("error") else ""))
@@ -232,4 +237,6 @@ def launch(initial_root: str | None = None):
     poll()
     if initial_root:
         app.after(300, do_scan)
+    if on_ready:
+        on_ready(app)
     app.mainloop()

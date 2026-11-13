@@ -19,7 +19,7 @@ def _chunk(work: Path, cid: int, frames: np.ndarray, boxes: np.ndarray, body_pos
     np.save(work / f"chunk_{cid}_bbox.npy", boxes.astype(np.float32))
     (work / f"chunk_{cid}.json").write_text(json.dumps({"chunk_id": cid, "video": f"chunk_{cid}.mp4", "bbox": f"chunk_{cid}_bbox.npy", "n_frames": n, "frame_idx": frames.tolist(),
                                                         "pts_ms": (frames / 30.0 * 1000).tolist(), "imu_t_s": (frames / 30.0 - 1.0).tolist(), "visible": visible.tolist(), "frame_step": 1,
-                                                        "cut_scale": scale, "crop": list(crop), "fps_source": 30.0, "status": "done", "pose_npz": f"chunk_{cid}_pose.npz"}))
+                                                        "cut_scale": scale, "crop": list(crop), "fps_source": 30.0, "status": "done", "pose_npz": f"chunk_{cid}_pose.npz"}), encoding="utf-8")
 
 
 def test_assemble_quality_fields(tmp_path):
@@ -43,12 +43,12 @@ def test_assemble_quality_fields(tmp_path):
     st = z["pose_step_deg"]; assert np.isnan(st[0]) and np.isnan(st[100]) and np.isfinite(st[1:100]).all()        # NaN at each chunk start only
     assert np.nanmax(st[1:90]) < 5 and st[90] > 30 and np.nanmax(st[91:100]) < 5                                  # the planted jump, nothing else
     assert (z["chunk_id"][:100] == 0).all() and (z["chunk_id"][100:] == 1).all()
-    gm = json.loads((deliver / "gvhmr_meta.json").read_text())
+    gm = json.loads((deliver / "gvhmr_meta.json").read_text(encoding="utf-8"))
     assert gm["n_bridged"] == 10 and gm["n_edge_truncated"] == 25 and gm["n_pose_jumps_over_30deg"] == 1 and gm["pose_jump_frames"] == [90]
     assert "rest_held" in z.files and not z["rest_held"].any() and gm["n_rest_held"] == 0          # chunk records from before the field: nothing held
-    m0 = json.loads((work / "chunk_0.json").read_text()); m0["rest_held"] = [70 <= i < 76 for i in range(100)]; (work / "chunk_0.json").write_text(json.dumps(m0))
+    m0 = json.loads((work / "chunk_0.json").read_text(encoding="utf-8")); m0["rest_held"] = [70 <= i < 76 for i in range(100)]; (work / "chunk_0.json").write_text(json.dumps(m0), encoding="utf-8")
     assemble(work, deliver); z = np.load(deliver / "smpl_global.npz"); k = np.load(deliver / "kp2d_vitpose.npz")
-    gm = json.loads((deliver / "gvhmr_meta.json").read_text())
+    gm = json.loads((deliver / "gvhmr_meta.json").read_text(encoding="utf-8"))
     assert z["rest_held"][70:76].all() and z["rest_held"].sum() == 6 and k["rest_held"].sum() == 6 and gm["n_rest_held"] == 6 and gm["n_bridged"] == 4
 
 
@@ -67,9 +67,9 @@ def test_lifter_call_carries_the_view_focal_length(tmp_path):
     with the lifter's default, so the option is never passed."""
     from wgvp.gvhmr_stage import run_demo
     root = tmp_path / "GVHMR"; (root / "tools/demo").mkdir(parents=True)
-    (root / "tools/demo/demo.py").write_text("import json, sys\nopen('argv.json', 'w').write(json.dumps(sys.argv[1:]))\n")
+    (root / "tools/demo/demo.py").write_text("import json, sys\nopen('argv.json', 'w').write(json.dumps(sys.argv[1:]))\n", encoding="utf-8")
     video = tmp_path / "chunk_0.mp4"; video.write_bytes(b"")
     r = run_demo(root, video, tmp_path / "pred", 60, tmp_path / "run.log", f_mm=28.31); assert r["returncode"] == 0
-    argv = json.loads((root / "argv.json").read_text()); assert argv[argv.index("--f_mm") + 1] == "28"
+    argv = json.loads((root / "argv.json").read_text(encoding="utf-8")); assert argv[argv.index("--f_mm") + 1] == "28"
     r = run_demo(root, video, tmp_path / "pred", 60, tmp_path / "run.log"); assert r["returncode"] == 0
-    assert "--f_mm" not in json.loads((root / "argv.json").read_text())
+    assert "--f_mm" not in json.loads((root / "argv.json").read_text(encoding="utf-8"))

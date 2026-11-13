@@ -153,7 +153,7 @@ def torso_histogram(img_bgr: np.ndarray, kp: np.ndarray, box: np.ndarray, min_co
 
 def analyze_video(video: str | Path, weights: str | Path, panels: list[dict], start: int = 0, end: int | None = None, step: int = 1,
                   max_width: int = 1280, conf: float = 0.3, device: str | None = None, imgsz: int = 640, rois: dict | None = None,
-                  log=print, tracker: str = "bytetrack.yaml") -> dict:
+                  log=print, tracker: str = "bytetrack.yaml", on_frame=None) -> dict:
     """Decode once; per panel: crop, downscale to max_width, YOLO-pose tracking with its own tracker, appearance,
     visibility, brightness grid. Returns {view_id: TrackSet}."""
     info = probe_video(video, with_hash=False)
@@ -174,6 +174,8 @@ def analyze_video(video: str | Path, weights: str | Path, panels: list[dict], st
         for name, r in (rois or {}).get(p["id"], {}).items():
             views[-1]["roi_masks"][name] = _roi_mask(r, W, H)[y0:y1, x0:x1]; views[-1]["roi"][name] = []
     t0 = time.time(); n = 0
+    total = max(1, -(-(min(end or info["n_frames_nominal"], info["n_frames_nominal"]) - start) // max(step, 1)))   # frames this call will read
+    every = max(1, total // 200)                                              # at most a couple of hundred reports per video
     for i, pts, fr in iter_frames(video, start, end, step):
         for v in views:
             x0, y0, x1, y1 = v["box"]
@@ -195,6 +197,8 @@ def analyze_video(video: str | Path, weights: str | Path, panels: list[dict], st
                     box_full = boxes[j] / v["scale"] + [x0, y0, x0, y0]
                     v["det"].append((pos, int(ids[j]), box_full, float(confs[j]), kp_full, app, visibility_class(kp_local)))
         n += 1
+        if on_frame and (n % every == 0 or n == total):
+            on_frame(min(n, total), total)
         if n % 500 == 0:
             log(f"      tracked {n} frames ({n / (time.time() - t0):.1f} fps)")
     out = {}

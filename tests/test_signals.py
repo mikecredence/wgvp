@@ -144,7 +144,7 @@ def test_reconcile_two_cameras():
 def test_privacy_check(tmp_path):
     from wgvp.qc import privacy_check
     d = tmp_path / "deliver"; (d / "validation_bundle").mkdir(parents=True)
-    np.savez(d / "ok.npz", a=np.zeros(10, np.float32)); (d / "x.json").write_text("{}")
+    np.savez(d / "ok.npz", a=np.zeros(10, np.float32)); (d / "x.json").write_text("{}", encoding="utf-8")
     assert privacy_check(d)["ok"]
     import cv2
     img = np.zeros((100, 100, 3), np.uint8); cv2.line(img, (0, 0), (99, 99), (0, 255, 0), 2); cv2.imwrite(str(d / "validation_bundle" / "s.png"), img)

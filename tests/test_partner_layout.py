@@ -12,8 +12,8 @@ def test_scan_pairs_video_and_csv_in_partner_layout(tmp_path):
     for sub in ("Sub 001", "Sub 002", "Sub 003"):
         (tmp_path / sub / "Video").mkdir(parents=True); (tmp_path / sub / "IMU").mkdir()
         (tmp_path / sub / "Video" / "SP_combo.mp4").write_bytes(b"")
-        (tmp_path / sub / "IMU" / f"{sub.replace(' ', '')}_selfpace.csv").write_text("Time,GeneralEvent\n")
-    (tmp_path / "Sub 002" / "Video" / "notes.txt").write_text("ignored")
+        (tmp_path / sub / "IMU" / f"{sub.replace(' ', '')}_selfpace.csv").write_text("Time,GeneralEvent\n", encoding="utf-8")
+    (tmp_path / "Sub 002" / "Video" / "notes.txt").write_text("ignored", encoding="utf-8")
     write_default_config(tmp_path); man = scan_root(tmp_path, load_config(tmp_path))
     ids = sorted(s["session_id"] for s in man["sessions"]); assert ids == ["Sub 001", "Sub 002", "Sub 003"]
     for s in man["sessions"]:
