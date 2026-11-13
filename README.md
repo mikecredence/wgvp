@@ -107,7 +107,8 @@ has the method and the full-size numbers.
 
 ## Quick start
 
-Python 3.10-3.12 on Windows, macOS or Linux. Everything below runs on the CPU.
+Python 3.10-3.12 on Windows, macOS or Linux. Everything below runs on the CPU. The repository's tests run the dry
+run, the bundled example and the GUI on all three systems at every change.
 
 ```bash
 git clone https://github.com/mikecredence/wgvp.git
@@ -158,7 +159,8 @@ python examples/verify_examples.py --data examples/two_camera
 The verify script prints `PASS` per session when the sync and the chosen subject match the known answers. The
 pipeline's own status for the two-view sessions is `WARN`, and that is expected here: these clips have no sync
 light, and the optional cross-check that looks for one reports that what it found does not agree
-(`flash_disagrees`). [examples/README.md](examples/README.md) has the measured numbers.
+(`flash_disagrees`). On Linux the one-view session ends with the same flag, because the clip decodes a little
+differently there. [examples/README.md](examples/README.md) has the measured numbers.
 
 **3. Example corpus on more footage.** Three public YouTube clips (a corridor walk test, a shuttle-walk test with
 two standing staff, a crowded plaza) are fetched to your machine, cut, and given the same kind of fabricated
@@ -179,10 +181,16 @@ python -m wgvp run  /path/to/data_root --cpu-only
 ```
 
 or open the GUI (`python -m wgvp`): choose the data folder, **Scan**, **Dry run**, **Run all sessions**,
-**Open QC summary**. After a run each session's row in the list shows its PASS, WARN or FAIL with the reason. The
+**Open QC summary**. While a run is going, the bar and the line under it follow the work frame by frame, and each
+session's row in the list takes its PASS, WARN or FAIL with the reason as soon as that session finishes. The
 GUI needs tkinter, which the python.org installers include; on Debian/Ubuntu `sudo apt install python3-tk`, with a
 Homebrew Python on macOS `brew install python-tk@3.12` (match your Python version). Without tkinter
 `python -m wgvp` prints these fixes and the equivalent commands in place of the window.
+
+[![The GUI through a scan and a run](docs/demos/gui_preview.webp)](docs/demos/gui.png)
+
+*The window through a scan and a run of the three bundled sessions (CPU stages, two minutes shown in twenty
+seconds).*
 
 **5. The GPU step** (GVHMR, NVIDIA GPU with 8 GB or more, CUDA 12) lives in its own Python environment:
 [env/install_gvhmr.md](env/install_gvhmr.md). Once it exists, `python -m wgvp check-gpu --gvhmr-root <GVHMR>
@@ -190,6 +198,15 @@ Homebrew Python on macOS `brew install python-tk@3.12` (match your Python versio
 `--cpu-only`, with `gvhmr.root` / `gvhmr.python` set in the config or passed as flags) runs the lift after the CPU
 stages. The CPU stages can be run now and the GPU stage later (`python -m wgvp gvhmr <root>`). The merge runs by
 itself after the lift; `python -m wgvp merge <root>` rebuilds it from existing lifts.
+
+**The lift without a GPU.** A machine with no NVIDIA GPU can still run the lift, slowly, with the same GVHMR
+install minus the GPU pieces (a CPU build of torch, no pytorch3d, no `check-gpu` pass). Set `"device": "cpu"` under
+`gvhmr` in `wgvp_config.json`, or pass `--lift-device cpu` to `run` or `gvhmr`. The poses are the same ones:
+on one 13-s, 393-frame recording the CPU and the GPU lift agree to 0.08 deg at the 99th percentile of every joint
+angle (2.8 deg at the single worst frame) and to 3 cm in the walker's position. The time is the cost: 460 s on
+eight Xeon cores against 150 s on a T4, so roughly 35 s of lifting per second of video per view. A 30-s two-view
+recording is about 35 min; a session of several recordings is an afternoon. ViTPose and the HMR2 features take all
+of it; the GVHMR network itself runs in a second either way.
 
 **6. The demo video** of a lifted recording (the two views with the lifter's 2D input, the reconstruction, the
 export, an aerial view, a filmstrip and knee-flexion timelines; the figure further down is one frame of it) renders

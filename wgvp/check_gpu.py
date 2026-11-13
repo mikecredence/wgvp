@@ -26,7 +26,7 @@ def check(gvhmr_root: str | None) -> list[tuple[str, bool, str]]:
         import torch
         add("torch importable", True, torch.__version__)
         add("torch CUDA build", torch.version.cuda is not None, f"torch.version.cuda={torch.version.cuda}; install a CUDA build (see env/install_gvhmr.md)")
-        add("CUDA device visible", torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else "no GPU visible to torch (driver / CUDA_VISIBLE_DEVICES)")
+        add("CUDA device visible", torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else "no GPU visible to torch (driver / CUDA_VISIBLE_DEVICES). Without an NVIDIA GPU the lift still runs, slowly: set \"device\": \"cpu\" under gvhmr in wgvp_config.json, or pass --lift-device cpu")
         if torch.cuda.is_available():
             mem = torch.cuda.get_device_properties(0).total_memory / 2**30
             add("GPU memory >= 8 GB", mem >= 8, f"{mem:.1f} GB")

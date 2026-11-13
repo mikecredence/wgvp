@@ -2143,6 +2143,74 @@ session for the bar to show (a session of the two-camera example sits still for 
 the window while it works. The QC table is still 32 columns and 2900 px wide. The README is 1270 lines with the
 quick start at line 108.
 
+### 2.21 Round fourteen: a PC, a machine with no GPU, a bar that moves, and the window in the README (2026-11-13)
+
+Four questions from a first look at the window: does it run on a PC, can the lift run without a GPU, why does the
+progress bar not move, and why is the window not shown anywhere.
+
+**A PC.** Until this round only the unit tests ran on Windows. The tests now run the dry run, the bundled example
+and the window itself on Windows, macOS and Linux at every change:
+
+| system (the test machine) | dry run | bundled example | the window, driven through a scan and a run |
+|---|---|---|---|
+| Windows Server 2025 | 10/10 in 239 s | verified; OWN01 PASS, OWN02 WARN | pass, 72 s |
+| macOS 26, Apple silicon | 10/10 in 268 s | verified; OWN01 PASS, OWN02 WARN | pass, 85 s |
+| Ubuntu 26.04 | 10/10 in 118 s | verified; OWN01 WARN, OWN02 WARN | pass, 55 s |
+
+On Linux the one-view session carries `flash_disagrees (+0.150s)` too: the clip decodes to 363 frames with the
+subject in them against 374 on the other two systems, and the search for a sync light finds a step it does not
+find there. The sync itself is the same (0.816 s against 0.819 s).
+
+One real fault for a PC turned up before any of that ran. Text files were opened in the system's default
+encoding, which is UTF-8 on macOS and Linux and is not on most Windows installations. With the default set to
+plain ASCII and a data folder named with accents, spaces and Japanese characters, the first log line that held
+the folder name stopped the run. Every text file the package, the tools, the examples and the tests read or write
+now names UTF-8 (99 calls), console output can no longer fail on a name it cannot show, and the processes the
+package starts run in UTF-8 mode. The same folder then runs to PASS and verifies. `tests/test_text_encoding.py`
+fails if a new call leaves the encoding out.
+
+Not covered: the lift on Windows (GVHMR is Linux software in our hands; a PC runs the CPU stages and the window,
+and the lift runs on a Linux machine or, untested by us, under WSL2), paths longer than Windows' 260 characters,
+and a clinic's own PC.
+
+**The bar.** It took one step per session and switched to a bouncing block for the dry run, so a one-session run
+showed an empty bar for a minute and then a full one. Finding people frame by frame is 86 to 97 % of a session's
+CPU time on the bundled examples, so that is what the bar now follows: the tracker reports frames as it reads
+them, `wgvp/progress.py` turns the pipeline's events into one share-of-run number and a line of text ("session 3
+of 3: OWN03, finding people in OWN03_SP.mp4: frame 392 of 930 (72%)"), a session's share of the bar follows its
+video size, and with the lift configured the lifter's pieces fill their own share. Against the clock the bar stays
+within 0.10 of the elapsed share on the bundled examples. Each session's row in the list now takes its result
+when that session finishes, and the running one says so.
+
+**The window, seen.** A process may draw its own window into a picture without any screen permission (AppKit's
+`cacheDisplayInRect:toBitmapImageRep:`, reached through `ctypes`), which is how the window was finally looked at
+and how the clip in the README was recorded: the real window, driven through a scan and a CPU run of the three
+bundled sessions, 36 frames of 236. `launch(on_ready=...)` is the hook the recording and `tests/test_gui_smoke.py`
+drive it through.
+
+**No GPU.** GVHMR's demo moves its models and batches to the GPU by name (`.cuda()`, `torch.cuda.synchronize`),
+so it stops at once on a machine without one. `wgvp/gvhmr_cpu.py` runs the same script with those moves made
+into no-ops and every checkpoint loaded onto the CPU; `--device cpu` on the stage (`--lift-device cpu` on `run`
+and `gvhmr`, or `gvhmr.device` in the config) routes through it with the GPU hidden. Measured on the T4 box with
+its GPU hidden, one 393-frame chunk of OWN01:
+
+| | GPU (T4) | CPU (8 Xeon cores) | difference of the poses |
+|---|---|---|---|
+| ViTPose + HMR2 features | 126 s | 442 s | keypoints identical to 2e-4 px |
+| GVHMR network | 1.1 s | 0.6 s | joint angles p99 0.08 deg, worst frame 2.8 deg |
+| whole chunk | 159 s | 464 s | world position p99 2.9 cm, in-camera position identical |
+
+So about 35 s of lifting per second of video per view, and the poses are the same to well under the
+frame-to-frame motion. The first attempt died at `torch.cuda.synchronize` in GVHMR's own timer, which the wrapper
+now covers; a second attempt ran through. Not covered: a CPU build of the GVHMR environment set up from scratch
+(the test used the box's CUDA build with the GPU hidden, which exercises the same code path), and Windows.
+
+**What stays open.** The lift on Windows (WSL2 is the likely route and is untested); the four GUI items of 2.20
+that are still there (no stop button, no single-session run, Check GPU blocks the window, no demo button); the
+QC table's width. The bar is calibrated on the bundled examples; on a long clinic session with many recordings
+per video the matching share may be larger than the 8 % allowed for, and the bar would then sit near full for
+longer than it should.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
