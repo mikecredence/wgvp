@@ -426,7 +426,7 @@ def refresh_csv(variant: str, out_dir: str | None = None):
     assert np.allclose(G["transl"], tr_s, atol=1e-4) and len(G["pose_aa"]) == T_s, "the rendered truth differs from this build: re-render instead"
     dfc, mat_frame = recording_csv_subset(var, subj_name, J_s, T_s, x0, x1, xm, zm)
     dfc.to_csv(sess / f"{sid.lower()}_{tcsv}.csv", index=False)
-    ej = out / "expected.json"; exp = json.loads(ej.read_text()); exp["mat_frame"] = mat_frame; ej.write_text(json.dumps(exp))
+    ej = out / "expected.json"; exp = json.loads(ej.read_text(encoding="utf-8")); exp["mat_frame"] = mat_frame; ej.write_text(json.dumps(exp), encoding="utf-8")
     print(f"{sid}: CSV rewritten ({len(dfc)} rows); mat_frame {mat_frame}")
 
 
@@ -566,7 +566,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
     (sess / "README.txt").write_text(f"Synthetic session {sid} (rendered SMPL meshes, no real video): one combined two-view video\n"
                                      f"{tdir}/{sid}_{ttok}_DeID.mp4 (left = along-walkway view 520x600, right = side view 900x500 letterboxed)" + (" with a co-walker,\n" if has_decoy else ",\n") +
                                      f"a seated operator near the side camera and a bystander; {sid.lower()}_{tcsv}.csv = column subset of the public {subj_name}.csv"
-                                     + (" with the walkway columns fabricated from the rendered truth in the export's form (loaded cells per sample, 1.27 cm grid).\n" if mat_frame else "; its walkway columns are left empty (the real recording's footprints do not describe the rendered walk).\n"))
+                                     + (" with the walkway columns fabricated from the rendered truth in the export's form (loaded cells per sample, 1.27 cm grid).\n" if mat_frame else "; its walkway columns are left empty (the real recording's footprints do not describe the rendered walk).\n"), encoding="utf-8")
     # ground truth of the walker for the reconstruction experiment: SMPL pose, root trajectory, 3D joints, and per
     # view the image position and in-frame flag of every joint (no pixels)
     np.savez_compressed(out / f"{sid}_gt.npz", frame_idx=np.arange(pre, pre + T_s), imu_t_s=np.arange(T_s) / FPS, pose_aa=subj.astype(np.float32), transl=tr_s.astype(np.float32),
@@ -586,7 +586,7 @@ def main(out_dir: str | None = None, variant: str = "v1"):
                                      "bystander_xyz": [float(tr_b[0, 0]), 0.0, float(tr_b[0, 2])], "walls": [{"x": float(x1 + 4.0), "z": [float(zm - 8), float(zm + 8)]}, {"z": float(zm + 4.0), "x": [float(x0 - 8), float(x1 + 8)]}],
                                      "cameras": {cid: {"eye": [float(v) for v in c["eye"]], "target": [float(v) for v in c["target"]], "yfov_deg": float(c["yfov"])} for cid, c in cams.items()}},
                           "walk_extent_m": [x0, x1]}}
-    (out / "expected.json").write_text(json.dumps(expected))
+    (out / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
     for cid in cams:
         print(f"{cid}: subject frames with hip in view {len(gt[cid]['frames'])}/{T_s}, vis counts {expected['views'][cid]['vis_counts']}")
     print(f"sample -> {out}: " + ", ".join(f"{p.name} {p.stat().st_size / 1e6:.1f} MB" for p in (sess / tdir).iterdir()))

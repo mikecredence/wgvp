@@ -201,7 +201,7 @@ def main():
             print(f"{k:28s} distance trusted {r['slope']:.3f} {r['slope_body_rescaled']:.3f}   height trusted {r['by_height']['slope']:.3f} "
                   f"{r['by_height']['slope_body_rescaled']:.3f}")
     if a.out:
-        out = Path(a.out); doc = json.loads(out.read_text()) if out.exists() else {}; doc[a.label or a.recording] = res; out.write_text(json.dumps(doc, indent=1) + "\n")
+        out = Path(a.out); doc = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {}; doc[a.label or a.recording] = res; out.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

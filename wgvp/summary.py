@@ -33,7 +33,7 @@ def _fmt(v, nd=3):
 def collect_rows(root: Path, out_root: Path) -> tuple[list[dict], dict]:
     rows, totals = [], {"PASS": 0, "WARN": 0, "FAIL": 0, "sessions": 0}
     for f in sorted(out_root.glob("*/deliver/session_summary.json")):
-        s = json.loads(f.read_text()); sid = s["session_id"]; totals["sessions"] += 1
+        s = json.loads(f.read_text(encoding="utf-8")); sid = s["session_id"]; totals["sessions"] += 1
         totals[s.get("status", "FAIL")] = totals.get(s.get("status", "FAIL"), 0) + 1
         items = s.get("items", {})
         for key, it in items.items():
@@ -61,15 +61,15 @@ def collect_rows(root: Path, out_root: Path) -> tuple[list[dict], dict]:
 
 def build_summary(root: Path, cfg: dict, gvhmr: dict | None = None, log=print, thumbnails: bool = True) -> dict:
     root = Path(root); out_root = root / "wgvp_output"
-    man = json.loads((out_root / "manifest.json").read_text()) if (out_root / "manifest.json").exists() else {"unmatched": [], "sessions": []}
+    man = json.loads((out_root / "manifest.json").read_text(encoding="utf-8")) if (out_root / "manifest.json").exists() else {"unmatched": [], "sessions": []}
     rows, totals = collect_rows(root, out_root)
-    with open(out_root / "qc_summary.csv", "w", newline="") as fh:
+    with open(out_root / "qc_summary.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=COLS, extrasaction="ignore"); w.writeheader()
         for r in rows:
             w.writerow({k: _fmt(r.get(k)) for k in COLS})
     env = {}
     for f in out_root.glob("*/deliver/validation_bundle/environment.json"):
-        env = json.loads(f.read_text()); break
+        env = json.loads(f.read_text(encoding="utf-8")); break
     css = ("body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:18px;color:#222;background:#fff;max-width:1500px}"
            "table{border-collapse:collapse;font-size:12.5px}th,td{border:1px solid #ddd;padding:3px 6px;vertical-align:top}"
            "th{background:#f3f3f3;position:sticky;top:0}.PASS{background:#e6f6e6}.WARN{background:#fff4d6}.FAIL{background:#ffe0e0}"

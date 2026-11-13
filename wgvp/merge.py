@@ -560,6 +560,6 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
                             views=np.array(views), reference_view=views[ref], view_alignment_yaw_deg=np.array([a["yaw_deg"] for a in align], np.float32),
                             view_alignment_offset_m=np.array([a["offset_m"] for a in align], np.float32), joints=np.array(SMPLX_BODY_JOINTS), fps=fps,
                             fields_doc=FIELDS_DOC, note=summary["note"])
-        (rec_dir / "merge.json").write_text(json.dumps(summary, indent=1))
+        (rec_dir / "merge.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     log(f"  [{rec_dir.name}] merge: {status} export {exp_frac:.0%} of {T} frames, root step p99 {root_step['p99_deg']:.1f} deg, ref {views[ref]} {flags}")
     return summary

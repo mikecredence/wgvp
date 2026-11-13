@@ -102,7 +102,7 @@ def main(argv=None):
         return 1
     print(); print(table(res))
     if a.out:
-        Path(a.out).parent.mkdir(parents=True, exist_ok=True); Path(a.out).write_text(json.dumps(res, indent=1))
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True); Path(a.out).write_text(json.dumps(res, indent=1), encoding="utf-8")
     return 0
 
 

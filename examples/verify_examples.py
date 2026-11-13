@@ -22,12 +22,12 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--data", default=str(HERE / "data")); a = ap.parse_args()
     root = Path(a.data); ok_all = True; rows = []
     for exp_path in sorted(root.glob("*/expected.json")):
-        exp = json.loads(exp_path.read_text()); sid, rid = exp["session_id"], exp["recording_id"]
+        exp = json.loads(exp_path.read_text(encoding="utf-8")); sid, rid = exp["session_id"], exp["recording_id"]
         deliver = root / "wgvp_output" / sid / "deliver"
         ss_path = deliver / "session_summary.json"
         if not ss_path.exists():
             rows.append((sid, "NO RUN", "", "", "", f"missing {ss_path.relative_to(root)}")); ok_all = False; continue
-        ss = json.loads(ss_path.read_text()); ri = ss["items"].get(rid, {})
+        ss = json.loads(ss_path.read_text(encoding="utf-8")); ri = ss["items"].get(rid, {})
         view = exp.get("gt_view", "full")                     # single-view sessions: 'full'; two-view ones: the view the ground truth belongs to
         it = ss["items"].get(f"{rid}/{view}", {})
         off = ri.get("offset_s"); tol = 2.0 / exp["fps"]

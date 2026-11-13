@@ -28,8 +28,15 @@ jobs:
         run: python -m pytest tests -q
 
   dry-run:
-    name: dry run on the bundled sample (CPU)
-    runs-on: ubuntu-latest
+    name: full CPU run and the GUI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,17 +46,25 @@ jobs:
       - name: Install (CPU stages)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest
       - name: Dry run
-        run: python -m wgvp dry-run --cpu-only --out ${{ runner.temp }}/wgvp_dryrun
+        run: python -m wgvp dry-run --cpu-only --out "$RUNNER_TEMP/wgvp_dryrun"
       - name: Bundled offline example (real footage)
         run: |
           python -m wgvp run examples/bundled --cpu-only
           python examples/verify_examples.py --data examples/bundled
+      - name: A display for the GUI (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb tk
+      - name: The GUI, driven through a scan and a run
+        env:
+          WGVP_GUI_SMOKE: "1"
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a python -m pytest tests/test_gui_smoke.py -q -rs; else python -m pytest tests/test_gui_smoke.py -q -rs; fi
       - name: Keep the QC summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dry-run-qc
+          name: dry-run-qc-${{ matrix.os }}
           path: ${{ runner.temp }}/wgvp_dryrun/wgvp_output/QC_SUMMARY.html
           if-no-files-found: ignore

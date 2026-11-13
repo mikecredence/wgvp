@@ -48,13 +48,13 @@ def write_bbx_pt(gvhmr_root: Path, pred_root: Path, stem: str, bbox_xyxy: np.nda
 
 def run_demo(gvhmr_root: Path, video: Path, pred_root: Path, timeout: int, log_path: Path, f_mm: float | None = None) -> dict:
     demo = gvhmr_root / "tools/demo/demo.py"
-    has_guard = "GVHMR_RENDER" in demo.read_text()
+    has_guard = "GVHMR_RENDER" in demo.read_text(encoding="utf-8")
     env = dict(os.environ, GVHMR_RENDER="0")
     cmd = [sys.executable, str(demo), "--video", str(video), "--output_root", str(pred_root), "-s"]
     if f_mm:                         # the view's focal length (35 mm equivalent, on the diagonal); demo.py takes whole millimetres
         cmd += ["--f_mm", str(int(round(float(f_mm))))]
     t0 = time.time()
-    with open(log_path, "a") as lf:
+    with open(log_path, "a", encoding="utf-8") as lf:
         lf.write(f"\n=== {' '.join(cmd)}\n")
         try:
             p = subprocess.run(cmd, cwd=str(gvhmr_root), env=env, stdout=lf, stderr=subprocess.STDOUT, timeout=timeout,
@@ -91,7 +91,7 @@ def cleanup_pred_dir(pred_dir: Path):
 
 
 def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int) -> dict:
-    meta = json.loads(chunk_json.read_text())
+    meta = json.loads(chunk_json.read_text(encoding="utf-8"))
     work = chunk_json.parent
     pred_root = work / "gvhmr"
     stem = Path(meta["video"]).stem
@@ -106,12 +106,12 @@ def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int) -> dict:
         meta["gvhmr_run"] = r
         if not res_pt.exists():
             meta["status"] = "failed"; meta["error"] = f"GVHMR produced no hmr4d_results.pt (rc {r['returncode']}); see gvhmr_run.log"
-            chunk_json.write_text(json.dumps(meta, indent=1)); return meta
+            chunk_json.write_text(json.dumps(meta, indent=1), encoding="utf-8"); return meta
     conv = convert_results(pred_root / stem)
     n = len(conv["global"]["body_pose"])
     if n != meta["n_frames"]:
         meta["status"] = "failed"; meta["error"] = f"GVHMR returned {n} frames for a {meta['n_frames']}-frame chunk"
-        chunk_json.write_text(json.dumps(meta, indent=1)); return meta
+        chunk_json.write_text(json.dumps(meta, indent=1), encoding="utf-8"); return meta
     np.savez_compressed(work / f"{stem}_pose.npz",
                         **{f"global_{k}": v for k, v in conv["global"].items()},
                         **{f"incam_{k}": v for k, v in conv["incam"].items()},
@@ -121,14 +121,14 @@ def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int) -> dict:
                         static_conf_logits=conv.get("static_conf_logits", np.zeros((n, 6), np.float32)))
     cleanup_pred_dir(pred_root / stem)
     meta["status"] = "done"; meta["pose_npz"] = f"{stem}_pose.npz"
-    chunk_json.write_text(json.dumps(meta, indent=1))
+    chunk_json.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return meta
 
 
 def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) -> dict:
     """Merge chunk poses into deliver/<rec>/<cam>/smpl_{global,incam}.npz + kp2d_vitpose.npz + gvhmr_meta.json."""
     chunks = sorted(rec_cam_work.glob("chunk_*.json"), key=lambda p: int(p.stem.split("_")[1]))
-    metas = [json.loads(c.read_text()) for c in chunks]
+    metas = [json.loads(c.read_text(encoding="utf-8")) for c in chunks]
     if not metas or any(m.get("status") != "done" for m in metas):
         return {"ok": False, "reason": "not all chunks done", "chunks": [m.get("status") for m in metas]}
     missing = [m["pose_npz"] for m in metas if not (rec_cam_work / m["pose_npz"]).exists()]
@@ -196,7 +196,7 @@ def assemble(rec_cam_work: Path, deliver_dir: Path, keep_face_kp: bool = False) 
           "frame_step": int(meta0["frame_step"]), "cut_scale": float(meta0["cut_scale"]), "view_box": meta0.get("crop"), "fps_source": float(meta0["fps_source"]),
           "gvhmr": {"static_camera": True, "checkpoint": "gvhmr_siga24_release.ckpt", "render": False, "focal_35mm": meta0.get("focal_35mm")},
           "files": ["smpl_global.npz", "smpl_incam.npz", "kp2d_vitpose.npz"]}
-    (deliver_dir / "gvhmr_meta.json").write_text(json.dumps(gm, indent=1))
+    (deliver_dir / "gvhmr_meta.json").write_text(json.dumps(gm, indent=1), encoding="utf-8")
     return {"ok": True, "n_frames": int(len(frames)), "n_chunks": len(metas)}
 
 
@@ -238,7 +238,7 @@ def main(argv=None):
     failed = 0
     done_dirs = set()
     for j in jobs:
-        meta = json.loads(j.read_text())
+        meta = json.loads(j.read_text(encoding="utf-8"))
         if meta.get("status") == "done":
             _log(f"skip {j.parent.parent.name}/{j.stem} (done)"); done_dirs.add(j.parent); continue
         _log(f"run  {j.parts[-4]}/{j.parts[-3]}/{j.stem} ({meta['n_frames']} frames)")

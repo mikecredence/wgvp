@@ -156,7 +156,7 @@ def main(argv=None):
            "by_visibility": {v: {c: row(err[v], classes[v] == c) for c in sorted(set(classes[v]))} for v in views},
            "fused_by_along_visibility": {c: {k: row(err[k], classes[A] == c) for k in fused} for c in sorted(set(classes[A]))},
            "per_joint_median": {k: dict(zip(SMPLX_BODY_JOINTS, np.median(e, 0).round(2).tolist())) for k, e in err.items()}}
-    (out / "two_view_fusion.json").write_text(json.dumps(res, indent=1))
+    (out / "two_view_fusion.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     # ---- markdown
     L = [f"# Two compromised views, one pose: HC901\n", f"{len(frames)} frames with the truth and both views lifted. Errors are geodesic angles (deg) between GVHMR's joint rotation and the rendered truth; medians over frames.\n",
          "| estimate | output coverage | legs | legs p90 | legs > 20 deg | arms | spine | all 21 | knee-flexion RMSE | frame step p99 | steps > 20 deg |", "|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -184,7 +184,7 @@ def main(argv=None):
     for c, d in res["fused_by_along_visibility"].items():
         cells = [f"{d[k]['legs']:.1f} / {d[k]['all']:.1f}" + (f" ({d[k]['coverage']:.0%})" if k.startswith("segment") else "") for k in fk]
         L.append(f"| {c} | {d[fk[0]]['n_frames']} | " + " | ".join(cells) + " |")
-    (out / "two_view_fusion.md").write_text("\n".join(L) + "\n")
+    (out / "two_view_fusion.md").write_text("\n".join(L) + "\n", encoding="utf-8")
     # ---- figure
     try:
         import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt

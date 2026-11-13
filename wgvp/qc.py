@@ -40,7 +40,7 @@ def dump_json(obj, path: str | Path):
         if isinstance(o, float) and not np.isfinite(o):
             return None
         return o
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(strip(obj), f, indent=1, cls=JsonEncoder)
 
 
@@ -145,7 +145,7 @@ def privacy_check(deliver_dir: Path) -> dict:
 
 def tee_logger(log_path: Path):
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    fh = open(log_path, "a")
+    fh = open(log_path, "a", encoding="utf-8")
 
     def log(msg: str):
         import datetime

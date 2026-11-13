@@ -46,10 +46,10 @@ def test_qc_page_puts_the_reason_beside_the_status(tmp_path):
     from wgvp.summary import build_summary
     d = tmp_path / "wgvp_output" / "S1" / "deliver"; d.mkdir(parents=True)
     (d / "session_summary.json").write_text(json.dumps({"session_id": "S1", "status": "WARN", "items": {
-        "R1": {"sync_flags": ["flash_disagrees (+0.616s)"]}, "R1/left": {"status": "WARN", "video": "S1_SP.mp4"}}}))
+        "R1": {"sync_flags": ["flash_disagrees (+0.616s)"]}, "R1/left": {"status": "WARN", "video": "S1_SP.mp4"}}}), encoding="utf-8")
     out = build_summary(tmp_path, {}, gvhmr={"ran": False, "message": "GPU stage not run: no GVHMR root configured"},
                         log=lambda m: None, thumbnails=False)
-    page = Path(out["html"]).read_text()
+    page = Path(out["html"]).read_text(encoding="utf-8")
     assert "background:#fff" in page                       # readable whatever the browser's own canvas colour is
     assert page.index("<th>status</th>") < page.index("<th>flags</th>") < page.index("<th>video</th>")
     assert "<td>WARN</td><td>flash_disagrees (+0.616s)</td>" in page

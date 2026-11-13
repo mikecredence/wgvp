@@ -63,14 +63,14 @@ def side_consistent(kp: np.ndarray, max_gap: int = 10) -> np.ndarray:
 
 
 def _video_path(root: Path, deliver: Path, rid: str) -> Path | None:
-    summ = json.loads((deliver / "session_summary.json").read_text()) if (deliver / "session_summary.json").exists() else {}
+    summ = json.loads((deliver / "session_summary.json").read_text(encoding="utf-8")) if (deliver / "session_summary.json").exists() else {}
     vid = (summ.get("items", {}).get(rid) or {}).get("video_id"); vrec = (summ.get("videos") or {}).get(vid or "", {})
     p = vrec.get("file") or vrec.get("path")
     if p and Path(p).exists():
         return Path(p)
     man = root / "wgvp_output" / "manifest.json"
     if man.exists():
-        for s in json.loads(man.read_text()).get("sessions", []):
+        for s in json.loads(man.read_text(encoding="utf-8")).get("sessions", []):
             for r in s.get("recordings", []):
                 if r.get("recording_id") == rid:
                     for v in r.get("videos", []):
@@ -84,7 +84,7 @@ def resolve_target(rdir: Path, target: str = "auto") -> tuple[str, str, str]:
     target.json (the merge when there is none); "merge" / "jointfit" ask for one by name and mark the file name."""
     if target == "auto":
         try:
-            method = json.loads((Path(rdir) / "target.json").read_text()).get("method") or "merge"
+            method = json.loads((Path(rdir) / "target.json").read_text(encoding="utf-8")).get("method") or "merge"
         except (OSError, ValueError):
             method = "merge"
         return method, "jointfit_smpl.npz" if method == "jointfit" else "merged_smpl.npz", ""
@@ -116,13 +116,13 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
         raise FileNotFoundError(f"{rdir / tfile}: run `wgvp jointfit` first")
     S = np.load(rdir / tfile) if target == "jointfit" else M
     Z = {v: np.load(rdir / v / "smpl_global.npz") for v in views}; K = {v: np.load(rdir / v / "kp2d_vitpose.npz") for v in views}
-    offset = float(json.loads((rdir / "sync.json").read_text())["offset_s"])
+    offset = float(json.loads((rdir / "sync.json").read_text(encoding="utf-8"))["offset_s"])
     cap = cv2.VideoCapture(str(video)); n_video = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)); fps = float(M["fps"]) if "fps" in M.files else (cap.get(cv2.CAP_PROP_FPS) or 30.0)
     t_all = np.arange(n_video) / fps - offset
     G = np.load(gt) if gt else None; gi = {int(f): i for i, f in enumerate(G["frame_idx"])} if G is not None else {}
     exp = {}
     if gt and (Path(gt).parent / "expected.json").exists():
-        exp = json.loads((Path(gt).parent / "expected.json").read_text())
+        exp = json.loads((Path(gt).parent / "expected.json").read_text(encoding="utf-8"))
     # ---- per view, dense over the video's frames
     body, root_al, usable, lifted, vis, kp_draw, held = {}, {}, {}, {}, {}, {}, {}
     yaw_al = {v: float(y) for v, y in zip(views, M["view_alignment_yaw_deg"])}
@@ -396,7 +396,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     import av
     container = av.open(str(out), mode="w"); stream = container.add_stream("libx264", rate=int(round(fps / max(step, 1)))); stream.width, stream.height = W, Hh; stream.pix_fmt = "yuv420p"; stream.options = {"crf": "22"}
     gif_frames = []; g0, g1 = ([float(x) for x in gif_span.split(",")] if gif_span else (t0, min(t1, t0 + 14.0))); err_hist = []
-    min_run_s = float(json.loads((rdir / "merge.json").read_text()).get("export", {}).get("min_run_frames", 15)) / fps if (rdir / "merge.json").exists() else 0.5
+    min_run_s = float(json.loads((rdir / "merge.json").read_text(encoding="utf-8")).get("export", {}).get("min_run_frames", 15)) / fps if (rdir / "merge.json").exists() else 0.5
     for n, f in enumerate(frames):
         cap.set(cv2.CAP_PROP_POS_FRAMES, f); ok, img = cap.read()
         if not ok:

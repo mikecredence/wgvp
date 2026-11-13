@@ -67,7 +67,7 @@ def config_path(root: Path) -> Path:
 def load_config(root: Path | None) -> dict:
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
     if root is not None and config_path(root).exists():
-        _deep_update(cfg, json.loads(config_path(root).read_text()))
+        _deep_update(cfg, json.loads(config_path(root).read_text(encoding="utf-8")))
     return cfg
 
 
@@ -75,7 +75,7 @@ def write_default_config(root: Path, overwrite: bool = False) -> Path:
     p = config_path(root)
     if p.exists() and not overwrite:
         return p
-    p.write_text(json.dumps(DEFAULT_CONFIG, indent=1)); return p
+    p.write_text(json.dumps(DEFAULT_CONFIG, indent=1), encoding="utf-8"); return p
 
 
 def _deep_update(base: dict, upd: dict):

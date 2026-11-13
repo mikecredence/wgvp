@@ -180,7 +180,7 @@ def compare_recording(root: Path, sess: str, rec: str, gt: Path, skeleton, true_
         s = score(est, cells, ex, G, sel, ph_all, skeleton, fps); t = score(est, cells, ex, G, sel, ph, skeleton, fps) if (ph == "sit").any() else {}
         s.update({k: v for k, v in t.items() if k.startswith("sit_")}); return s
     out = {"merge": both({k: m[k] for k in ("global_orient", "body_pose", "transl", "betas", "frame_idx")}), "joint fit": both({k: jf[k] for k in ("global_orient", "body_pose", "transl", "betas", "frame_idx")})}
-    a, b = [str(v) for v in jf["views"]]; js = json.loads((d / "jointfit.json").read_text()) if (d / "jointfit.json").exists() else {}
+    a, b = [str(v) for v in jf["views"]]; js = json.loads((d / "jointfit.json").read_text(encoding="utf-8")) if (d / "jointfit.json").exists() else {}
     cal = {"views": [a, b], "views_complete_frac": js.get("views_complete_frac"), "reprojection_px": js.get("reprojection_px"), "seconds": js.get("seconds")}
     if f"{a}_cam_pose" in G and f"{b}_cam_pose" in G:
         Rt, tt, up = truth_cameras(G, a, b); Rf = jf["cam_b_from_a_R"]
@@ -225,7 +225,7 @@ def main(argv=None):
         return 1
     arms = [k for k in ("merge", "joint fit", "true cameras") if all(k in r for r in res.values())]; print(); print(table(res, arms))
     if a.out:
-        Path(a.out).parent.mkdir(parents=True, exist_ok=True); Path(a.out).write_text(json.dumps(res, indent=1))
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True); Path(a.out).write_text(json.dumps(res, indent=1), encoding="utf-8")
     return 0
 
 

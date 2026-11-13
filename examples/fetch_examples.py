@@ -152,7 +152,7 @@ def fabricate(ts, tids: list[int], offset_s: float, duration_s: float, noise_sd:
 
 
 def write_csv(path: Path, rec: dict):
-    with open(path, "w", newline="") as fh:
+    with open(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["Time", "GeneralEvent", "ClinicalEvent", "LowerBack_FreeAcc_E", "LowerBack_FreeAcc_N", "LowerBack_FreeAcc_U"])
         for t, l, en, u in zip(rec["t"], rec["label"], rec["acc_en"], rec["acc_up"]):
@@ -167,11 +167,11 @@ def main():
     ap.add_argument("--only", nargs="*", help="example names, e.g. EX01")
     ap.add_argument("--force", action="store_true", help="rebuild examples that already exist")
     a = ap.parse_args()
-    manifest = json.loads((HERE / "sources.json").read_text()); out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    manifest = json.loads((HERE / "sources.json").read_text(encoding="utf-8")); out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     cache = HERE / "_cache"; src_dir = Path(a.source_dir) if a.source_dir else None
     cfg_path = out / "wgvp_config.json"
     if not cfg_path.exists():
-        cfg_path.write_text(json.dumps({"_doc": "example corpus: single-view clips (no second panel to detect)", "views": {"layout": "single"}}, indent=1))
+        cfg_path.write_text(json.dumps({"_doc": "example corpus: single-view clips (no second panel to detect)", "views": {"layout": "single"}}, indent=1), encoding="utf-8")
     built = []
     for ex in manifest["examples"]:
         name = ex["name"]
@@ -194,9 +194,9 @@ def main():
         expected = {"session_id": name, "recording_id": f"{name}_selfpace", "video": f"SP/{name}_SP.mp4", "fps": 30, "offset_s": ex["offset_s"],
                     "imu_duration_s": float(rec["t"][-1]), "walk_s": rec["walk_s"], "subject_fragments_at_build": tids,
                     "gt_frames": rec["gt_frames"], "gt_hip_px": rec["gt_hip_px"], "source": {k: ex[k] for k in ("video_id", "url", "cut_s", "about")}}
-        (sess / "expected.json").write_text(json.dumps(expected))
+        (sess / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
         (sess / "README.txt").write_text(f"{name}: {ex['about']}\nSource {ex['url']} cut {t0}-{t1} s (fetched locally, not redistributed).\n"
-                                         f"{name}_selfpace.csv is a FABRICATED recording: LowerBack_FreeAcc_U = the walker's own pelvis motion from the video, differentiated twice, plus noise; IMU t=0 at video {ex['offset_s']} s.\n")
+                                         f"{name}_selfpace.csv is a FABRICATED recording: LowerBack_FreeAcc_U = the walker's own pelvis motion from the video, differentiated twice, plus noise; IMU t=0 at video {ex['offset_s']} s.\n", encoding="utf-8")
         print(f"[{name}] done: walk {rec['walk_s']:.1f} s of {rec['t'][-1]:.1f} s, IMU t=0 at video {ex['offset_s']} s")
         built.append(name)
     print(f"\nbuilt {built} in {out}\nnext:  python -m wgvp run {out} --cpu-only   then   python examples/verify_examples.py --data {out}")
