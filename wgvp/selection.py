@@ -613,7 +613,10 @@ def cross_view_selection(ts: TrackSet, ref_tr: dict, fps: float, params: dict | 
                     chained.append(fits[0]); changed = True
     # within each attached fragment, windows whose progress stops following the reference while the reference
     # moves are an identity switch (the tracker handing the id to someone passing behind): mask them out, as the
-    # pelvis match does with its lag; where the reference stands still the window is no evidence and is kept
+    # pelvis match does with its lag; where the reference stands still the window is no evidence and is kept.
+    # A frame is dropped only when every window that holds it fails, so the windows must overlap up to the
+    # fragment's last frame: on the hop grid alone, the frames before a tracker id change sit in one window, and
+    # one weak window (a turn at the far end of the walk) then drops the subject for seconds
     masks = {}; win = int(p["xview_window_s"] * fps); hop = max(win // 2, 1)
     span = {k: float(np.nanpercentile(v, 97.5) - np.nanpercentile(v, 2.5)) if np.isfinite(v).any() else 0.0 for k, v in ref.items()}
     c0 = out["candidates"][accepted[0]]; pair0 = c0["pair"]; sign0 = np.sign(c0["r"]) or 1.0
@@ -622,7 +625,10 @@ def cross_view_selection(ts: TrackSet, ref_tr: dict, fps: float, params: dict | 
         pair = c["pair"] if c else pair0; sign = (np.sign(c["r"]) or 1.0) if c else sign0
         ra, rb = pair.split("~"); a = ref[ra]; b = progress_signals(tr, n, fps)[rb]
         idx = tr["frame_idx"].astype(int); keep = np.zeros(len(idx), bool); votes = np.zeros(len(idx), int)
-        for s0 in range(0, max(len(idx) - win, 0) + 1, hop):
+        starts = list(range(0, max(len(idx) - win, 0) + 1, hop))
+        if len(idx) > win and starts[-1] != len(idx) - win:
+            starts.append(len(idx) - win)                                               # a last window flush with the fragment's end: its tail is judged twice like the rest
+        for s0 in starts:
             sl = idx[s0:s0 + win]; ok = np.isfinite(a[sl]) & np.isfinite(b[sl])
             moved = ok.sum() >= win // 2 and (np.nanpercentile(a[sl][ok], 95) - np.nanpercentile(a[sl][ok], 5)) >= p["xview_window_min_motion"] * span[ra]
             if not moved or np.nanstd(b[sl][ok]) < 1e-6:

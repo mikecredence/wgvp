@@ -1555,6 +1555,9 @@ synthetic two-camera walker, one for the centred moving average).
 
 ### 2.16 Round nine: a real two-camera recording with a chalk truth (2026-11-12)
 
+*The lines were measured again after this round and are 13.5 ft apart, not 13. This section stays as it was
+scored; 2.19 restates every number that rests on the tape.*
+
 Round eight ended on the missing piece: a real two-camera recording with a truth. This round has one. OWN03 is our
 own recording: one person walks back and forth between two chalk lines drawn 13 ft (3.962 m) apart on a paved lot,
 filmed by a tablet that stands to the side and looks across the walk and by a phone on the ground at one end that
@@ -1650,6 +1653,9 @@ the walkway), with the lenses read. The suite is at 98 tests (four for the chalk
 level and rising ground). Section 2.17 has the subject's height and what it changes.
 
 ### 2.17 Round ten: the walker's height, the side view cut below the head, and a wider panel detector (2026-11-12)
+
+*The lines were measured again after this round and are 13.5 ft apart, not 13. This section stays as it was
+scored; 2.19 restates every number that rests on the tape.*
 
 Round nine left OWN03's height open. It is now on record: the subject stands 1.651 m (65 in). They also report that
 the chalk lines were "probably just over 13 feet" apart, from the middle of one line to the middle of the other, and
@@ -1819,6 +1825,9 @@ known height against a wrong distance, a strip view beside a full-height view, a
 
 ### 2.18 Round eleven: the joint fit becomes the training target where it passes (2026-11-13)
 
+*The lines were measured again after this round and are 13.5 ft apart, not 13. This section stays as it was
+scored; 2.19 restates every number that rests on the tape.*
+
 Rounds eight to ten scored the joint two-view fit beside the merge and left the merge as the default. The question
 put after round ten was whether that evidence is enough to train on the fit. The answer taken here is yes, for a
 recording with two still cameras whose fit passes its own checks, with the merge as the fallback everywhere else and
@@ -1958,6 +1967,118 @@ the fallback without a model file and with one that does not load, the summary's
   a truth, for distance alone, of one person, outdoors. There is still no truth for the body on real video.
 * The GPU end-to-end run with the fit in the pipeline, on the box.
 
+### 2.19 Round twelve: the chalk lines measured again, the recording published, and demos in the README (2026-11-13)
+
+Three things changed after round eleven. The subject measured the chalk lines of OWN03 again and found 13.5 ft, not
+13. The recording itself is now in the repository as an example that runs offline. And the README shows the demo
+videos of the six rendered sessions and of that recording, with their scores. One fault in the cross-view subject
+match came out of the published clip and is fixed. Not checked: the full-size runs of rounds nine to eleven were not
+lifted again (only their scoring was repeated, at the new distance), the published clip was lifted once, and the
+neck, head and arms on real video still have no truth.
+
+**The lines measured again.** Centre to centre the two lines are 13.5 ft apart (4.115 m). The distance enters only
+the truth, so no lift was repeated: `tools/chalk_walk.py` was run again over the four lifts with `--distance-m
+4.1148`, and `docs/chalk_walk.json` holds the new numbers. Sections 2.16 to 2.18 stay as they were scored, at 13 ft.
+Each cell is merge / joint fit.
+
+| OWN03, lenses 26.2 and 30.4 mm | lines at 13 ft (2.16 to 2.18) | lines at 13.5 ft |
+|---|---|---|
+| the lines by the tape (m) | 3.962 | 4.115 |
+| the lines by the subject's height of 1.651 m (m) | 4.313 | 4.313 |
+| the two apart by | 8.8 % | 4.8 % |
+| the walker's stature read by the geometry (m) | 1.529 | 1.588 |
+| camera height read by the geometry (m) | 0.77 | 0.80 |
+| distance over the truth, in metres as delivered | 1.112 / 1.185 | 1.071 / 1.141 |
+| the same with the body rescaled to 1.651 m | 1.031 / 1.127 | 0.993 / 1.085 |
+| distance over the truth, in body heights | 0.955 / 1.043 | 0.955 / 1.043 |
+| subject's height trusted, as delivered | 1.022 / 1.088 | 1.022 / 1.088 |
+| subject's height trusted, body rescaled | 0.947 / 1.035 | 0.947 / 1.035 |
+| complete passes, truth (m) | 4.20, 4.12, 3.85 | 4.36, 4.28, 4.00 |
+
+| other lifts, in metres as delivered | lines at 13 ft | lines at 13.5 ft |
+|---|---|---|
+| side lens 31.0 mm | 1.103 / 1.172 | 1.062 / 1.129 |
+| front lens 27.1 mm | 1.109 / 1.181 | 1.067 / 1.137 |
+| side view cut below the head | 1.192 / 1.264 | 1.148 / 1.217 |
+| side view cut below the head, body rescaled | 1.103 / 1.155 | 1.062 / 1.112 |
+
+Every row that rests on the tape moved by the same 3.7 %, and nothing else moved. The rows in body heights and the
+rows with the height trusted do not depend on the tape, and neither do the residuals about each fitted line
+(0.041 / 0.035 m rms), the path's spread off the walk's axis (0.118 / 0.042 m) or the head-cut run's ratios to the
+full view. With the lines at 13.5 ft the delivered walk reads 7 % long in the merge and 14 % long in the joint fit,
+where round nine had 11 and 18 %.
+
+**What the remeasurement settles and what it does not.** Half of the disagreement between the subject's height and
+the tape is gone: 8.8 % became 4.8 %. The rest is still there, and the recording cannot say which of the two
+carries it. A walker of 1.651 m puts the lines 14.2 ft apart, and lines 13.5 ft apart suit a walker of about 1.59 m,
+read mid-stride and in shoes. The two readings that do not need the tape are unchanged: counted in body heights the
+merge is 4.5 % short and the fit 4.3 % long, and the lifted bodies stand 1.78 and 1.74 m against the subject's
+1.651 m. The choice of 2.18 does not rest on the tape. It rests on the six rendered sessions, on the body-height
+reading and on the straighter path, and in metres the order of the two estimates is the same at either distance,
+the merge the nearer one. The open item of 2.18 on distance now reads: a rescale by a recorded subject height would
+leave the fit 3.5 % long if the height is right and 8.5 % long if the tape is.
+
+**The recording as an example.** `examples/two_camera/` holds OWN03 as a data root: the two-view file at half size
+(1516 x 960, 930 frames at 30 fps, 6.0 MB), a fabricated recording CSV with IMU t = 0 planted 0.8 s into the clip,
+the known answers (`expected.json`, with the chalk marks, the distance and the subject's height) and a config that
+sets the detector's image size to 960 and the two lenses. Three things were done to the footage before it was
+published. The source files' metadata was stripped. Two signs in the background are covered in every frame. And a
+passer-by who crosses the far road in the side view is painted out: the camera is still, so the far band is replaced
+by its own clean plate (the median of the frames after they have left) everywhere but on the walker, whose
+silhouette comes from the tracker's keypoints.
+
+On the CPU the example runs in about 70 s. Both panels are found within 2 px of the true boxes, the sync reads
+0.801 s against the planted 0.8, and the chosen track holds the walker in 100 % of 930 frames
+(`examples/verify_examples.py --data examples/two_camera`). The side view takes its subject by the accelerometer
+(`r_fine` 0.85, margin 0.73). The end view's tracker holds the walker as two fragments of 9.7 and 21.3 s, neither of
+which matches the accelerometer alone, and its subject comes from the cross-view match (r 0.83). The session's status
+is WARN from the sync-light cross-check (`flash_disagrees`, +1.532 s): the clip has no light, as on OWN02.
+
+**The published clip, lifted.** The half-size clip was lifted on the T4 by `wgvp gvhmr`, which also ran the merge,
+the joint fit and the target rule on the box: the first run of the GPU stage with the fit in the pipeline. The dry
+run's own GPU pass, which 2.18 left open, was still not repeated. Both views lifted for all 930 frames, the merge
+and the fit passed, 100 % of the frames are exported, and `target.json` names the fit. Against the chalk truth (765
+frames, lines at 13.5 ft):
+
+| | full size (above) | published half size |
+|---|---|---|
+| distance over the truth, in metres as delivered | 1.071 / 1.141 | 1.072 / 1.131 |
+| distance over the truth, in body heights | 0.955 / 1.043 | 0.960 / 1.042 |
+| residual about the fitted line (m rms) | 0.041 / 0.035 | 0.045 / 0.033 |
+| path off the walk's axis (m rms) | 0.118 / 0.042 | 0.167 / 0.042 |
+| body height (m) | 1.780 / 1.736 | 1.776 / 1.727 |
+| the lines by the subject's height (m) | 4.313 | 4.305 |
+
+Half the pixels and a painted far band leave the result where it was. The fit's numbers hold to 0.01; the merge's
+path is less straight at half size (0.17 against 0.12 m off the axis) and the fit's is not.
+
+**A fault in the cross-view match, found on the published clip.** At half size the end view's tracker changes the
+walker's id once, and the first fragment is 291 frames long. The cross-view match tests each attached fragment in 5-s
+windows on a 2.5-s grid and drops a frame only when every window that holds it fails. On that grid the last frames of
+a fragment whose length is not a multiple of the hop sit in one window only. Here frames 150 to 224 sat in the window
+75 to 224 alone, that window failed on the turn at the far end of the walk, and the view lost the walker for 2.5 s
+that the tracker had. The fix adds one window flush with the fragment's end, so that its tail is judged twice like the
+rest (`cross_view_selection` in `wgvp/selection.py`, with a test in `tests/test_cross_view.py`). The published clip
+now keeps all 930 frames in the end view. The fix can only keep frames: the two full-size OWN03 runs, whose end view
+is one unbroken track, select the same frames before and after, and the rendered sessions take both views by the
+accelerometer and do not reach this code. The pelvis match's own window test (`consistency_mask`) walks the same grid
+and was left as it is: its windows are scored against the accelerometer at a lag, nothing has shown the same loss
+there, and a change would touch every recording's selection.
+
+**Demos in the README.** `docs/demos/` holds seven demo videos, one per rendered session and one of the published
+clip, each rendered by `wgvp demo` with the recording's target and encoded again at 1184 px wide (1.0 to 1.8 MB
+each, 10 MB with their stills). The README shows a still per recording that links to its video, the fit's scores
+per session against the rendered truth, and the published clip's readings above. The demo of OWN03 is made from the
+published clip, so the covered signs and the painted band are in it.
+
+**Verification.** The suite is at 108 tests. `examples/verify_examples.py` passes on `examples/two_camera`. The six
+rendered sessions take both views' subjects from the accelerometer and do not reach the changed code. The two
+full-size runs of OWN03 do reach it and keep the same frames before and after.
+
+**What stays open.** Which of the height and the tape carries the remaining 4.8 %; a third measurement would be of
+the walker in shoes. A scale from a recorded height, which is not built. The pelvis match's tail window, if a
+recording ever shows the loss there. A truth for the body on real video.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
@@ -1999,8 +2120,8 @@ the fallback without a model file and with one that does not load, the summary's
 * The pelvis path fused from steps, the stride-swing rule and the velocity on the mat (2.13), all tuned and scored on
   the same six rendered recordings, two cameras near right angles.
 * The scale of the lifted body on a real person. On the one real recording with a truth (2.16, 2.17) the subject
-  stands 1.651 m and the bodies 1.74 and 1.78 m, 5 to 8 % taller, and the taped 13 ft between the chalk lines
-  disagrees with that height by a further 8.8 % that is not resolved. With the side view cut below the head, as a
+  stands 1.651 m and the bodies 1.74 and 1.78 m, 5 to 8 % taller, and the 13.5 ft measured between the chalk lines
+  disagrees with that height by a further 4.8 % that is not resolved (2.19). With the side view cut below the head, as a
   clinic's side camera frames a walker, the same recording's paths came out 7 to 8 % longer. Every distance and speed
   in metres rests on the body's height and on how much of the body the side view shows.
 * The neck and head where no view shows the head (2.17). The shoulder keypoints at the top edge pass the usable-joint

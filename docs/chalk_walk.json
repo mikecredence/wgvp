@@ -3,7 +3,7 @@
   "truth": {
    "view": "left",
    "from_another_run": false,
-   "distance_m": 3.9624,
+   "distance_m": 4.1148,
    "marks_px": [
     [
      148.0,
@@ -35,7 +35,7 @@
     "distance_in_boxes": 2.5918682878089476,
     "distance_m": 4.313407939517954,
     "camera_height_m": 0.8374867415799732,
-    "slope_factor": 0.9186239872417028
+    "slope_factor": 0.9539556790586913
    },
    "vanishing_point_px": [
     974.1926605504588,
@@ -43,156 +43,156 @@
    ],
    "ground_rise_deg": 2.6580139183604716,
    "level": {
-    "camera_height_m": 0.7633981651376147,
+    "camera_height_m": 0.7927596330275228,
     "lines_m": [
-     -1.7812623853211011,
-     2.1811376146788994
+     -1.84977247706422,
+     2.2650275229357795
     ],
-    "stature_m": 1.5263354292250284,
-    "stature_sd_m": 0.11003786892026034
+    "stature_m": 1.5850406380413755,
+    "stature_sd_m": 0.1142700946479626
    },
    "sloped": {
-    "camera_height_m": 0.7693354098122565,
+    "camera_height_m": 0.7989252332665739,
     "lines_m": [
-     -2.0532470165558774,
-     1.9091529834441228
+     -2.1322180556541803,
+     1.9825819443458197
     ],
-    "stature_m": 1.5287813885595398,
-    "stature_sd_m": 0.017008954583114872
+    "stature_m": 1.5875806727349067,
+    "stature_sd_m": 0.017663145144003904
    }
   },
   "estimates": {
    "merge": {
     "n": 765,
-    "slope": 1.1122502601597404,
-    "rms_m": 0.04135073149623751,
+    "slope": 1.0710558060797504,
+    "rms_m": 0.04135073149623753,
     "off_axis_rms_m": 0.1177212180440201,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 4.907847204372443,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.7417070337229035,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.671519115543109,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.320332733506452,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9550363492440954,
-    "slope_body_rescaled": 1.0313868447127508,
+    "slope_in_body_heights": 0.9550363492440956,
+    "slope_body_rescaled": 0.9931873319456122,
     "by_height": {
-     "slope": 1.0217397687985619,
-     "slope_body_rescaled": 0.9474566956786659
+     "slope": 1.0217397687985623,
+     "slope_body_rescaled": 0.9474566956786663
     }
    },
    "joint fit": {
     "n": 765,
-    "slope": 1.184809275096031,
-    "rms_m": 0.035153750539212165,
+    "slope": 1.1409274500924749,
+    "rms_m": 0.035153750539212186,
     "off_axis_rms_m": 0.04187706531245556,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.212503043012687,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 5.032253805481383,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.894668732103929,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.586576069800983,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0431508222961847,
-    "slope_body_rescaled": 1.1265456398797118,
+    "slope_in_body_heights": 1.0431508222961854,
+    "slope_body_rescaled": 1.0848217272915748,
     "by_height": {
-     "slope": 1.0883942204096675,
-     "slope_body_rescaled": 1.0348718475160563
+     "slope": 1.088394220409668,
+     "slope_body_rescaled": 1.0348718475160568
     }
    },
    "left alone, lifter path": {
     "n": 765,
-    "slope": 1.09755478382803,
-    "rms_m": 0.0625653441871425,
+    "slope": 1.0569046066492143,
+    "rms_m": 0.06256534418714252,
     "off_axis_rms_m": 0.1194866813931768,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 4.740680498051072,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.712199540093591,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.640785108328412,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.3156489834330145,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9424180433025674,
-    "slope_body_rescaled": 1.017759766789535,
+    "slope_in_body_heights": 0.9424180433025676,
+    "slope_body_rescaled": 0.980064960612145,
     "by_height": {
-     "slope": 1.00824015173631,
-     "slope_body_rescaled": 0.9349385350223881
+     "slope": 1.0082401517363102,
+     "slope_body_rescaled": 0.9349385350223883
     }
    },
    "left alone, keypoint fit": {
     "n": 765,
-    "slope": 1.1705192260008088,
-    "rms_m": 0.02170125100193049,
+    "slope": 1.1271666620748533,
+    "rms_m": 0.021701251001930495,
     "off_axis_rms_m": 0.04578827793295604,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.146842567510003,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.975582871259448,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.878894772266935,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.551123549041847,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0170906612022512,
-    "slope_body_rescaled": 1.098402096081979,
+    "slope_in_body_heights": 1.0170906612022514,
+    "slope_body_rescaled": 1.057720536967832,
     "by_height": {
      "slope": 1.075267038531935,
      "slope_body_rescaled": 1.0090185130974716
@@ -200,70 +200,70 @@
    },
    "right alone, lifter path": {
     "n": 765,
-    "slope": 1.1873034078891849,
-    "rms_m": 0.2671004540168866,
+    "slope": 1.1433292075969934,
+    "rms_m": 0.26710045401688665,
     "off_axis_rms_m": 0.12143242579201279,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.186511395873865,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.650318273789758,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.987684800353707,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.337997289960967,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0172356503291824,
-    "slope_body_rescaled": 1.0985586763820498,
+    "slope_in_body_heights": 1.0172356503291828,
+    "slope_body_rescaled": 1.0578713179975299,
     "by_height": {
-     "slope": 1.090685390620825,
-     "slope_body_rescaled": 1.009162351517046
+     "slope": 1.0906853906208254,
+     "slope_body_rescaled": 1.0091623515170465
     }
    },
    "right alone, keypoint fit": {
     "n": 765,
-    "slope": 1.4790626180044453,
-    "rms_m": 0.10517620677697416,
+    "slope": 1.4242825210413177,
+    "rms_m": 0.10517620677697415,
     "off_axis_rms_m": 0.04269665701207917,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 6.353765595054269,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 6.127799117465913,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 6.0886410675319595,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 5.593830989491535,
       "truth_is_lower_bound": false
      }
     ],
     "slope_in_body_heights": 1.284978655886974,
-    "slope_body_rescaled": 1.387706428627006,
+    "slope_body_rescaled": 1.3363098942334133,
     "by_height": {
-     "slope": 1.3587023995313952,
-     "slope_body_rescaled": 1.2747804125862838
+     "slope": 1.358702399531395,
+     "slope_body_rescaled": 1.2747804125862836
     }
    }
   },
@@ -288,7 +288,8 @@
  "OWN03, side lens 31.0 mm": {
   "truth": {
    "view": "left",
-   "distance_m": 3.9624,
+   "from_another_run": false,
+   "distance_m": 4.1148,
    "marks_px": [
     [
      148.0,
@@ -320,135 +321,135 @@
    ],
    "ground_rise_deg": 2.6580139183604716,
    "level": {
-    "camera_height_m": 0.7633981651376147,
+    "camera_height_m": 0.7927596330275228,
     "lines_m": [
-     -1.7812623853211011,
-     2.1811376146788994
+     -1.84977247706422,
+     2.2650275229357795
     ],
-    "stature_m": 1.5263354292250284,
-    "stature_sd_m": 0.11003786892026034
+    "stature_m": 1.5850406380413755,
+    "stature_sd_m": 0.1142700946479626
    },
    "sloped": {
-    "camera_height_m": 0.7693354098122565,
+    "camera_height_m": 0.7989252332665739,
     "lines_m": [
-     -2.0532470165558774,
-     1.9091529834441228
+     -2.1322180556541803,
+     1.9825819443458197
     ],
-    "stature_m": 1.5287813885595398,
-    "stature_sd_m": 0.017008954583114872
+    "stature_m": 1.5875806727349067,
+    "stature_sd_m": 0.017663145144003904
    }
   },
   "estimates": {
    "merge": {
     "n": 765,
-    "slope": 1.1032943388731242,
-    "rms_m": 0.034438754321010394,
+    "slope": 1.0624315855815274,
+    "rms_m": 0.0344387543210104,
     "off_axis_rms_m": 0.1142521145301614,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 4.8664086899453505,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.714638939018015,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.619721716602008,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.283401622926321,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.952050160759891
+    "slope_in_body_heights": 0.9520501607598915
    },
    "joint fit": {
     "n": 765,
-    "slope": 1.1721027722844157,
+    "slope": 1.1286915584961044,
     "rms_m": 0.032287922362175946,
     "off_axis_rms_m": 0.04143462854664993,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.152310326901021,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.977484160856357,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.847078219730127,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.530122570419108,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.041150895899406
+    "slope_in_body_heights": 1.0411508958994062
    },
    "left alone, lifter path": {
     "n": 765,
-    "slope": 1.0979082158885536,
-    "rms_m": 0.057105608573982405,
+    "slope": 1.057244948633422,
+    "rms_m": 0.057105608573982426,
     "off_axis_rms_m": 0.14357187408649752,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 4.767485175191466,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.720273512601288,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.642654357156086,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.306579610291451,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9474023899224457
+    "slope_in_body_heights": 0.9474023899224459
    },
    "left alone, keypoint fit": {
     "n": 765,
-    "slope": 1.160566433921796,
+    "slope": 1.1175824919246926,
     "rms_m": 0.020803085564713154,
     "off_axis_rms_m": 0.050536343246479556,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.101082198024364,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.926597367129628,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.830978563395591,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.505060244759951,
       "truth_is_lower_bound": false
      }
@@ -457,61 +458,61 @@
    },
    "right alone, lifter path": {
     "n": 765,
-    "slope": 1.1888539893684738,
+    "slope": 1.1448223601326046,
     "rms_m": 0.2615324633367643,
     "off_axis_rms_m": 0.11595961898957734,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.186261280365295,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.650361685968693,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.9856364838160765,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.358286205772297,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.018564128158302
+    "slope_in_body_heights": 1.0185641281583022
    },
    "right alone, keypoint fit": {
     "n": 765,
-    "slope": 1.4788276831290006,
-    "rms_m": 0.10531027732264354,
+    "slope": 1.4240562874575564,
+    "rms_m": 0.10531027732264353,
     "off_axis_rms_m": 0.042699445576305985,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 6.352801414777792,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 6.1288504328557565,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 6.089760659794701,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 5.593800244292392,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.284814326072492
+    "slope_in_body_heights": 1.2848143260724922
    }
   },
   "body_m": {
@@ -535,7 +536,8 @@
  "OWN03, front lens 27.1 mm": {
   "truth": {
    "view": "left",
-   "distance_m": 3.9624,
+   "from_another_run": false,
+   "distance_m": 4.1148,
    "marks_px": [
     [
      148.0,
@@ -567,135 +569,135 @@
    ],
    "ground_rise_deg": 2.6580139183604716,
    "level": {
-    "camera_height_m": 0.7633981651376147,
+    "camera_height_m": 0.7927596330275228,
     "lines_m": [
-     -1.7812623853211011,
-     2.1811376146788994
+     -1.84977247706422,
+     2.2650275229357795
     ],
-    "stature_m": 1.5263354292250284,
-    "stature_sd_m": 0.11003786892026034
+    "stature_m": 1.5850406380413755,
+    "stature_sd_m": 0.1142700946479626
    },
    "sloped": {
-    "camera_height_m": 0.7693354098122565,
+    "camera_height_m": 0.7989252332665739,
     "lines_m": [
-     -2.0532470165558774,
-     1.9091529834441228
+     -2.1322180556541803,
+     1.9825819443458197
     ],
-    "stature_m": 1.5287813885595398,
-    "stature_sd_m": 0.017008954583114872
+    "stature_m": 1.5875806727349067,
+    "stature_sd_m": 0.017663145144003904
    }
   },
   "estimates": {
    "merge": {
     "n": 765,
-    "slope": 1.1085455056226108,
-    "rms_m": 0.04123558172866407,
+    "slope": 1.0674882646736255,
+    "rms_m": 0.041235581728664095,
     "off_axis_rms_m": 0.12384093619015711,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 4.895771734526013,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.731701110265057,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.6697220557854795,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.312392094770475,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.951855252751556
+    "slope_in_body_heights": 0.9518552527515562
    },
    "joint fit": {
     "n": 765,
-    "slope": 1.1805154306549028,
-    "rms_m": 0.03174115747755563,
+    "slope": 1.1367926369269439,
+    "rms_m": 0.03174115747755564,
     "off_axis_rms_m": 0.038056251800434183,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.185802160865947,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 5.00402453069548,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.876174560032481,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.570013316340545,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0412995230077442
+    "slope_in_body_heights": 1.0412995230077444
    },
    "left alone, lifter path": {
     "n": 765,
-    "slope": 1.0975381266130766,
-    "rms_m": 0.06250827217660535,
+    "slope": 1.056888566368148,
+    "rms_m": 0.06250827217660536,
     "off_axis_rms_m": 0.115405248457233,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 4.740654870953115,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.711979323940843,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.640843668782312,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.315278728677288,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9424037404084811
+    "slope_in_body_heights": 0.9424037404084812
    },
    "left alone, keypoint fit": {
     "n": 765,
-    "slope": 1.1705355757766012,
-    "rms_m": 0.021722445791469466,
+    "slope": 1.1271824063033937,
+    "rms_m": 0.02172244579146948,
     "off_axis_rms_m": 0.04576334600118023,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.145543808167655,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.9756800149513065,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.878561669009478,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.550857607440519,
       "truth_is_lower_bound": false
      }
@@ -704,56 +706,56 @@
    },
    "right alone, lifter path": {
     "n": 765,
-    "slope": 1.1217874702829298,
+    "slope": 1.080239786198377,
     "rms_m": 0.164374591551258,
     "off_axis_rms_m": 0.12533099248219298,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 4.8508134269139696,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.507129288309054,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.7241079158434305,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.283443574233179,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9603717374997965
+    "slope_in_body_heights": 0.9603717374997967
    },
    "right alone, keypoint fit": {
     "n": 765,
-    "slope": 1.3405023741415218,
+    "slope": 1.2908541380622063,
     "rms_m": 0.0909834715128662,
     "off_axis_rms_m": 0.042654912205819996,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.824610180955908,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 5.633479143194674,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 5.512084405648336,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 5.045585699939774,
       "truth_is_lower_bound": false
      }
@@ -783,7 +785,7 @@
   "truth": {
    "view": "left",
    "from_another_run": true,
-   "distance_m": 3.9624,
+   "distance_m": 4.1148,
    "marks_px": [
     [
      148.0,
@@ -815,7 +817,7 @@
     "distance_in_boxes": 2.5918682878089476,
     "distance_m": 4.313407939517954,
     "camera_height_m": 0.8374867415799732,
-    "slope_factor": 0.9186239872417028
+    "slope_factor": 0.9539556790586913
    },
    "vanishing_point_px": [
     974.1926605504588,
@@ -823,227 +825,227 @@
    ],
    "ground_rise_deg": 2.6580139183604716,
    "level": {
-    "camera_height_m": 0.7633981651376147,
+    "camera_height_m": 0.7927596330275228,
     "lines_m": [
-     -1.7812623853211011,
-     2.1811376146788994
+     -1.84977247706422,
+     2.2650275229357795
     ],
-    "stature_m": 1.5263354292250284,
-    "stature_sd_m": 0.11003786892026034
+    "stature_m": 1.5850406380413755,
+    "stature_sd_m": 0.1142700946479626
    },
    "sloped": {
-    "camera_height_m": 0.7693354098122565,
+    "camera_height_m": 0.7989252332665739,
     "lines_m": [
-     -2.0532470165558774,
-     1.9091529834441228
+     -2.1322180556541803,
+     1.9825819443458197
     ],
-    "stature_m": 1.5287813885595398,
-    "stature_sd_m": 0.017008954583114872
+    "stature_m": 1.5875806727349067,
+    "stature_sd_m": 0.017663145144003904
    }
   },
   "estimates": {
    "merge": {
     "n": 765,
-    "slope": 1.1919674834993819,
+    "slope": 1.1478205396660717,
     "rms_m": 0.14001050694567058,
     "off_axis_rms_m": 0.13023341977375705,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.382577597084792,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.8866420715039975,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.892364880740667,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.458042170963655,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0209523853556521,
-    "slope_body_rescaled": 1.102572546235923,
+    "slope_in_body_heights": 1.0209523853556524,
+    "slope_body_rescaled": 1.0617365260049632,
     "by_height": {
-     "slope": 1.0949699223546607,
-     "slope_body_rescaled": 1.0128495886464803
+     "slope": 1.094969922354661,
+     "slope_body_rescaled": 1.0128495886464806
     }
    },
    "joint fit": {
     "n": 765,
-    "slope": 1.264279390769065,
-    "rms_m": 0.04648042062924288,
+    "slope": 1.217454228147989,
+    "rms_m": 0.04648042062924289,
     "off_axis_rms_m": 0.04473628676109702,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.568950492132237,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 5.377918326949178,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 5.2248101903341,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.897601517217985,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0694727261328485,
-    "slope_body_rescaled": 1.1549718514751306,
+    "slope_in_body_heights": 1.0694727261328487,
+    "slope_body_rescaled": 1.1121951162353112,
     "by_height": {
-     "slope": 1.1613973749357893,
-     "slope_body_rescaled": 1.0609848473540162
+     "slope": 1.1613973749357898,
+     "slope_body_rescaled": 1.0609848473540164
     }
    },
    "left alone, lifter path": {
     "n": 765,
-    "slope": 1.1862175119097507,
-    "rms_m": 0.12812011912941554,
+    "slope": 1.1422835299871676,
+    "rms_m": 0.12812011912941557,
     "off_axis_rms_m": 0.19967832189852788,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.31204567069936,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.841099279094749,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.878907542501564,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.431086661479,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 0.9997409487706097,
-    "slope_body_rescaled": 1.0796653588094054,
+    "slope_in_body_heights": 0.9997409487706099,
+    "slope_body_rescaled": 1.0396777529275758,
     "by_height": {
-     "slope": 1.0896878605264673,
-     "slope_body_rescaled": 0.9918064967962398
+     "slope": 1.0896878605264675,
+     "slope_body_rescaled": 0.99180649679624
     }
    },
    "left alone, keypoint fit": {
     "n": 765,
-    "slope": 1.263133713806866,
+    "slope": 1.2163509836658712,
     "rms_m": 0.03995285099031479,
     "off_axis_rms_m": 0.0784496299014967,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.722808460779962,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 5.3190233392439445,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 5.216541630423221,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.871721508536399,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0546202227270056,
-    "slope_body_rescaled": 1.1389319629033896,
+    "slope_in_body_heights": 1.0546202227270058,
+    "slope_body_rescaled": 1.0967492976106719,
     "by_height": {
-     "slope": 1.1603449285966831,
-     "slope_body_rescaled": 1.046250220959331
+     "slope": 1.1603449285966834,
+     "slope_body_rescaled": 1.0462502209593312
     }
    },
    "right alone, lifter path": {
     "n": 765,
-    "slope": 1.183866377237331,
+    "slope": 1.1400194743766896,
     "rms_m": 0.24741335303256462,
     "off_axis_rms_m": 0.12756050177080797,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 5.183349997377954,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 4.647363663802243,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 4.945475773537813,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 4.367441421694969,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.0140135687547338,
-    "slope_body_rescaled": 1.0950790051097385,
+    "slope_in_body_heights": 1.0140135687547343,
+    "slope_body_rescaled": 1.054520523439008,
     "by_height": {
-     "slope": 1.0875280518191468,
-     "slope_body_rescaled": 1.005965842018585
+     "slope": 1.0875280518191472,
+     "slope_body_rescaled": 1.0059658420185855
     }
    },
    "right alone, keypoint fit": {
     "n": 765,
-    "slope": 1.48265327143074,
+    "slope": 1.4277401873036764,
     "rms_m": 0.10388388686094448,
     "off_axis_rms_m": 0.04266200198217476,
     "passes": [
      {
-      "truth_m": 4.408853754382045,
+      "truth_m": 4.578425052627509,
       "est_m": 6.388934970304212,
       "truth_is_lower_bound": true
      },
      {
-      "truth_m": 4.200795481036131,
+      "truth_m": 4.362364537999058,
       "est_m": 6.156921668666466,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 4.117037540183496,
+      "truth_m": 4.275385137882862,
       "est_m": 6.094184715923346,
       "truth_is_lower_bound": false
      },
      {
-      "truth_m": 3.853095676142919,
+      "truth_m": 4.001291663686877,
       "est_m": 5.602990350487309,
       "truth_is_lower_bound": false
      }
     ],
-    "slope_in_body_heights": 1.2859599591963224,
-    "slope_body_rescaled": 1.3887661823470985,
+    "slope_in_body_heights": 1.2859599591963229,
+    "slope_body_rescaled": 1.3373303978157252,
     "by_height": {
-     "slope": 1.362000859898661,
-     "slope_body_rescaled": 1.2757539277741292
+     "slope": 1.3620008598986617,
+     "slope_body_rescaled": 1.2757539277741299
     }
    }
   },
@@ -1061,6 +1063,292 @@
    "reproj_px_median": [
     5.638735771179199,
     4.505859375
+   ],
+   "seen_both_frac": 1.0
+  }
+ },
+ "OWN03, published half-size clip": {
+  "truth": {
+   "view": "left",
+   "from_another_run": false,
+   "distance_m": 4.1148,
+   "marks_px": [
+    [
+     74.0,
+     414.5
+    ],
+    [
+     123.0,
+     393.5
+    ],
+    [
+     891.5,
+     379.0
+    ],
+    [
+     851.5,
+     365.0
+    ]
+   ],
+   "turns_s": [
+    5.4,
+    10.43,
+    15.77,
+    21.2,
+    26.4
+   ],
+   "by_height": {
+    "subject_height_m": 1.651,
+    "box_m": 1.6642080000000001,
+    "distance_in_boxes": 2.5868220588780853,
+    "distance_m": 4.305009964961381,
+    "camera_height_m": 0.8358219195623047,
+    "slope_factor": 0.9558166028628257
+   },
+   "vanishing_point_px": [
+    487.0963302752294,
+    237.45871559633028
+   ],
+   "ground_rise_deg": 2.6704499988443606,
+   "level": {
+    "camera_height_m": 0.7927596330275228,
+    "lines_m": [
+     -1.84977247706422,
+     2.2650275229357795
+    ],
+    "stature_m": 1.5901253366767776,
+    "stature_sd_m": 0.11249653865186782
+   },
+   "sloped": {
+    "camera_height_m": 0.798892467754328,
+    "lines_m": [
+     -2.133539920070119,
+     1.9812600799298803
+    ],
+    "stature_m": 1.5906776370171376,
+    "stature_sd_m": 0.017521860551610632
+   }
+  },
+  "estimates": {
+   "merge": {
+    "n": 765,
+    "slope": 1.0718168606563556,
+    "rms_m": 0.044588180934638615,
+    "off_axis_rms_m": 0.16726189036109973,
+    "passes": [
+     {
+      "truth_m": 4.611485649765697,
+      "est_m": 4.92613092148451,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.382673857072215,
+      "est_m": 4.77006799223299,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.281753479197793,
+      "est_m": 4.631964524998606,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.008356095487302,
+      "est_m": 4.3446507349989405,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9600912832886119,
+    "slope_body_rescaled": 0.9965002787629059,
+    "by_height": {
+     "slope": 1.0244603506436565,
+     "slope_body_rescaled": 0.9524715111990196
+    }
+   },
+   "joint fit": {
+    "n": 765,
+    "slope": 1.1307770975890956,
+    "rms_m": 0.032519162441981594,
+    "off_axis_rms_m": 0.04233240210368726,
+    "passes": [
+     {
+      "truth_m": 4.611485649765697,
+      "est_m": 5.185600036344523,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.382673857072215,
+      "est_m": 5.008547100968398,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.281753479197793,
+      "est_m": 4.875168048584843,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.008356095487302,
+      "est_m": 4.564438329395674,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0417095128309644,
+    "slope_body_rescaled": 1.0812136699859778,
+    "by_height": {
+     "slope": 1.0808155240126953,
+     "slope_body_rescaled": 1.0334419770148455
+    }
+   },
+   "left alone, lifter path": {
+    "n": 765,
+    "slope": 1.05948494100887,
+    "rms_m": 0.06137595109642155,
+    "off_axis_rms_m": 0.123519377574234,
+    "passes": [
+     {
+      "truth_m": 4.611485649765697,
+      "est_m": 4.762536026124666,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.382673857072215,
+      "est_m": 4.722125064922585,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.281753479197793,
+      "est_m": 4.6716233563991025,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.008356095487302,
+      "est_m": 4.350398954058123,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9490448359015871,
+    "slope_body_rescaled": 0.9850349232367055,
+    "by_height": {
+     "slope": 1.0126732970994194,
+     "slope_body_rescaled": 0.9415127340293522
+    }
+   },
+   "left alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.1178609278283058,
+    "rms_m": 0.020488792762262703,
+    "off_axis_rms_m": 0.04546688894539016,
+    "passes": [
+     {
+      "truth_m": 4.611485649765697,
+      "est_m": 5.127402927264168,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.382673857072215,
+      "est_m": 4.956433136245884,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.281753479197793,
+      "est_m": 4.853594683782736,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.008356095487302,
+      "est_m": 4.52377365515947,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0143190898353578,
+    "slope_body_rescaled": 1.0527845355634013,
+    "by_height": {
+     "slope": 1.0684700345099376,
+     "slope_body_rescaled": 1.006268938328728
+    }
+   },
+   "right alone, lifter path": {
+    "n": 765,
+    "slope": 1.1664821324629728,
+    "rms_m": 0.16612061368644085,
+    "off_axis_rms_m": 0.17490309351851155,
+    "passes": [
+     {
+      "truth_m": 4.611485649765697,
+      "est_m": 5.338896259972252,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.382673857072215,
+      "est_m": 4.839925449110297,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.281753479197793,
+      "est_m": 4.814202157795242,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.008356095487302,
+      "est_m": 4.393366210076252,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0355768980399083,
+    "slope_body_rescaled": 1.074848491533466,
+    "by_height": {
+     "slope": 1.1149429891509433,
+     "slope_body_rescaled": 1.02735803376975
+    }
+   },
+   "right alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.4367612473324038,
+    "rms_m": 0.12419190759436131,
+    "off_axis_rms_m": 0.04298851000314863,
+    "passes": [
+     {
+      "truth_m": 4.611485649765697,
+      "est_m": 6.3718563046835595,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.382673857072215,
+      "est_m": 6.177575597752388,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.281753479197793,
+      "est_m": 6.160019548435656,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.008356095487302,
+      "est_m": 5.6677618961620375,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.296356462595748,
+    "slope_body_rescaled": 1.3455174511405552,
+    "by_height": {
+     "slope": 1.3732802545502143,
+     "slope_body_rescaled": 1.2860679192418134
+    }
+   }
+  },
+  "body_m": {
+   "merge": 1.775784387276294,
+   "joint fit": 1.7266827454593772,
+   "left alone, lifter path": 1.775784387276294,
+   "left alone, keypoint fit": 1.7530542380705278,
+   "right alone, lifter path": 1.7917520616778067,
+   "right alone, keypoint fit": 1.762959534515919
+  },
+  "camera_b": {
+   "baseline_m": 5.755025634470454,
+   "axis_angle_deg": 90.10403399608933,
+   "reproj_px_median": [
+    3.0869462490081787,
+    3.4901559352874756
    ],
    "seen_both_frac": 1.0
   }
