@@ -32,10 +32,13 @@ def main(argv=None):
     p.add_argument("--out"); p.add_argument("--body-models"); p.add_argument("--t0", type=float); p.add_argument("--t1", type=float); p.add_argument("--step", type=int, default=1)
     p.add_argument("--gif"); p.add_argument("--gif-span", help="A,B seconds of IMU time for the GIF (default: the first 14 s of the span)")
     p.add_argument("--readout", choices=["both", "charts", "strips"], default="both"); p.add_argument("--strip-step", type=float, default=2.0)
-    p.add_argument("--target", choices=["merge", "jointfit"], default="merge", help="the pose shown: the merge (default) or the joint two-view fit (jointfit_smpl.npz; file name gets _jointfit)")
-    p = sub.add_parser("merge", help="(re)build the merged training target (merged_smpl.npz) from existing GVHMR outputs; no GPU needed"); p.add_argument("root")
-    p = sub.add_parser("jointfit", help="optional: fit one body to both views' keypoints at once (jointfit_smpl.npz beside merged_smpl.npz); two-view recordings, CPU, needs the SMPL-X model file")
-    p.add_argument("root"); p.add_argument("--session"); p.add_argument("--recording"); p.add_argument("--body-models", help="folder that holds smplx/SMPLX_NEUTRAL.npz (default: the GVHMR checkout's)")
+    p.add_argument("--target", choices=["auto", "merge", "jointfit"], default="auto",
+                   help="the pose shown: the recording's training target as target.json names it (default), or the merge / the joint two-view fit by name (the file name then gets _merge / _jointfit)")
+    p = sub.add_parser("merge", help="(re)build the training target from existing GVHMR outputs: the merge (merged_smpl.npz), the joint two-view fit (jointfit_smpl.npz) and target.json; no GPU needed")
+    p.add_argument("root"); p.add_argument("--gvhmr-root", help="the GVHMR checkout, for its SMPL-X model file (default: gvhmr.root in the config)"); p.add_argument("--body-models", help="folder that holds smplx/SMPLX_NEUTRAL.npz")
+    p = sub.add_parser("jointfit", help="fit one body to both views' keypoints at once (jointfit_smpl.npz beside merged_smpl.npz) and settle target.json; two-view recordings, CPU, needs the SMPL-X model file. "
+                                        "The pipeline runs it after every merge; use this to run it alone")
+    p.add_argument("root"); p.add_argument("--session"); p.add_argument("--recording"); p.add_argument("--body-models", help="folder that holds smplx/SMPLX_NEUTRAL.npz (default: jointfit.body_models in the config, then the GVHMR checkout's)")
     p = sub.add_parser("dry-run", help="run the bundled sample and verify the known answers"); p.add_argument("--out"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python"); p.add_argument("--cpu-only", action="store_true")
     p = sub.add_parser("check-gpu", help="what is missing for the GPU stage"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python")
     p = sub.add_parser("init-config", help="write wgvp_config.json (matching rules) into the data folder"); p.add_argument("root"); p.add_argument("--overwrite", action="store_true")
@@ -72,7 +75,7 @@ def main(argv=None):
         root = Path(a.root); cfg = load_config(root)
         r = run_gvhmr_stage(root, cfg, a.gvhmr_root, a.gvhmr_python, only=a.only)
         for d in sorted((root / "wgvp_output").glob("*/deliver/session_summary.json")):
-            refresh_session_after_gvhmr(root, d.parent.parent.name, cfg)
+            refresh_session_after_gvhmr(root, d.parent.parent.name, cfg, gvhmr_root=a.gvhmr_root)
         build_summary(root, cfg, gvhmr=r); return 0 if r.get("returncode", 1) == 0 else 1
     if a.cmd == "demo":
         from .demo import render_demo
@@ -86,20 +89,30 @@ def main(argv=None):
         from .config import load_config
         from .session import refresh_session_after_gvhmr
         from .summary import build_summary
-        root = Path(a.root); cfg = load_config(root); n = bad = 0
+        root = Path(a.root); cfg = load_config(root); n = bad = nfit = 0
         for d in sorted((root / "wgvp_output").glob("*/deliver/session_summary.json")):
-            s = refresh_session_after_gvhmr(root, d.parent.parent.name, cfg)
+            s = refresh_session_after_gvhmr(root, d.parent.parent.name, cfg, gvhmr_root=a.gvhmr_root, body_models=a.body_models)
             st = [v.get("status") for k, v in (s or {}).get("items", {}).items() if k.endswith("/merge")]
             n += len(st); bad += sum(1 for x in st if x == "FAIL" or x is None)
+            nfit += sum(1 for k, v in (s or {}).get("items", {}).items() if k.endswith("/target") and v.get("method") == "jointfit")
         build_summary(root, cfg)
-        print(f"{n - bad} recording(s) merged" + (f", {bad} FAILED or without an export (a merged_smpl.npz from an earlier run, if there is one, was left as it was)" if bad else ""))
+        print(f"{n - bad} recording(s) merged, the joint two-view fit is the training target of {nfit} (target.json beside each says which file and why)"
+              + (f", {bad} FAILED or without an export (a merged_smpl.npz from an earlier run, if there is one, was left as it was)" if bad else ""))
         return 0 if n and not bad else 1
     if a.cmd == "jointfit":
+        from .config import load_config
         from .jointfit import jointfit_root
+        from .session import refresh_session_targets
+        from .summary import build_summary
+        root = Path(a.root)
         try:
-            out = jointfit_root(Path(a.root), a.body_models, a.session, a.recording)
+            out = jointfit_root(root, a.body_models, a.session, a.recording)
         except FileNotFoundError as e:
             print(e); return 1
+        for d in sorted((root / "wgvp_output").glob("*/deliver/session_summary.json")):
+            refresh_session_targets(root, d.parent.parent.name)
+        if out:
+            build_summary(root, load_config(root))
         n = sum(1 for s in out if s["status"] != "SKIP"); print(f"{n} recording(s) fitted, {len(out) - n} skipped"); return 0 if n else 1
     if a.cmd == "summary":
         from .config import load_config

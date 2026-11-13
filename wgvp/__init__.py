@@ -8,7 +8,10 @@ Stages (CPU unless noted):
   cut       trim + bbox track for the lifter (frame mapping kept)
   gvhmr     [GPU] SMPL-X parameters per frame for the subject (GVHMR, static camera, no render)
   reconcile two camera angles against each other on the IMU timeline
-  merge     one pose per frame from the two views (merged_smpl.npz, the training target; no IMU enters it)
+  merge     one pose per frame from the two views, each joint from the view(s) that can vouch for it (merged_smpl.npz;
+            no IMU enters it)
+  jointfit  one body fitted to both views' keypoints at once (jointfit_smpl.npz); target.json then names the training
+            target of the recording: the fit where it applies and passes its checks, the merge everywhere else
   demo      [optional extras] the demo video of a lifted recording, from the outputs above (work/, holds video frames)
   qc        QC records, skeleton-only thumbnails, validation bundle, privacy check
 

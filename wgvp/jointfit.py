@@ -1,8 +1,9 @@
-"""Joint two-view fit, an optional stage after the merge (`wgvp jointfit <root>`): one SMPL-X body per frame fitted
-to BOTH views' 2D keypoints at once, written as `jointfit_smpl.npz` (+ `jointfit.json`) beside `merged_smpl.npz`.
-The merge stays the default training target; this file is a second estimate of the same frames to compare with it.
+"""Joint two-view fit, the stage after the merge (run by the pipeline after every merge, and by `wgvp jointfit
+<root>`): one SMPL-X body per frame fitted to BOTH views' 2D keypoints at once, written as `jointfit_smpl.npz`
+(+ `jointfit.json`) beside `merged_smpl.npz`. Where the fit applies and passes its own checks it is the recording's
+training target; everywhere else the merge is. `target.json` names the file to train on and says why.
 
-Why a second estimate: the merge takes each joint from the view(s) that can vouch for it, but every view was lifted
+Why fit both views: the merge takes each joint from the view(s) that can vouch for it, but every view was lifted
 on its own, so a limb's depth along a camera's line of sight is that lift's guess and the pelvis path is two
 monocular depth estimates fused. Two views of one body fix both by triangulation, once the pose of one camera
 against the other is known. No calibration is delivered with the videos, so the fit finds it from the walker.
@@ -31,19 +32,34 @@ a, whose frame hosts the fit, is the merge's reference view: the view that vouch
   5. Output in the merge's world: `global_orient` = the merge's root with the fitted correction, `transl` = the
      fitted pelvis carried into the world and set on the merge's path by one constant offset. Joints and frames
      the merge does not output are not output here either (`export_ok` is the merge's): the fit refines what the
-     merge exports and never adds to it. The walkway path (`transl_mat`) is not refitted; take it from the merge.
+     merge exports and never adds to it. The heading and the heading-relative root and velocity are computed as the
+     merge computes them, from the fit's own root and path, with no walkway term: on the one rendered session
+     with a walkway the fit's own path gave the better speed (docs/design.md, section 2.18). The walkway path
+     (`transl_mat`) is not refitted; it is copied from the merge with the merge's loss weights, so the file can
+     be trained on without opening the merge.
      The output is a 3-frame moving average inside runs of emitted frames (the merge uses 5): the fit follows the
      keypoints frame by frame, and without it a standing body shimmers at 2-6 times the motion the truth has at
      rest. Three frames bring the rest jitter to the truth's and cost the knee's range 0.01 of gain; five cost 0.04.
 
-What it buys and what it does not, measured on the six rendered sessions (docs/design.md, section 2.15):
-the pelvis path and the limb segments' directions improve clearly; the root's rotation, the heading and the seated
-phase of the TUG do not. Self-calibration is weaker when one view sees only part of the body for most of the
-recording (`jointfit.json`: `views_complete_frac`, noted below 0.5); a known camera pose can be passed in.
-The body IMUs are not used here either.
+The training target (`settle_target`, written per recording as `target.json`). The fit is the target when it is
+switched on (`jointfit.enabled` in wgvp_config.json), was made from the merge on file (`merge_stamp`), and its
+status is PASS. The merge is the target in every other case: one view or three, a view without its camera-frame
+lift, views that never see the subject together, no SMPL-X model file, a fit that broke, or a fit that warns (two
+cameras that are one viewpoint, level axes nearly parallel, a mirrored view). Both files stay in the delivery.
+
+What it buys and what it does not. On the six rendered sessions (docs/design.md, section 2.15) the pelvis path
+and the limb segments' directions improve clearly; the root's rotation, the heading and the seated phase of the
+TUG do not. On the one real recording with a measured distance (sections 2.16-2.17) the fit kept the walk straight
+and its passes equal under a side view that cuts the head off, where the merge lost both, and it read the distance
+6-7 % longer than the merge, which is longer than the truth on every reading. `body_height_m` is the fitted
+body's standing height: the scale the path carries, for a consumer who knows the subject's height.
+Self-calibration is weaker when one view sees only part of the body for most of the recording (`jointfit.json`:
+`views_complete_frac`, noted below 0.5); a known camera pose can be passed in. The fit takes both cameras to stand
+still for the whole recording and does not check it. The body IMUs are not used here either.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -51,7 +67,9 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from .fusion import SMPLX_PARENTS, SMPLX_REST_JOINTS, LEGS, ARMS, geodesic, mirror_body, mirror_root, mirror_transl, moving_average_in_runs, smooth_rotations
+from .fusion import (SMPLX_PARENTS, SMPLX_REST_JOINTS, LEGS, ARMS, geodesic, heading_frame, heading_rel, mirror_body, mirror_root, mirror_transl,
+                     moving_average_in_runs, rate_in_runs, smooth_rotations)
+from .reconcile import SMPLX_BODY_JOINTS
 
 # COCO-17 keypoint -> SMPL-X body joint (index in the 22-joint tree); the face points are not delivered
 KP_JOINT = {5: 16, 6: 17, 7: 18, 8: 19, 9: 20, 10: 21, 11: 1, 12: 2, 13: 4, 14: 5, 15: 7, 16: 8}
@@ -69,38 +87,70 @@ FIELDS_DOC = (
     "frame_idx, imu_t_s: the merge's timeline (same rows as merged_smpl.npz); "
     "body_pose (T,63): SMPL-X body pose from the joint two-view fit, axis-angle, NaN for the joints the merge does not output; "
     "global_orient (T,3) / transl (T,3): root in the merge's world (y up; the heading is the merge's, the pelvis path is triangulated from both views and set on "
-    "the merge's path by one constant offset); betas (10): the fitted body shape; export_ok (T): the merge's export rule, unchanged; "
+    "the merge's path by one constant offset); heading_yaw_deg (T), heading_yaw_rate_deg_s (T), global_orient_heading_rel (T,3), root_vel_heading_rel_m_s (T,3): "
+    "as in merged_smpl.npz, computed from this file's root and path (the velocity has no walkway term); betas (10): the fitted body shape; "
+    "export_ok (T): the merge's export rule, unchanged; weight (T,21), root_weight (T), transl_weight (T): the merge's loss weights, zero where this file has no value; "
+    "transl_mat (T,3): the merge's walkway path, copied (not refitted); joints: the 21 body joint names; reference_view; "
     "n_keypoints (2,T): body keypoints (of 12) each view gave the fit; seen (T): some view gave at least 4, seen_both (T): both did (elsewhere the pose rests on "
     "one view, or on the merge's pose and the neighbouring frames); reproj_px (2,T): median reprojection residual of each view's keypoints; "
     "cam_b_from_a_R (3,3), cam_b_from_a_t (3): the pose of camera b against camera a (x_b = R x_a + t; x right, y down, z ahead), found with the fit unless given; "
     "world_from_cam_a_R (3,3): camera a's frame turned into the merge's world; keypoint_offsets_m (6,3): fitted keypoint-to-joint offsets of the left side "
     "(shoulder, elbow, wrist, hip, knee, ankle; the right side mirrored in x), in the parent joint's frame; views: (a, b), camera a first (the merge's reference view): the order of every per-view array here; fps. "
     "Pose, root and path are a 3-frame moving average inside runs of emitted frames (jointfit.json: params.smooth_frames). "
-    "The walkway path and the loss weights are not refitted: take transl_mat and weight from merged_smpl.npz (same frames, same joints)")
+    "merge_stamp: the fingerprint of the merged_smpl.npz this fit was made from (same frames, same joints); target.json says which of the two files to train on")
+STAMP_KEYS = ("frame_idx", "body_pose", "global_orient", "transl", "export_ok")   # what a fit takes from the merge: a fit made from other values belongs to another merge
+TARGET_NOTE = ("train on the file named by `target`: the joint two-view fit where it applies and passes its own checks, the merge everywhere else. "
+               "Both files hold the same frames and joints (export_ok is the merge's) and the same fields a loader needs")
 
 
 # ---------------------------------------------------------------------------------------------- skeleton and geometry
-def load_skeleton(body_models: Path) -> tuple[np.ndarray, np.ndarray]:
+class Skeleton(tuple):
+    """(rest joints (22, 3), their shape directions (22, 3, 10)), as `joint_fit` takes it. One loaded from the model
+    file also knows the rest mesh's vertical extent, and so a shape's standing height."""
+    height_basis = None
+
+    def height(self, betas) -> float | None:
+        """Standing height (m) of the body with shape `betas` at rest; None without the model file."""
+        if self.height_basis is None:
+            return None
+        y0, yd = self.height_basis; return float(np.ptp(y0 + yd @ np.asarray(betas, np.float64)[:10]))
+
+
+def load_skeleton(body_models: Path) -> Skeleton:
     """Rest joints (22, 3) and their shape directions (22, 3, 10) of the neutral SMPL-X model under `body_models`
     (the folder that holds smplx/SMPLX_NEUTRAL.npz, as GVHMR's inputs/checkpoints/body_models does)."""
     f = Path(body_models) / "smplx" / "SMPLX_NEUTRAL.npz"
     if not f.exists():
-        raise FileNotFoundError(f"SMPL-X model not found at {f}: pass --body-models <folder that holds smplx/SMPLX_NEUTRAL.npz> "
-                                "(the GVHMR checkout has it under inputs/checkpoints/body_models)")
+        raise FileNotFoundError(f"SMPL-X model not found at {f}: pass --body-models <folder that holds smplx/SMPLX_NEUTRAL.npz> or set "
+                                "jointfit.body_models in wgvp_config.json (the GVHMR checkout has it under inputs/checkpoints/body_models)")
     z = np.load(f, allow_pickle=True); Jr = np.asarray(z["J_regressor"], np.float64)[:22]
-    return Jr @ np.asarray(z["v_template"], np.float64), np.einsum("jv,vck->jck", Jr, np.asarray(z["shapedirs"][:, :, :10], np.float64))
+    vt = np.asarray(z["v_template"], np.float64); sd = np.asarray(z["shapedirs"][:, :, :10], np.float64)
+    sk = Skeleton((Jr @ vt, np.einsum("jv,vck->jck", Jr, sd))); sk.height_basis = (vt[:, 1].copy(), sd[:, 1].copy()); return sk
 
 
-def mean_skeleton() -> tuple[np.ndarray, np.ndarray]:
+def mean_skeleton() -> Skeleton:
     """The mean body's rest joints with no shape freedom: for tests, which have no model file."""
-    return SMPLX_REST_JOINTS.astype(np.float64).copy(), np.zeros((22, 3, 10))
+    return Skeleton((SMPLX_REST_JOINTS.astype(np.float64).copy(), np.zeros((22, 3, 10))))
 
 
-def find_body_models(cfg: dict | None, body_models: str | None = None) -> Path:
-    if body_models:
-        return Path(body_models)
-    cand = Path((cfg or {}).get("gvhmr", {}).get("root") or "") / "inputs" / "checkpoints" / "body_models"
-    return cand if (cand / "smplx").exists() else Path.home() / "data" / "WearGait" / "body_models"
+def find_body_models(cfg: dict | None, body_models: str | None = None, gvhmr_root: str | None = None) -> Path:
+    """The folder that holds smplx/SMPLX_NEUTRAL.npz: the one named (argument, then `jointfit.body_models` in the
+    config), else the GVHMR checkout's (argument, then `gvhmr.root`), else ~/data/WearGait/body_models."""
+    cfg = cfg or {}; named = body_models or cfg.get("jointfit", {}).get("body_models")
+    if named:
+        return Path(named)
+    for g in (gvhmr_root, cfg.get("gvhmr", {}).get("root")):
+        if g and (Path(g) / "inputs" / "checkpoints" / "body_models" / "smplx").exists():
+            return Path(g) / "inputs" / "checkpoints" / "body_models"
+    return Path.home() / "data" / "WearGait" / "body_models"
+
+
+def merge_stamp(m) -> str:
+    """Fingerprint of the merge a fit is made from: its frames, pose, root, path and export rule (`STAMP_KEYS`)."""
+    h = hashlib.sha1()
+    for k in STAMP_KEYS:
+        a = np.ascontiguousarray(m[k]); h.update(f"{k}:{a.dtype.str}:{a.shape}".encode()); h.update(a.tobytes())
+    return h.hexdigest()[:16]
 
 
 def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -344,16 +394,17 @@ def jointfit_recording(rec_dir: Path, skeleton, params: dict | None = None, cams
     """Fit the merged recording under <deliver>/<recording>/ to both of its views and write jointfit_smpl.npz +
     jointfit.json there. Returns the jointfit.json content (with the arrays under "arrays" when asked), or None
     when there is no merged recording. A recording the fit cannot take (one view, three views, no camera-frame
-    files, views that never see the subject together) gets status SKIP and no npz."""
+    files, views that never see the subject together) gets status SKIP and no npz: one left by an earlier run is
+    removed, so that no estimate sits beside a merge it was not made from."""
     rec_dir = Path(rec_dir); mf = rec_dir / "merged_smpl.npz"
     if not mf.exists():
         return None
-    m = np.load(mf); views = [str(v) for v in m["views"]]; T = len(m["frame_idx"])
+    m = np.load(mf); views = [str(v) for v in m["views"]]; T = len(m["frame_idx"]); stamp = merge_stamp(m)
 
     def skip(why):
-        s = {"recording": rec_dir.name, "status": "SKIP", "flags": [why], "views": views}
+        s = {"recording": rec_dir.name, "status": "SKIP", "flags": [why], "views": views, "merge_stamp": stamp}
         if write:
-            (rec_dir / "jointfit.json").write_text(json.dumps(s, indent=1))
+            (rec_dir / "jointfit.json").write_text(json.dumps(s, indent=1)); (rec_dir / "jointfit_smpl.npz").unlink(missing_ok=True)
         log(f"  [{rec_dir.name}] joint fit: SKIP ({why})"); return s
     if len(views) != 2:
         return skip(f"the joint fit takes two views, this recording has {len(views)}")
@@ -373,6 +424,13 @@ def jointfit_recording(rec_dir: Path, skeleton, params: dict | None = None, cams
     w = int(P["smooth_frames"])                                                                          # the keypoints' frame-to-frame noise shows on a body at rest
     if w > 1:
         body = smooth_rotations(body, w); root = smooth_rotations(root[:, None], w)[:, 0]; transl = moving_average_in_runs(transl, w, centred=True)
+    # ---- the fields a loader of the merge expects, so this file can stand in for it: heading frame and velocity from the fit's own root and path
+    t_imu = m["imu_t_s"].astype(float); yaw, yaw_u, root_hr = heading_frame(root); vel_hr = heading_rel(rate_in_runs(transl, t_imu), yaw)
+    wb = m["weight"].astype(float) if "weight" in m.files else np.isfinite(mb).all(2).astype(float) * ex[:, None]
+    wr = m["root_weight"].astype(float) if "root_weight" in m.files else ex.astype(float)
+    wt = m["transl_weight"].astype(float) if "transl_weight" in m.files else ex.astype(float)
+    wb = np.where(np.isfinite(body).all(2), wb, 0.0); wr = np.where(np.isfinite(root).all(1), wr, 0.0); wt = np.where(np.isfinite(transl).all(1), wt, 0.0)
+    height = getattr(skeleton, "height", None); height = height(sol["betas"]) if height is not None else None
     # ---- what moved against the merge, and how well the keypoints are met
     with np.errstate(all="ignore"):
         db = geodesic(body, mb); dr = geodesic(root, mr); dp = np.linalg.norm((transl - mt)[:, [0, 2]], axis=1)
@@ -402,15 +460,18 @@ def jointfit_recording(rec_dir: Path, skeleton, params: dict | None = None, cams
                            "moved_from_seed_deg": _angle(sol["R_ab"], sol["R_ab_seed"]), "moved_from_seed_m": float(np.linalg.norm(sol["t_ab"] - sol["t_ab_seed"]))},
                "up": {"rule": "cross product of the two cameras' level axes" if sol["up_from_levels"] else "the first view's own gravity estimate",
                       "level_axes_angle_deg": sol["level_axes_angle_deg"], "world_moved_from_seed_deg": _angle(sol["R_aw"], sol["R_aw_seed"])},
-               "change_from_merge": stats, "betas": [float(x) for x in sol["betas"]], "keypoint_offsets_m": [[float(x) for x in o] for o in sol["offsets"]],
+               "change_from_merge": stats, "betas": [float(x) for x in sol["betas"]], "body_height_m": None if height is None else round(height, 4), "keypoint_offsets_m": [[float(x) for x in o] for o in sol["offsets"]],
                "world_offset_m": [float(x) for x in shift], "seconds": float(sol["seconds"]), "params": {k_: (list(v_) if isinstance(v_, tuple) else v_) for k_, v_ in P.items()},
-               "files": ["jointfit_smpl.npz", "jointfit.json"],
-               "note": "an optional second estimate of the merge's frames; merged_smpl.npz stays the default target. The body IMUs are not used"}
+               "files": ["jointfit_smpl.npz", "jointfit.json"], "merge_stamp": stamp,
+               "note": "one body fitted to both views, on the merge's frames and joints; target.json says whether this file or merged_smpl.npz is the training target. The body IMUs are not used"}
     arrays = dict(frame_idx=m["frame_idx"], imu_t_s=m["imu_t_s"], body_pose=body.reshape(T, 63).astype(np.float32), global_orient=root.astype(np.float32), transl=transl.astype(np.float32),
                   betas=sol["betas"].astype(np.float32), export_ok=ex, n_keypoints=nk.astype(np.int16), seen=sol["seen"], seen_both=sb,
                   reproj_px=np.stack([np.nanmedian(np.where(np.isfinite(e).any(1, keepdims=True), e, 0.0), axis=1) * np.where(np.isfinite(e).any(1), 1.0, np.nan) for e in sol["res_px"]]).astype(np.float32),
                   cam_b_from_a_R=sol["R_ab"], cam_b_from_a_t=sol["t_ab"], world_from_cam_a_R=sol["R_aw"].T, keypoint_offsets_m=sol["offsets"].astype(np.float32),
-                  views=np.array(views), fps=float(m["fps"]) if "fps" in m.files else 30.0)
+                  heading_yaw_deg=yaw_u.astype(np.float32), heading_yaw_rate_deg_s=rate_in_runs(yaw_u, t_imu).astype(np.float32), global_orient_heading_rel=root_hr.astype(np.float32),
+                  root_vel_heading_rel_m_s=vel_hr.astype(np.float32), weight=wb.astype(np.float32), root_weight=wr.astype(np.float32), transl_weight=wt.astype(np.float32),
+                  transl_mat=m["transl_mat"] if "transl_mat" in m.files else np.full((T, 3), np.nan, np.float32), joints=np.array(SMPLX_BODY_JOINTS), reference_view=ref,
+                  views=np.array(views), fps=float(m["fps"]) if "fps" in m.files else 30.0, merge_stamp=stamp)
     if write:
         np.savez_compressed(rec_dir / "jointfit_smpl.npz", **arrays, fields_doc=FIELDS_DOC, note=summary["note"])
         (rec_dir / "jointfit.json").write_text(json.dumps(summary, indent=1))
@@ -421,14 +482,115 @@ def jointfit_recording(rec_dir: Path, skeleton, params: dict | None = None, cams
     return summary
 
 
+def record_no_fit(rec_dir: Path, status: str, why: str) -> dict | None:
+    """Write a jointfit.json that says the merge on file has no fit (FAIL: the fit broke) and remove a
+    jointfit_smpl.npz left by an earlier run."""
+    rec_dir = Path(rec_dir); mf = rec_dir / "merged_smpl.npz"
+    if not mf.exists():
+        return None
+    m = np.load(mf); s = {"recording": rec_dir.name, "status": status, "flags": [why], "views": [str(v) for v in m["views"]], "merge_stamp": merge_stamp(m)}
+    (rec_dir / "jointfit.json").write_text(json.dumps(s, indent=1)); (rec_dir / "jointfit_smpl.npz").unlink(missing_ok=True); return s
+
+
+def _read_json(f: Path) -> dict | None:
+    try:
+        return json.loads(Path(f).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def settle_target(rec_dir: Path, enabled: bool = True, not_run: str | None = None, merge_error: str | None = None, write: bool = True, log=print) -> dict | None:
+    """Decide which file under <deliver>/<recording>/ is the training target and write target.json there. It reads
+    the files on disk and nothing else, so any command can settle a recording again.
+
+    The joint fit (jointfit_smpl.npz) is the target when it is switched on, jointfit.json carries the stamp of the
+    merge on file, and its status is PASS (notes that begin "info:" do not count against it). Otherwise the merge
+    (merged_smpl.npz) is, and `why` says which of these held: switched off; no fit of this merge (`not_run` gives
+    the reason when the caller knows it); SKIP, the fit does not apply; FAIL, it broke; WARN, its own checks do
+    not trust the camera geometry. `merge_error`: the merge itself failed, so there is no target. Returns None,
+    and removes a target.json from an earlier run, when the recording has no merge."""
+    rec_dir = Path(rec_dir); mf = rec_dir / "merged_smpl.npz"; tf = rec_dir / "target.json"; nf = rec_dir / "jointfit_smpl.npz"
+    if merge_error is None and not mf.exists():
+        if write:
+            tf.unlink(missing_ok=True)
+        return None
+    j = _read_json(rec_dir / "jointfit.json"); stamp = None; fresh = False
+    if merge_error is None:
+        stamp = merge_stamp(np.load(mf)); fresh = j is not None and j.get("merge_stamp") == stamp
+    js = j.get("status") if fresh else None; flags = (j.get("flags") or []) if fresh else []
+    held = next((f for f in flags if not f.startswith("info:")), "no reason recorded"); fit_on_file = fresh and js in ("PASS", "WARN") and nf.exists()
+    target, method = "merged_smpl.npz", "merge"
+    if merge_error is not None:
+        target = method = None; why = f"the merge failed, so the recording has no training target ({merge_error})"; fit_on_file = False
+    elif not enabled:
+        why = "the joint fit is switched off (jointfit.enabled in wgvp_config.json)"
+    elif not fresh:
+        why = not_run or ("the joint fit on file was made from an earlier merge; run `wgvp jointfit <root>`" if j is not None else "the joint fit has not been run; run `wgvp jointfit <root>`")
+    elif js == "SKIP":
+        why = f"the joint fit does not apply: {held}"
+    elif js == "FAIL":
+        why = f"the joint fit failed: {held}"
+    elif not nf.exists():
+        why = "jointfit.json is on file without jointfit_smpl.npz; run `wgvp jointfit <root>`"
+    elif js == "PASS":
+        target, method = "jointfit_smpl.npz", "jointfit"; why = "two views fitted as one body, and the fit's checks passed"
+    else:
+        why = f"the joint fit is not trusted here: {held}"
+    t = {"recording": rec_dir.name, "target": target, "method": method, "why": why,
+         "second_estimate": None if target is None else ("merged_smpl.npz" if method == "jointfit" else ("jointfit_smpl.npz" if fit_on_file else None)),
+         "jointfit_status": js, "merge_status": (_read_json(rec_dir / "merge.json") or {}).get("status") if merge_error is None else "FAIL", "merge_stamp": stamp,
+         "body_height_m": j.get("body_height_m") if fit_on_file else None, "note": TARGET_NOTE}
+    if write:
+        tf.write_text(json.dumps(t, indent=1))
+    log(f"  [{rec_dir.name}] training target: {target} ({why})"); return t
+
+
+def summary_items(rec_dir: Path) -> dict:
+    """The session summary's two rows for a recording, read from target.json and jointfit.json: `<recording>/target`
+    (never counted in the session's status) and `<recording>/jointfit` (PASS or WARN when the merge on file was
+    fitted, WARN when the fit broke, N/A when it does not apply or was not run)."""
+    rec_dir = Path(rec_dir); rid = rec_dir.name; t = _read_json(rec_dir / "target.json")
+    if t is None:
+        return {}
+    j = _read_json(rec_dir / "jointfit.json"); js = t.get("jointfit_status")
+    fit = {"status": {"PASS": "PASS", "WARN": "WARN", "FAIL": "WARN"}.get(js, "N/A"), "fit_status": js, "flags": (j.get("flags") or []) if js else [t["why"]]}
+    if js in ("PASS", "WARN"):
+        fit.update({k: j[k] for k in ("views", "frames_seen_by_both", "views_complete_frac", "reprojection_px", "cameras", "body_height_m", "files") if k in j})
+    return {f"{rid}/jointfit": fit, f"{rid}/target": {"status": "N/A", "flags": [], **{k: t.get(k) for k in ("target", "method", "why", "second_estimate")}}}
+
+
+def fit_and_settle(rec_dir: Path, cfg: dict | None, cache: dict, merge_error: str | None = None, body_models: str | None = None, gvhmr_root: str | None = None, log=print) -> dict:
+    """The pipeline's step after a merge: fit the recording when the fit is switched on and the model file is
+    found, settle the target, and return the session summary's rows. `cache` holds the skeleton between
+    recordings (pass one dict per run)."""
+    rec_dir = Path(rec_dir); on = bool((cfg or {}).get("jointfit", {}).get("enabled", True)); not_run = None
+    if merge_error is None and on:
+        if "skeleton" not in cache:
+            try:
+                cache["skeleton"] = load_skeleton(find_body_models(cfg, body_models, gvhmr_root))
+            except FileNotFoundError as e:
+                cache["skeleton"] = None; cache["why"] = "no SMPL-X model file (jointfit.body_models in wgvp_config.json, or --body-models)"; log(f"  joint fit not run: {e}")
+            except Exception as e:                                  # a model file that does not load must not take the merge with it
+                cache["skeleton"] = None; cache["why"] = f"the SMPL-X model file did not load ({e!r})"; log(f"  joint fit not run: {cache['why']}")
+        if cache["skeleton"] is None:
+            not_run = f"the joint fit was not run: {cache.get('why', 'no SMPL-X model')}"
+        else:
+            try:
+                jointfit_recording(rec_dir, cache["skeleton"], log=log)
+            except Exception as e:                                  # a fit that breaks must not take the merge with it
+                record_no_fit(rec_dir, "FAIL", f"{e!r}"); log(f"  [{rec_dir.name}] joint fit FAILED: {e!r}")
+    settle_target(rec_dir, enabled=on, not_run=not_run, merge_error=merge_error, log=log)
+    return summary_items(rec_dir)
+
+
 def jointfit_root(root: Path, body_models: str | None = None, session: str | None = None, recording: str | None = None, log=print) -> list[dict]:
-    """Every merged recording under <root>/wgvp_output (or one session / recording)."""
+    """Every merged recording under <root>/wgvp_output (or one session / recording): fit, then settle the target."""
     from .config import load_config
-    root = Path(root); skel = load_skeleton(find_body_models(load_config(root), body_models)); out = []
+    root = Path(root); cfg = load_config(root); skel = load_skeleton(find_body_models(cfg, body_models)); out = []
     for mf in sorted((root / "wgvp_output").glob("*/deliver/*/merged_smpl.npz")):
         if (session and mf.parent.parent.parent.name != session) or (recording and mf.parent.name != recording):
             continue
         s = jointfit_recording(mf.parent, skel, log=log)
         if s is not None:
-            out.append(s)
+            settle_target(mf.parent, enabled=bool(cfg.get("jointfit", {}).get("enabled", True)), log=log); out.append(s)
     return out

@@ -7,8 +7,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wgvp.fusion import (L_FOOT, R_FOOT, collapsed_legs, fk_joints, flexion_two_band, fuse_path, mirror_body, mirror_check, mirror_root,   # noqa: E402
-                         mirror_transl, side_on_score, sight_line_world)
+from wgvp.fusion import (L_FOOT, R_FOOT, collapsed_legs, fk_joints, flexion_two_band, fuse_path, heading_frame, heading_rel, mirror_body,   # noqa: E402
+                         mirror_check, mirror_root, mirror_transl, rate_in_runs, side_on_score, sight_line_world)
 
 
 def test_mirror_map_reflects_the_body():
@@ -157,3 +157,21 @@ def test_fused_path_runs_and_single_view():
     assert np.isnan(out[40:50]).all() and np.allclose(out[:40], p[:40] + [0.25, 0.0, 0.0]) and np.allclose(out[50:], p[50:] + [0.25, 0.0, 0.0])
     lifted[1, :20] = False; out = fuse_path(pos, np.where(lifted, share, 0.0) / np.maximum(np.where(lifted, share, 0.0).sum(0), 1e-9), lifted)
     assert np.isfinite(out[:40]).all() and np.allclose(np.diff(out[:40], axis=0), np.diff(p[:40], axis=0))      # a view joining adds no jump
+
+
+def test_heading_is_taken_out_of_the_root_and_the_velocity():
+    """A walker who leans 6 deg forward, turns through more than a full circle and walks at 1.2 m/s the way they
+    face. With the heading taken out the root is the lean alone and the velocity is 1.2 m/s forward, whichever way
+    the world says they walk; rates stop at a gap."""
+    T = 240; t = np.arange(T) / 30.0; turn = np.linspace(-200.0, 250.0, T); lean = R.from_euler("x", 6, degrees=True)
+    root = (R.from_euler("y", turn, degrees=True) * lean).as_rotvec(); root[100:104] = np.nan
+    yaw, yaw_u, hr = heading_frame(root); ok = np.isfinite(root).all(1)
+    assert np.isnan(yaw[100:104]).all() and np.abs((yaw[ok] - turn[ok] + 180) % 360 - 180).max() < 1e-6 and np.nanmax(np.abs(yaw)) <= 180.0
+    assert np.abs(np.diff(yaw_u[:100])).max() < 3.0 and np.ptp(yaw_u[:100]) > 180.0                      # continuous through the +-180 wrap
+    assert np.isnan(hr[100:104]).all() and np.abs(hr[ok] - lean.as_rotvec()).max() < 1e-9
+    fwd = R.from_euler("y", turn, degrees=True).apply([0.0, 0.0, 1.0]); path = np.cumsum(1.2 * fwd / 30.0, axis=0); path[100:104] = np.nan
+    vel = rate_in_runs(path, t); v = heading_rel(vel, yaw); mid = np.r_[5:95, 110:235]
+    assert np.isnan(vel[100:104]).all() and np.isfinite(vel[[99, 104]]).all()                           # one-sided at the edges of a run, never across the gap
+    assert np.abs(v[mid] - [0.0, 0.0, 1.2]).max() < 0.03 and np.isnan(heading_rel(vel, np.full(T, np.nan))).all()   # a central difference sits half a frame of the turn (0.9 deg) off
+    rate = rate_in_runs(yaw_u, t); assert np.abs(rate[mid] - 450.0 / (239 / 30.0)).max() < 1e-6 and np.isnan(rate[100:104]).all()
+    lone = np.full(9, np.nan); lone[4] = 1.0; assert np.isnan(rate_in_runs(lone, np.arange(9.0))).all()   # a run of one frame has no rate

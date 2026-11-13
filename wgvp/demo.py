@@ -79,9 +79,21 @@ def _video_path(root: Path, deliver: Path, rid: str) -> Path | None:
     return None
 
 
+def resolve_target(rdir: Path, target: str = "auto") -> tuple[str, str, str]:
+    """The pose a demo shows -> (method, file name, suffix of the demo's file name). "auto" follows the recording's
+    target.json (the merge when there is none); "merge" / "jointfit" ask for one by name and mark the file name."""
+    if target == "auto":
+        try:
+            method = json.loads((Path(rdir) / "target.json").read_text()).get("method") or "merge"
+        except (OSError, ValueError):
+            method = "merge"
+        return method, "jointfit_smpl.npz" if method == "jointfit" else "merged_smpl.npz", ""
+    return target, "jointfit_smpl.npz" if target == "jointfit" else "merged_smpl.npz", f"_{target}"
+
+
 def render_demo(root: Path, session: str, recording: str | None = None, gt: str | None = None, out: str | None = None, body_models: str | None = None,
                 t0: float | None = None, t1: float | None = None, step: int = 1, gif: str | None = None, gif_span: str | None = None,
-                readout: str = "both", strip_step: float = 2.0, log=print, target: str = "merge") -> dict:
+                readout: str = "both", strip_step: float = 2.0, log=print, target: str = "auto") -> dict:
     import cv2
     from scipy.spatial.transform import Rotation as R
     from .config import load_config
@@ -97,9 +109,9 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     if body_models is None:
         cand = Path(cfg.get("gvhmr", {}).get("root") or "") / "inputs" / "checkpoints" / "body_models"
         body_models = str(cand if (cand / "smplx").exists() else Path.home() / "data" / "WearGait" / "body_models")
-    out = Path(out) if out else sdir / "work" / "demo" / f"{rid}_demo{'_jointfit' if target == 'jointfit' else ''}.mp4"; out.parent.mkdir(parents=True, exist_ok=True)
+    target, tfile, suffix = resolve_target(rdir, target); tname = "joint fit" if target == "jointfit" else "merge"     # the pose shown: the recording's training target unless one is asked for by name
+    out = Path(out) if out else sdir / "work" / "demo" / f"{rid}_demo{suffix}.mp4"; out.parent.mkdir(parents=True, exist_ok=True)
     M = np.load(rdir / "merged_smpl.npz"); views = [str(v) for v in M["views"]]; V = len(views)
-    tname, tfile = ("joint fit", "jointfit_smpl.npz") if target == "jointfit" else ("merge", "merged_smpl.npz")       # the pose shown: the merge, or the joint two-view fit of the same frames and joints
     if target == "jointfit" and not (rdir / tfile).exists():
         raise FileNotFoundError(f"{rdir / tfile}: run `wgvp jointfit` first")
     S = np.load(rdir / tfile) if target == "jointfit" else M

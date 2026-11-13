@@ -61,8 +61,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 from .fusion import (MIRROR_SWAP, mirror_body, mirror_check, mirror_root, mirror_transl, fuse_path,
-                     ARMS, FLEX, L_ANKLE, L_FOOT, LEGS, R_ANKLE, R_FOOT, SPINE, TORSO_LEGS, chordal_mean, circular_median_deg, export_mask, fk_joints, flexion_two_band, fuse_root, geodesic, heading_yaw_deg,
-                     moving_average_in_runs, ramp_inside, repair_root_glitches, seen_frames, side_on_score, sight_line_world, smooth_rotations, step_stats, usable_joints_rt)
+                     ARMS, FLEX, L_ANKLE, L_FOOT, LEGS, R_ANKLE, R_FOOT, SPINE, TORSO_LEGS, chordal_mean, circular_median_deg, export_mask, fk_joints, flexion_two_band, fuse_root, geodesic, heading_frame, heading_rel, heading_yaw_deg,
+                     moving_average_in_runs, ramp_inside, rate_in_runs, repair_root_glitches, seen_frames, side_on_score, sight_line_world, smooth_rotations, step_stats, usable_joints_rt)
 from .reconcile import SMPLX_BODY_JOINTS
 
 RAMP_S = 0.5           # cross-fade at the edges of usable segments and of lifted runs
@@ -452,26 +452,11 @@ def merge_recording(rec_dir: Path, params: dict | None = None, log=print, write:
     elif stances is not None and len(stances["t0"]):
         flags.append(f"info: walkway data present but only {len(stances['t0'])} footfall(s): the mat is not used")
     # ---- heading-relative root
-    yaw = heading_yaw_deg(root_f); yaw_u = np.full(T, np.nan); ok = np.isfinite(yaw)
-    edges = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
-    for a_, b_ in zip(edges[::2], edges[1::2]):
-        yaw_u[a_:b_] = np.degrees(np.unwrap(np.radians(yaw[a_:b_])))
-    root_hr = np.full((T, 3), np.nan)
-    with np.errstate(all="ignore"):
-        root_hr[ok] = (R.from_euler("y", -yaw[ok], degrees=True) * R.from_rotvec(root_f[ok])).as_rotvec()
-    def rate(x):                                                   # d/dt inside runs, on the IMU clock
-        out = np.full(x.shape, np.nan); okx = np.isfinite(x).all(1) if x.ndim == 2 else np.isfinite(x)
-        e = np.flatnonzero(np.diff(np.r_[0, okx.astype(int), 0]))
-        for a_, b_ in zip(e[::2], e[1::2]):
-            if b_ - a_ >= 2:
-                out[a_:b_] = np.gradient(x[a_:b_], t_imu[a_:b_], axis=0)
-        return out
-    yaw_rate = rate(yaw_u); vel_w = rate(transl_scaled)            # the fused video path's steps: the stride's profile
+    yaw, yaw_u, root_hr = heading_frame(root_f)
+    yaw_rate = rate_in_runs(yaw_u, t_imu); vel_w = rate_in_runs(transl_scaled, t_imu)      # d/dt inside runs, on the IMU clock; the fused video path's steps: the stride's profile
     if np.isfinite(transl_ww_world).any():                         # on the mat its speed over a stride and a half comes from the footprints: no depth estimate in it
-        slow = moving_average_in_runs(rate(transl_ww_world) - vel_w, int(round(MAT_VEL_S * fps)) | 1); vel_w[:, [0, 2]] += np.nan_to_num(slow)[:, [0, 2]]
-    vel_hr = np.full((T, 3), np.nan); okv = np.isfinite(vel_w).all(1) & ok
-    with np.errstate(all="ignore"):
-        vel_hr[okv] = R.from_euler("y", -yaw[okv], degrees=True).apply(vel_w[okv])
+        slow = moving_average_in_runs(rate_in_runs(transl_ww_world, t_imu) - vel_w, int(round(MAT_VEL_S * fps)) | 1); vel_w[:, [0, 2]] += np.nan_to_num(slow)[:, [0, 2]]
+    vel_hr = heading_rel(vel_w, yaw)
     # ---- one shape
     bsel = (frac >= 0.999) & visible
     if bsel.sum() < ALIGN_MIN_FRAMES:

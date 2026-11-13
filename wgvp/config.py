@@ -45,9 +45,19 @@ DEFAULT_CONFIG = {
     },
     "selection": {"accept_r": 0.30, "min_excess": 0.15, "lag_tol_s": 0.12, "min_margin": 0.12, "min_r_primary": 0.35, "app_attach": 0.35,
                   "_doc": "accept_r: pelvis correlation needed to accept a track fragment as the subject; min_r_primary/min_margin: confident selection; app_attach: appearance distance for attaching brief re-entries."},
+    "jointfit": {"enabled": True, "body_models": "",
+                 "_doc": "The joint two-view fit runs after every merge and is the training target of a two-view recording where its checks pass (target.json per recording says which file to train on and why). enabled: false keeps the merge as the target everywhere and runs the fit only on `wgvp jointfit`. body_models: the folder that holds smplx/SMPLX_NEUTRAL.npz; empty = the GVHMR checkout's inputs/checkpoints/body_models. Without the model file the fit is not run and the merge stays the target."},
     "gvhmr": {"root": "", "python": "", "timeout_s": 7200, "focal_35mm": {},
               "_doc": "root: the GVHMR checkout with inputs/checkpoints; python: the interpreter of the GVHMR environment. Leave empty to run the CPU stages only; the GPU stage can be run later (`wgvp gvhmr <root>` or the GUI with the fields filled). focal_35mm: per view, the focal length of that view's picture as a 35 mm equivalent, e.g. {\"left\": 28, \"right\": 21} (whole millimetres; 21.6 / tan(diagonal field of view / 2)); a view not listed is lifted with GVHMR's default, a focal length equal to the picture's diagonal (43 mm, a 53 deg diagonal field of view)."}
 }
+
+
+RECORDING_ITEMS = ("reconcile", "merge", "jointfit", "target")   # session-summary items "<recording>/<x>" that describe the recording, not one of its views
+
+
+def is_view_item(key: str) -> bool:
+    """A session-summary item key that names one view of a recording ("<recording>/<view>")."""
+    return "/" in key and key.rsplit("/", 1)[1] not in RECORDING_ITEMS
 
 
 def config_path(root: Path) -> Path:

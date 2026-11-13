@@ -10,11 +10,12 @@ import time
 from pathlib import Path
 
 from . import __version__
+from .config import is_view_item
 from .qc import dump_json, is_skeleton_only
 
 COLS = ["session", "recording", "view", "status", "video", "n_fragments", "selection_source", "subject_tracks", "r_fine", "margin",
         "present_frac", "full_frac", "partial_frac", "n_gaps", "lag_ambiguity", "sync_source", "offset_s", "offset_frame", "flash_minus_xcorr_s", "labels_minus_xcorr_s",
-        "sheet_minus_xcorr_s", "walk_bouts_ok", "gvhmr_frames", "reconcile_status", "residual_lag_s", "legs_median_deg", "merge_status", "export_frac", "flags"]
+        "sheet_minus_xcorr_s", "walk_bouts_ok", "gvhmr_frames", "reconcile_status", "residual_lag_s", "legs_median_deg", "merge_status", "export_frac", "jointfit_status", "target", "flags"]
 
 
 def _fmt(v, nd=3):
@@ -33,17 +34,11 @@ def collect_rows(root: Path, out_root: Path) -> tuple[list[dict], dict]:
         s = json.loads(f.read_text()); sid = s["session_id"]; totals["sessions"] += 1
         totals[s.get("status", "FAIL")] = totals.get(s.get("status", "FAIL"), 0) + 1
         items = s.get("items", {})
-        recs, merges = {}, {}
         for key, it in items.items():
-            if key.endswith("/reconcile"):
-                recs[key.split("/")[0]] = it
-            elif key.endswith("/merge"):
-                merges[key.split("/")[0]] = it
-        for key, it in items.items():
-            if key.endswith("/reconcile") or key.endswith("/merge") or "/" not in key:
+            if not is_view_item(key):
                 continue
             rid, vid = key.split("/")
-            rc = recs.get(rid, {}); ri = items.get(rid, {}); mg = merges.get(rid, {})
+            rc = items.get(f"{rid}/reconcile", {}); ri = items.get(rid, {}); mg = items.get(f"{rid}/merge", {}); jf = items.get(f"{rid}/jointfit", {}); tg = items.get(f"{rid}/target", {})
             pair = next(iter(rc.get("pairs", {}).values()), {}) if rc else {}
             hip = pair.get("hip_vertical", {}) or {}; pose = pair.get("pose", {}) or {}
             ag = ri.get("agreement", {}) or {}; cov = it.get("coverage", {}) or {}
@@ -56,7 +51,8 @@ def collect_rows(root: Path, out_root: Path) -> tuple[list[dict], dict]:
                          "gvhmr_frames": (it.get("gvhmr") or {}).get("n_frames"), "reconcile_status": rc.get("status"),
                          "residual_lag_s": (pose.get("knee_residual_lag") or {}).get("residual_lag_s", pair.get("view_offset_diff_s")),
                          "legs_median_deg": pose.get("legs_median_deg"), "merge_status": mg.get("status"), "export_frac": (mg.get("export") or {}).get("frac_of_lifted_frames"),
-                         "flags": (it.get("flags", []) + ri.get("flags", []) + ri.get("sync_flags", []) + mg.get("flags", [])),
+                         "jointfit_status": jf.get("fit_status"), "target": tg.get("target"),
+                         "flags": (it.get("flags", []) + ri.get("flags", []) + ri.get("sync_flags", []) + mg.get("flags", []) + (jf.get("flags", []) if jf.get("fit_status") in ("WARN", "FAIL") else [])),
                          "thumbnails": it.get("thumbnails", []), "_deliver": str(f.parent)})
     return rows, totals
 
@@ -84,7 +80,9 @@ def build_summary(root: Path, cfg: dict, gvhmr: dict | None = None, log=print, t
          "<p class='k'>What to look at: every row is one recording in one VIEW of its combined video. <b>selection_source</b> should read imu_xcorr with r_fine &gt; 0.35 and a margin &gt; 0.12 over the next person; "
          "<b>present/full/partial_frac</b> say how much of the recording the subject was in that view (fully / partly in frame); <b>n_gaps</b> counts exits; <b>walk_bouts_ok</b> = annotated walk bouts covered by at least one view; "
          "<b>sync_source</b> is the pelvis cross-correlation, '(validated by ...)' lists the cross-checks that agree (light flash, Walk-label export, annotation sheet); "
-         "<b>residual_lag_s</b> is how far apart the two views place IMU t=0 (after GVHMR: the knee-angle residual lag; should be ~0); <b>merge_status</b> / <b>export_frac</b>: the merged training target (merged_smpl.npz) and the share of lifted frames its export keeps. Thumbnails are skeleton-only renders (green = chosen subject, grey = other people) at the IMU start frame; the panel previews are edge maps with the detected view boxes.</p>"]
+         "<b>residual_lag_s</b> is how far apart the two views place IMU t=0 (after GVHMR: the knee-angle residual lag; should be ~0); <b>merge_status</b> / <b>export_frac</b>: the merge of the views (merged_smpl.npz) and the share of lifted frames its export keeps; "
+         "<b>jointfit_status</b>: one body fitted to both views (jointfit_smpl.npz; SKIP = it does not apply, as with one view); <b>target</b>: the file to train on for that recording, "
+         "the fit where it passed and the merge everywhere else (target.json beside the files gives the reason). Thumbnails are skeleton-only renders (green = chosen subject, grey = other people) at the IMU start frame; the panel previews are edge maps with the detected view boxes.</p>"]
     if gvhmr:
         h.append(f"<p class='k'>GPU stage: {html.escape(json.dumps({k: v for k, v in gvhmr.items() if k != 'cmd'}))}</p>")
     if env:
