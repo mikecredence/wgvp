@@ -2067,8 +2067,10 @@ there, and a change would touch every recording's selection.
 
 **Demos in the README.** `docs/demos/` holds seven demo videos, one per rendered session and one of the published
 clip, each rendered by `wgvp demo` with the recording's target and encoded again at 1184 px wide (1.0 to 1.8 MB
-each, 10 MB with their stills). The README shows a still per recording that links to its video, the fit's scores
-per session against the rendered truth, and the published clip's readings above. The demo of OWN03 is made from the
+each). GitHub does not play a video file kept in a repository, so each has a 14-s excerpt beside it as a looping
+WebP picture (592 px wide, 10 frames a second, 0.6 to 0.8 MB), taken where the top half of the demo moves most. The
+README shows the excerpt of each recording, linked to its video, with the fit's scores per session against the
+rendered truth and the published clip's readings above. The folder is 15 MB. The demo of OWN03 is made from the
 published clip, so the covered signs and the painted band are in it.
 
 **Verification.** The suite is at 108 tests. `examples/verify_examples.py` passes on `examples/two_camera`. The six
