@@ -131,3 +131,22 @@ def test_cross_view_attaches_a_standing_fragment_by_continuity():
     along3, side3 = _standing_scene(split_at=360, overlap=2)                         # the tracker handed the id over with two frames in common
     xv3 = cross_view_selection(side3, along3.track(1), FPS)
     assert xv3["track_ids"] == [3, 7] and xv3["attached_by_continuity"] == [7], xv3
+
+
+def test_window_test_reaches_the_end_of_a_fragment():
+    """A tracker id change at frame 291 leaves a 291-frame fragment: on the hop grid alone its frames 150-224 sit in
+    one window (75-224), and a fault inside that window but before them (the box off the walker over frames
+    100-140) dropped them with it. A last window flush with the fragment's end (141-290) judges them a second time
+    and keeps them; the faulty frames still go."""
+    rng = np.random.default_rng(0); F = 1500; t = np.arange(F) / FPS; cut = 291
+    d = 2.5 + 2.0 * np.sin(2 * np.pi * t / 10.0); frames = np.arange(F); w_along = 90.0 / d + rng.normal(0, 1.0, F)
+    along = _trackset("left", [0, 0, 520, 600], [(1, frames, _kp(np.full(F, 260.0) + rng.normal(0, 2, F), 300 + 20 * (2.5 - d), w_along))])
+    x = 700 + 80 * d + rng.normal(0, 1.5, F); x[100:141] = x[141] - 3.0 * (x[100:141] - x[141])    # the box runs the wrong way for 1.4 s
+    subj = _kp(x, np.full(F, 150.0) + rng.normal(0, 1.5, F), np.full(F, 20.0))
+    side = _trackset("right", [520, 0, 1420, 375], [(7, frames[:cut], subj[:cut]), (3, frames[cut:], subj[cut:])])
+    xv = cross_view_selection(side, along.track(1), FPS)
+    assert xv["ok"] and xv["track_ids"] == [3, 7], xv
+    keep = xv["frame_masks"][7]
+    assert not keep[100:141].any(), "the faulty frames must go"
+    assert keep[141:].all(), f"frames after the fault were dropped: {np.where(~keep)[0].max()}"
+    assert 3 not in xv["frame_masks"]

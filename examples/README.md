@@ -1,9 +1,10 @@
 # Examples: real footage, fabricated sensor
 
 The dry-run sample is rendered, so it cannot show how the tracker and the selector behave on real people, real
-lighting and real clutter. Two things here do, without needing a real inertial sensor: a clip of our own that ships
-in the repository (`bundled/`, runs offline) and a corpus of public footage that is fetched to your machine
-(`fetch_examples.py`, nothing redistributed).
+lighting and real clutter. Three things here do, without needing a real inertial sensor: a clip of our own that
+ships in the repository (`bundled/`, runs offline), a two-camera recording of our own that ships beside it
+(`two_camera/`, runs offline) and a corpus of public footage that is fetched to your machine (`fetch_examples.py`,
+nothing redistributed).
 
 ## Bundled offline example (`examples/bundled/`)
 
@@ -38,6 +39,46 @@ change in the footage, and it misses the cross-correlation by 0.112 s, just over
 a different candidate happened to fall inside it and reads "validated by flash"; neither means anything here).
 
 `make_bundled.py` rebuilds both sessions from the original recording.
+
+## Two-camera example (`examples/two_camera/`)
+
+```bash
+python -m wgvp run examples/two_camera --cpu-only       # about a minute on a laptop CPU
+python examples/verify_examples.py --data examples/two_camera
+```
+
+| session | what it is | what it exercises |
+|---|---|---|
+| OWN03 | 31 s of one of us walking back and forth between two chalk lines on pavement, filmed at the same time by a tablet on a box to the side (left panel) and a phone on the ground at one end (right panel), both still; the two views tiled into one file at half size (1516 x 960, 30 fps, 6.0 MB) | two real cameras with different lenses and unequal panels, a walker who turns five times, and the full two-view path through the lift, the merge and the joint fit |
+
+The recording CSV is fabricated as for the other examples, from the walker's pelvis signal in the side view, with
+IMU t = 0 planted 0.8 s into the clip. The two source videos were lined up by the clap at their start. The person
+in the clip consented to its publication and it is released under the repository licence. Two signs in the
+background are covered and a passer-by in the side view is painted out. No builder script ships for this session
+because the two original recordings are not published.
+
+Measured on 2026-11-13:
+
+| session | planted offset | found | subject frames on target | `r_fine` | `margin` | panels | status |
+|---|---|---|---|---|---|---|---|
+| OWN03 | 0.8 s | 0.801 s | 100 % of 930 | 0.85 (left); right taken by cross-view match, r 0.83 | 0.73 | left [0,209,962,751] vs true [0,210,960,750]; right [976,0,1516,960] vs [976,0,1516,960] | WARN: `flash_disagrees (+1.532 s)`; reconcile PASS |
+
+The WARN is the same one as on OWN02: the clip has no sync light, and the cross-check reports a brightness change
+in the footage that does not agree with the cross-correlation. In the right view, the phone looking along the walk,
+the tracker holds the walker as two fragments of 9.7 and 21.3 s, and neither matches the accelerometer by itself
+(the recording is fabricated from the left view's signal). Its subject is therefore taken by matching the left
+view's subject across the views, and the QC names the method per view (`cross_view`).
+
+The data root's `wgvp_config.json` sets `params.detector_imgsz` to 960, as the bundled example does, and
+`gvhmr.focal_35mm` to the two cameras' lenses (26.2 mm for the tablet, 30.4 mm for the phone, as 35 mm
+equivalents), which the lift uses in place of its default. With the GPU step run, both views lift for all 930
+frames, the merge and the joint fit export 100 % of them, and `target.json` names the joint fit.
+
+**The chalk lines.** `expected.json` also records what is needed to score the distance walked: the lines are 13.5 ft
+apart centre to centre (4.115 m), the walker stands 1.651 m, and `chalk_lines.marks_px_in_view` holds the two ends
+of each line in the left panel's pixels. `tools/chalk_walk.py` takes them as `--marks` and scores a lifted run;
+`docs/chalk_walk.json` has the result under "OWN03, published half-size clip" (the merge reads 1.07 of the true
+distance in metres and the joint fit 1.13; counted in body heights, 0.96 and 1.04).
 
 ## Fetched corpus (`examples/data/`, built by `fetch_examples.py`)
 

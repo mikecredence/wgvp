@@ -1,7 +1,7 @@
 """A walk between two ground marks a known distance apart: the pelvis path read from one side view, and every
 estimate of the recording against it.
 
-    python tools/chalk_walk.py <root> --session S --recording R --distance-m 3.9624 \
+    python tools/chalk_walk.py <root> --session S --recording R --distance-m 4.1148 \
         --marks "148,829 246,787 1783,758 1703,730" [--view left] [--span 3.0,28.5] [--label NAME] \
         [--subject-height-m 1.651] [--truth-root OTHER_ROOT] [--body-models DIR] [--out docs/chalk_walk.json]
 

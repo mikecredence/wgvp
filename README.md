@@ -47,6 +47,60 @@ For each session video (one file, two views tiled side by side or stacked, unequ
 beside each, that person's pelvis correlation with the IMU at the shared lag. The subject reaches 0.78 in the
 along view and 0.63 in the side view; the co-walker stays between 0.04 and 0.31, and nobody else passes 0.38.*
 
+## Demos and results
+
+Each picture opens the demo video of one recording; the files are in [docs/demos/](docs/demos/), 1 to 2 MB each.
+A demo shows the two views with the lifter's 2D input, the reconstruction, the exported training target, the path
+from above, a filmstrip and knee-flexion timelines. Every one below was rendered by `python -m wgvp demo` from the
+pipeline's own outputs, with the target `target.json` names, which is the joint two-view fit in all seven.
+
+**Six rendered sessions with a known truth.** Rendered rooms laid out like the clinic's, one folder per subject
+(HC900 to HC905). The truth stands beside the reconstruction in these, and the leg and root errors of each frame
+are printed.
+
+| | | |
+|:---:|:---:|:---:|
+| [![HC900 demo](docs/demos/HC900_demo.jpg)](docs/demos/HC900_demo.mp4) | [![HC901 demo](docs/demos/HC901_demo.jpg)](docs/demos/HC901_demo.mp4) | [![HC902 demo](docs/demos/HC902_demo.jpg)](docs/demos/HC902_demo.mp4) |
+| HC900, self-paced walk | HC901, self-paced walk, along camera close | HC902, self-paced walk with a co-walker |
+| [![HC903 demo](docs/demos/HC903_demo.jpg)](docs/demos/HC903_demo.mp4) | [![HC904 demo](docs/demos/HC904_demo.jpg)](docs/demos/HC904_demo.mp4) | [![HC905 demo](docs/demos/HC905_demo.jpg)](docs/demos/HC905_demo.mp4) |
+| HC903, timed up and go | HC904, hurried pace | HC905, walk on the pressure mat |
+
+The training target against the rendered truth, on the exported frames:
+
+| session | task | frames exported | thigh direction (deg) | knee angle RMSE (deg) | path (m) | speed RMSE (m/s) |
+|---|---|---|---|---|---|---|
+| HC900 | self-paced walk | 100 % | 3.7 | 4.8 | 0.05 | 0.072 |
+| HC901 | self-paced walk | 100 % | 3.2 | 4.7 | 0.04 | 0.082 |
+| HC902 | self-paced walk, co-walker | 100 % | 3.9 | 5.5 | 0.04 | 0.049 |
+| HC903 | timed up and go | 99.9 % | 6.5 | 7.8 | 0.10 | 0.070 |
+| HC904 | hurried pace | 99.8 % | 5.2 | 5.8 | 0.06 | 0.063 |
+| HC905 | walk on the mat | 99.8 % | 3.4 | 5.8 | 0.02 | 0.050 |
+| median | | | 3.8 | 5.6 | 0.05 | 0.067 |
+| median, merge | | | 6.0 | 6.2 | 0.20 | 0.169 |
+
+The last row is the second estimate, the merge of the two single-view lifts, on the same frames. The path is its
+median distance from the truth after one rigid fit. The root's rotation is not in the table because the fit does
+not improve it: 9.8 deg at the median against the merge's 9.4. The whole table, with the arms, the ankles and the
+heading, is under [One body fitted to both views](#one-body-fitted-to-both-views-jointfit_smplnpz), and what the
+scores mean under [How good these scores are](#how-good-these-scores-are-and-what-would-improve-them).
+
+**One real two-camera recording (OWN03).** One of us walking back and forth between two chalk lines 13.5 ft apart,
+a tablet to the side and a phone at one end. It has no truth for the pose; the chalk lines give the distance
+walked. The clip ships at half size in `examples/two_camera/` and runs offline (Quick start, step 2).
+
+[![OWN03 demo](docs/demos/OWN03_demo.jpg)](docs/demos/OWN03_demo.mp4)
+
+| on the published clip | merge | joint fit (the target) |
+|---|---|---|
+| frames exported | 100 % | 100 % |
+| distance walked over the truth, in body heights | 0.96 | 1.04 |
+| distance walked over the truth, in metres as delivered | 1.07 | 1.13 |
+| path off the walk's axis (m, rms) | 0.17 | 0.04 |
+
+Both estimates take their scale from the body the lifter guessed, which is 5 to 8 % taller than the walker, so the
+metres read long and the body heights do not. [On one real recording](#one-body-fitted-to-both-views-jointfit_smplnpz)
+has the method and the full-size numbers.
+
 ## Quick start
 
 Python 3.10-3.12 on Windows, macOS or Linux. Everything below runs on the CPU.
@@ -86,6 +140,20 @@ from the walker's own motion. No download, no real IMU:
 python -m wgvp run examples/bundled --cpu-only
 python examples/verify_examples.py --data examples/bundled
 ```
+
+`examples/two_camera/` is the same check on a real two-camera recording: 31 s of one of us walking back and forth
+between two chalk lines, a tablet's view and a phone's view tiled into one file (6 MB), again with a fabricated
+sensor recording. It takes about a minute more:
+
+```bash
+python -m wgvp run examples/two_camera --cpu-only
+python examples/verify_examples.py --data examples/two_camera
+```
+
+The verify script prints `PASS` per session when the sync and the chosen subject match the known answers. The
+pipeline's own status for the two-view sessions is `WARN`, and that is expected here: these clips have no sync
+light, and the optional cross-check that looks for one reports that what it found does not agree
+(`flash_disagrees`). [examples/README.md](examples/README.md) has the measured numbers.
 
 **3. Example corpus on more footage.** Three public YouTube clips (a corridor walk test, a shuttle-walk test with
 two standing staff, a crowded plaza) are fetched to your machine, cut, and given the same kind of fabricated
@@ -879,18 +947,19 @@ path lies 0.02 m from the truth after one rigid fit, against 0.03 m for the merg
 (`<recording>_demo_merge.mp4`, `<recording>_demo_jointfit.mp4`), to watch the two side by side. Design and every
 measurement: [docs/design.md](docs/design.md) sections 2.15 to 2.18.
 
-**On one real recording.** One real two-camera recording has a truth for the distance walked: our own, a walk back and
-forth between two chalk lines taped about 13 ft apart on pavement, a tablet to the side and a phone at one end, both
-still, synced by a clap. `tools/chalk_walk.py` reads the pelvis's position along the walk from the side view (the two
-lines' vanishing point and the known distance; no lens, camera height or subject height) and scores each estimate
-against it (`docs/chalk_walk.json`). Both targets ran unchanged, 100 % of the frames exported, and the fit placed the
-two cameras by itself. Counted in body heights, so that the body's size drops out, the merge reads 0.955 of the true
-distance and the joint fit 1.043: about 5 % short and 4 % long, the rendered rooms' result over again, and not
-separable within that measure's 2 to 3 %. The fit's path is the straighter (0.04 m off the walk's axis against 0.12
-m). The same geometry measures the walker, and two inputs that should agree do not: the subject stands 1.651 m, which
-puts the lines 14.2 ft apart, not 13. The gap is 8.8 % and the recording cannot say which is off. With the height
-trusted the bodies are 5 to 8 % too tall (1.74 and 1.78 m) and the walk reads 2 % long in the merge and 9 % long in
-the joint fit as delivered; with the tape trusted, 11 and 18 %. Every estimate takes its scale from its body, and the
+**On one real recording.** One real two-camera recording has a truth for the distance walked: our own (OWN03), a
+walk back and forth between two chalk lines 13.5 ft apart on pavement, centre to centre, a tablet to the side and a
+phone at one end, both still, synced by a clap. It ships at half size as `examples/two_camera/`. `tools/chalk_walk.py`
+reads the pelvis's position along the walk from the side view (the two lines' vanishing point and the known distance;
+no lens, camera height or subject height) and scores each estimate against it (`docs/chalk_walk.json`). Both targets
+ran unchanged, 100 % of the frames exported, and the fit placed the two cameras by itself. Counted in body heights,
+so that the body's size drops out, the merge reads 0.955 of the true distance and the joint fit 1.043: about 5 %
+short and 4 % long, the rendered rooms' result over again, and not separable within that measure's 2 to 3 %. The
+fit's path is the straighter (0.04 m off the walk's axis against 0.12 m). In metres, as delivered, the walk reads 7 %
+long in the merge and 14 % long in the joint fit. The same geometry measures the walker, and two inputs that should
+agree are 4.8 % apart: the subject stands 1.651 m, which puts the lines 14.2 ft apart, not 13.5, and the recording
+cannot say which is off. With the height trusted the bodies are 5 to 8 % too tall (1.74 and 1.78 m) and the walk
+reads 2 % long in the merge and 9 % long in the joint fit. Every estimate takes its scale from its body, and the
 body's height is the lifter's guess. If distances in metres matter, record the subject's height; a rescale by it is
 not built.
 
@@ -1141,8 +1210,8 @@ and so were the settings of the joint two-view fit, which is the training target
 Those checks do not include a camera that moves: the fit assumes both stand still. Its self-calibration of the
 cameras has met rendered pinhole cameras and one real pair, a tablet and a phone outdoors, where the only truth was the distance walked and
 neither lens was measured. On that recording the lifted bodies stand 5 to 8 % taller than the
-subject (1.651 m), and the subject's height and the taped 13 ft between the chalk lines disagree by a further 8.8 %
-that is not resolved: GVHMR's scale on a real person is unverified.
+subject (1.651 m), and the subject's height and the 13.5 ft measured between the chalk lines disagree by a further
+4.8 % that is not resolved: GVHMR's scale on a real person is unverified.
 The decisive number, the subject's `r_fine` in real footage, comes out of the first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
 section 4 the questions to settle with a dataset's owners before that run.
 
@@ -1162,7 +1231,8 @@ sample_v3/       a third room: another walker, a co-walker, the along camera at 
 sample_v4/       a Timed Up and Go with a chair (three repetitions), ground truth saved
 sample_v5/       a hurried-pace walk with a co-walker, ground truth saved
 sample_v6/       a self-paced walk on the instrumented mat, with walkway columns in the recording CSV
-examples/        bundled/ (our own clip + a two-view composite of it, runs offline); the fetched public-footage
+examples/        bundled/ (our own clip + a two-view composite of it, runs offline); two_camera/ (our own
+                 two-camera recording between two chalk lines, runs offline); the fetched public-footage
                  corpus: sources.json, fetch_examples.py, verify_examples.py; make_bundled.py
 tests/           unit tests (python -m pytest tests -q)
 tools/           make_sample.py (how the samples were rendered), make_partner_layout.py (the six samples in a
@@ -1174,7 +1244,8 @@ tools/           make_sample.py (how the samples were rendered), make_partner_la
                  view, and every estimate against it)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), jointfit.json (the joint fit's comparison),
-                 chalk_walk.json (one real two-camera recording against a chalk truth), figures/
+                 chalk_walk.json (one real two-camera recording against a chalk truth), figures/,
+                 demos/ (the demo videos of the six rendered sessions and of the two-camera recording, with a still each)
 ```
 
 ## Citing
@@ -1189,7 +1260,8 @@ wgvp is released under the GNU Affero General Public License v3.0 ([LICENSE](LIC
 (`ultralytics`) and the bundled `yolov8n-pose.pt` weights are AGPL-3.0 as well. GVHMR is licensed by its authors for
 research and non-commercial use and is not redistributed here; the SMPL and SMPL-X body models require registration
 with their authors. The fetched example corpus is not redistributed: `fetch_examples.py` downloads each public video onto
-your machine, and the sources are attributed in `examples/sources.json`. The bundled clip in `examples/bundled/` is
-our own recording, published with the consent of the person in it, under the same licence as the code.
+your machine, and the sources are attributed in `examples/sources.json`. The clips in `examples/bundled/` and
+`examples/two_camera/`, and the demo video made from the latter, are our own recordings, published with the consent
+of the person in them, under the same licence as the code.
 
 Mike Caiola, Credence Management Solutions, LLC - mcaiola@credence-llc.com

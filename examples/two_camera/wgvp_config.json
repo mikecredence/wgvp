@@ -1,0 +1,12 @@
+{
+ "_doc": "a real two-camera recording (OWN03): side view left, front view right; detector_imgsz 960 as for the other bundled examples; gvhmr.focal_35mm is each camera's lens in 35 mm terms (26.2 side, 30.4 front), which the GPU stage uses in place of its default",
+ "params": {
+  "detector_imgsz": 960
+ },
+ "gvhmr": {
+  "focal_35mm": {
+   "left": 26.2,
+   "right": 30.4
+  }
+ }
+}
