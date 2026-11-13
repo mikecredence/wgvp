@@ -1548,6 +1548,101 @@ recordings instead of fitting each alone. The scale, from the subject's height. 
 fabricated data only. The body IMUs are not used here either. The suite is at 94 tests (ten for the fit on a
 synthetic two-camera walker, one for the centred moving average).
 
+### 2.16 Round nine: a real two-camera recording with a chalk truth (2026-11-12)
+
+Round eight ended on the missing piece: a real two-camera recording with a truth. This round has one. OWN03 is our
+own recording: one person walks back and forth between two chalk lines drawn 13 ft (3.962 m) apart on a paved lot,
+filmed by a tablet that stands to the side and looks across the walk and by a phone on the ground at one end that
+looks along it. Both cameras are still. A hand clap gives the offset between the two clips (5.270 s), and they are
+tiled into one two-panel frame as a clinic recording would be (31 s, 930 frames at 30 fps). The clip is not bundled.
+`tools/chalk_walk.py` reads the truth from the side view and scores every estimate against it; every number below is
+in `docs/chalk_walk.json`. Three things could not be checked. The subject's height is not on record, and the scene's
+scale turns on it (below). Neither lens is measured: the tablet was run at 26.2 and 31.0 mm and the phone at 30.4 and
+27.1 mm (35 mm equivalent). And the truth is a position along the walk: there is none for the joint angles, the
+heading or the path off the walk's axis.
+
+**The pipeline on it.** Nothing was changed for the recording. The merge passes its checks and exports 100 % of the
+930 frames. The joint fit ends with a median reprojection of 4.1 and 6.8 px in the two panels, sets the phone 5.79 m
+from the tablet with the two optical axes 90.4 deg apart, and has both views on the walker in every frame.
+
+**The truth.** The two chalk lines are parallel on the ground, so their images meet at a vanishing point on the
+ground's horizon. A ground point's position across the lines is linear in the slope of the image line that joins it
+to that point, X = h (x - x_vp) / (y - y_vp), and the known distance between the lines sets h. No lens, camera height
+or subject height enters; the input is four clicked points, two on each line. The pelvis is placed over the ground at
+the walker's feet, the bottom of the tracked box smoothed over a step. On level ground the horizon is level in the
+picture. This pavement is not level: with a level horizon the walker's size (box height over the feet row's distance
+below the horizon) changes along the walk with an SD of 0.110 m. Turning the horizon about the vanishing point until
+that size is constant gives ground that rises 2.66 deg to the picture's right and an SD of 0.017 m, and that is the
+truth used. It puts the tablet 0.77 m above the pavement and the lines 2.05 m to one side of it and 1.91 m to the
+other. The walk has five turns between seconds 3.0 and 28.5, so four passes: 4.41, 4.20, 4.12 and 3.85 m (the walker
+steps past each line before turning). The first is a lower bound, because at the first turn the pelvis reaches the
+panel's side. Clicks that are 2 px off move the travel by 0.4 % and the stature below by 0.4 % (300 draws); at 3 px
+both stay under 1 %.
+
+**The scale check, and what it found.** The same geometry gives the height of the walker's box: 1.529 m in
+mid-stride with shoes on, if the lines are 13 ft apart. Said without any distance, the lines are 2.59 box heights
+apart. A fitted body's vertical extent in mid-stride is 0.990 of its standing height at the median (0.977 and 0.999
+at the 10th and 90th percentiles of 200 frames, the same for the merge's body and the fit's), and shoes add about
+0.03 m, so the picture says the subject stands about 1.51 m barefoot. The lifter's body stands 1.780 m and the joint fit's 1.736 m. One of two things is true:
+the subject is about 1.5 m tall and both bodies are 15 to 18 % too tall, or the subject is nearer the bodies' height
+and the lines are further apart than 13 ft (a 1.78 m subject puts them about 15 ft apart). The recording cannot say
+which. Every estimate here takes its scale from the size of its body, so the scores are given two ways: in metres
+with the lines at 13 ft, and in body heights (slope x 1.529 / the estimate's own standing height), which does not
+depend on the distance or on the subject's height. The body-height column carries the gauge's own error, 2 to 3 %:
+with the stride and shoe corrections applied it reads 0.946 for the merge and 1.033 for the joint fit.
+
+**Results** (lenses 26.2 and 30.4 mm; 765 frames; slope = estimate on truth along the walk; passes in metres against
+a truth of 4.41 or more, 4.20, 4.12 and 3.85):
+
+| estimate | slope | spread about that line (m) | off the walk's axis (m) | body (m) | slope in body heights | passes (m) |
+|---|---|---|---|---|---|---|
+| merge | 1.112 | 0.041 | 0.118 | 1.780 | 0.955 | 4.91, 4.74, 4.67, 4.32 |
+| joint fit | 1.185 | 0.035 | 0.042 | 1.736 | 1.043 | 5.21, 5.03, 4.89, 4.59 |
+| side view alone, lifter's path | 1.098 | 0.063 | 0.119 | 1.780 | 0.942 | 4.74, 4.71, 4.64, 4.32 |
+| side view alone, keypoint fit | 1.171 | 0.022 | 0.046 | 1.759 | 1.017 | 5.15, 4.98, 4.88, 4.55 |
+| end view alone, lifter's path | 1.187 | 0.267 | 0.121 | 1.784 | 1.017 | 5.19, 4.65, 4.99, 4.34 |
+| end view alone, keypoint fit | 1.479 | 0.105 | 0.043 | 1.760 | 1.285 | 6.35, 6.13, 6.09, 5.59 |
+
+With the tablet at 31.0 mm the merge reads 1.103 and the joint fit 1.172 (0.952 and 1.041 in body heights). With the
+phone at 27.1 mm they read 1.109 and 1.181 (0.952 and 1.041).
+
+**What it shows.**
+
+1. The two targets differ by a constant factor. The joint fit's path is 6.6 % longer than the merge's, in every pass
+   (estimate over truth 1.11 to 1.13 for the merge, 1.18 to 1.20 for the fit) and under every lens tried (6.3 to
+   6.6 %). In body heights the merge is about 5 % short and the fit about 4 % long. That is the rendered rooms'
+   result over again (speed 0.974 and 1.038 of the truth, section 2.15), on a real walker, and the two errors are of
+   one size: the gauge's 2 to 3 % does not separate them.
+2. The fit's path is the straighter one. A walk between two lines has little motion off its axis, and the fit's path
+   has 0.04 m of it against the merge's 0.12 m. There is no truth for that direction, so this is a plausibility
+   reading and not a score.
+3. The lens matters little here. Moving either lens across its bracket moves either slope by at most 1.1 %, while
+   the fitted distance between the cameras moves from 5.47 to 6.29 m. The path's scale comes from the body and not
+   from the camera pose.
+4. The second camera is not what straightens or lengthens the path. The side view fitted by itself reads 1.171 with
+   0.05 m off the axis, almost the joint fit's numbers. What changes the path is the keypoint fit, which holds one
+   body size for the recording and moves the pelvis to keep the keypoints on it, where the lifter integrates a
+   velocity. What the second camera adds is the limbs' depth, and this recording has no truth for that.
+5. A view along the walk did not carry the path alone. The phone's lift reads the four passes as 5.19, 4.65, 4.99 and
+   4.34 m (spread 0.27 m). Its keypoint fit is steadier (0.105 m) and reads 28 % long in body heights with the lens
+   at 30.4 mm and 16 % long at 27.1 mm: depth along the line of sight comes from the body's size in the picture, and
+   the lens scales it. In the rendered rooms, where the lens is known, the same fit read 0.94 to 1.06 of the true
+   speed (section 2.15). An along view needs its lens measured before the distance from its fit is used.
+
+**What it means for the choice.** On the one thing this recording can score, neither target is the more accurate:
+5 % short against 4 % long. The fit's path has the better shape. The merge stays the default and the joint fit the
+optional second estimate, as before; the recording gives no reason to change either, and it confirms on real video
+that the fit runs unattended on two still cameras that were placed by hand and never calibrated. The larger finding
+is the scale. If the lines are 13 ft apart, both targets read the walk 11 and 19 % long, because both bodies are too
+tall, and no choice between them repairs that. Scaling the body to the subject's measured height would: it is one
+number per subject, it removes the common factor, and it leaves the 5 % and 4 % above. It is not built.
+
+**What stays open.** The subject's height for OWN03, which decides between the two readings of the scale check, and
+how the 13 ft was measured. A scale taken from a measured height. A truth for the joint angles on real video, which
+needs markers or body IMUs. A recording with the cameras where a clinic has them (one high to the side, one along
+the walkway), with the lenses read. The suite is at 98 tests (four for the chalk truth on a synthetic camera over
+level and rising ground).
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
@@ -1586,6 +1681,9 @@ synthetic two-camera walker, one for the centred moving average).
   rendered bodies.
 * The pelvis path fused from steps, the stride-swing rule and the velocity on the mat (2.13), all tuned and scored on
   the same six rendered recordings, two cameras near right angles.
+* The scale of the lifted body on a real person. On the one real recording with a truth (2.16) the body stands 15 to
+  18 % taller than the walker's picture says if the chalk lines are 13 ft apart, and the subject's height was not on
+  record to settle it. Every distance and speed in metres rests on that height.
 
 Two cautions for a first real run: (1) the acceptance thresholds were set on crowded public footage and a rendered
 sample, and the co-walker case shows that a person walking in step 0.8 s behind the subject is the one configuration

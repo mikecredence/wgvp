@@ -1,0 +1,743 @@
+{
+ "OWN03, lenses 26.2 and 30.4 mm": {
+  "truth": {
+   "view": "left",
+   "distance_m": 3.9624,
+   "marks_px": [
+    [
+     148.0,
+     829.0
+    ],
+    [
+     246.0,
+     787.0
+    ],
+    [
+     1783.0,
+     758.0
+    ],
+    [
+     1703.0,
+     730.0
+    ]
+   ],
+   "turns_s": [
+    5.37,
+    10.43,
+    15.8,
+    20.93,
+    26.43
+   ],
+   "vanishing_point_px": [
+    974.1926605504588,
+    474.91743119266056
+   ],
+   "ground_rise_deg": 2.6580139183604716,
+   "level": {
+    "camera_height_m": 0.7633981651376147,
+    "lines_m": [
+     -1.7812623853211011,
+     2.1811376146788994
+    ],
+    "stature_m": 1.5263354292250284,
+    "stature_sd_m": 0.11003786892026034
+   },
+   "sloped": {
+    "camera_height_m": 0.7693354098122565,
+    "lines_m": [
+     -2.0532470165558774,
+     1.9091529834441228
+    ],
+    "stature_m": 1.5287813885595398,
+    "stature_sd_m": 0.017008954583114872
+   }
+  },
+  "estimates": {
+   "merge": {
+    "n": 765,
+    "slope": 1.1122502601597404,
+    "rms_m": 0.04135073149623751,
+    "off_axis_rms_m": 0.1177212180440201,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 4.907847204372443,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.7417070337229035,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.671519115543109,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.320332733506452,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9550363492440954
+   },
+   "joint fit": {
+    "n": 765,
+    "slope": 1.184809275096031,
+    "rms_m": 0.035153750539212165,
+    "off_axis_rms_m": 0.04187706531245556,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.212503043012687,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 5.032253805481383,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.894668732103929,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.586576069800983,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0431508222961847
+   },
+   "left alone, lifter path": {
+    "n": 765,
+    "slope": 1.09755478382803,
+    "rms_m": 0.0625653441871425,
+    "off_axis_rms_m": 0.1194866813931768,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 4.740680498051072,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.712199540093591,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.640785108328412,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.3156489834330145,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9424180433025674
+   },
+   "left alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.1705192260008088,
+    "rms_m": 0.02170125100193049,
+    "off_axis_rms_m": 0.04578827793295604,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.146842567510003,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.975582871259448,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.878894772266935,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.551123549041847,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0170906612022512
+   },
+   "right alone, lifter path": {
+    "n": 765,
+    "slope": 1.1873034078891849,
+    "rms_m": 0.2671004540168866,
+    "off_axis_rms_m": 0.12143242579201279,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.186511395873865,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.650318273789758,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.987684800353707,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.337997289960967,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0172356503291824
+   },
+   "right alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.4790626180044453,
+    "rms_m": 0.10517620677697416,
+    "off_axis_rms_m": 0.04269665701207917,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 6.353765595054269,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 6.127799117465913,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 6.0886410675319595,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 5.593830989491535,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.284978655886974
+   }
+  },
+  "body_m": {
+   "merge": 1.7804427009490917,
+   "joint fit": 1.7363878070598313,
+   "left alone, lifter path": 1.7804427009490917,
+   "left alone, keypoint fit": 1.7593987202142973,
+   "right alone, lifter path": 1.7843725315436179,
+   "right alone, keypoint fit": 1.759689464537094
+  },
+  "camera_b": {
+   "baseline_m": 5.786208202765478,
+   "axis_angle_deg": 90.38818672729177,
+   "reproj_px_median": [
+    4.1320953369140625,
+    6.7923126220703125
+   ],
+   "seen_both_frac": 1.0
+  }
+ },
+ "OWN03, side lens 31.0 mm": {
+  "truth": {
+   "view": "left",
+   "distance_m": 3.9624,
+   "marks_px": [
+    [
+     148.0,
+     829.0
+    ],
+    [
+     246.0,
+     787.0
+    ],
+    [
+     1783.0,
+     758.0
+    ],
+    [
+     1703.0,
+     730.0
+    ]
+   ],
+   "turns_s": [
+    5.37,
+    10.43,
+    15.8,
+    20.93,
+    26.43
+   ],
+   "vanishing_point_px": [
+    974.1926605504588,
+    474.91743119266056
+   ],
+   "ground_rise_deg": 2.6580139183604716,
+   "level": {
+    "camera_height_m": 0.7633981651376147,
+    "lines_m": [
+     -1.7812623853211011,
+     2.1811376146788994
+    ],
+    "stature_m": 1.5263354292250284,
+    "stature_sd_m": 0.11003786892026034
+   },
+   "sloped": {
+    "camera_height_m": 0.7693354098122565,
+    "lines_m": [
+     -2.0532470165558774,
+     1.9091529834441228
+    ],
+    "stature_m": 1.5287813885595398,
+    "stature_sd_m": 0.017008954583114872
+   }
+  },
+  "estimates": {
+   "merge": {
+    "n": 765,
+    "slope": 1.1032943388731242,
+    "rms_m": 0.034438754321010394,
+    "off_axis_rms_m": 0.1142521145301614,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 4.8664086899453505,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.714638939018015,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.619721716602008,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.283401622926321,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.952050160759891
+   },
+   "joint fit": {
+    "n": 765,
+    "slope": 1.1721027722844157,
+    "rms_m": 0.032287922362175946,
+    "off_axis_rms_m": 0.04143462854664993,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.152310326901021,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.977484160856357,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.847078219730127,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.530122570419108,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.041150895899406
+   },
+   "left alone, lifter path": {
+    "n": 765,
+    "slope": 1.0979082158885536,
+    "rms_m": 0.057105608573982405,
+    "off_axis_rms_m": 0.14357187408649752,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 4.767485175191466,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.720273512601288,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.642654357156086,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.306579610291451,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9474023899224457
+   },
+   "left alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.160566433921796,
+    "rms_m": 0.020803085564713154,
+    "off_axis_rms_m": 0.050536343246479556,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.101082198024364,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.926597367129628,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.830978563395591,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.505060244759951,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0144311200023195
+   },
+   "right alone, lifter path": {
+    "n": 765,
+    "slope": 1.1888539893684738,
+    "rms_m": 0.2615324633367643,
+    "off_axis_rms_m": 0.11595961898957734,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.186261280365295,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.650361685968693,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.9856364838160765,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.358286205772297,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.018564128158302
+   },
+   "right alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.4788276831290006,
+    "rms_m": 0.10531027732264354,
+    "off_axis_rms_m": 0.042699445576305985,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 6.352801414777792,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 6.1288504328557565,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 6.089760659794701,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 5.593800244292392,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.284814326072492
+   }
+  },
+  "body_m": {
+   "merge": 1.7716459918730294,
+   "joint fit": 1.7210655158679171,
+   "left alone, lifter path": 1.7716459918730294,
+   "left alone, keypoint fit": 1.7490121600000796,
+   "right alone, lifter path": 1.7843725322897037,
+   "right alone, keypoint fit": 1.759634986142489
+  },
+  "camera_b": {
+   "baseline_m": 6.2888227788710065,
+   "axis_angle_deg": 90.67505301575189,
+   "reproj_px_median": [
+    4.174234867095947,
+    6.861842632293701
+   ],
+   "seen_both_frac": 1.0
+  }
+ },
+ "OWN03, front lens 27.1 mm": {
+  "truth": {
+   "view": "left",
+   "distance_m": 3.9624,
+   "marks_px": [
+    [
+     148.0,
+     829.0
+    ],
+    [
+     246.0,
+     787.0
+    ],
+    [
+     1783.0,
+     758.0
+    ],
+    [
+     1703.0,
+     730.0
+    ]
+   ],
+   "turns_s": [
+    5.37,
+    10.43,
+    15.8,
+    20.93,
+    26.43
+   ],
+   "vanishing_point_px": [
+    974.1926605504588,
+    474.91743119266056
+   ],
+   "ground_rise_deg": 2.6580139183604716,
+   "level": {
+    "camera_height_m": 0.7633981651376147,
+    "lines_m": [
+     -1.7812623853211011,
+     2.1811376146788994
+    ],
+    "stature_m": 1.5263354292250284,
+    "stature_sd_m": 0.11003786892026034
+   },
+   "sloped": {
+    "camera_height_m": 0.7693354098122565,
+    "lines_m": [
+     -2.0532470165558774,
+     1.9091529834441228
+    ],
+    "stature_m": 1.5287813885595398,
+    "stature_sd_m": 0.017008954583114872
+   }
+  },
+  "estimates": {
+   "merge": {
+    "n": 765,
+    "slope": 1.1085455056226108,
+    "rms_m": 0.04123558172866407,
+    "off_axis_rms_m": 0.12384093619015711,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 4.895771734526013,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.731701110265057,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.6697220557854795,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.312392094770475,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.951855252751556
+   },
+   "joint fit": {
+    "n": 765,
+    "slope": 1.1805154306549028,
+    "rms_m": 0.03174115747755563,
+    "off_axis_rms_m": 0.038056251800434183,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.185802160865947,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 5.00402453069548,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.876174560032481,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.570013316340545,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0412995230077442
+   },
+   "left alone, lifter path": {
+    "n": 765,
+    "slope": 1.0975381266130766,
+    "rms_m": 0.06250827217660535,
+    "off_axis_rms_m": 0.115405248457233,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 4.740654870953115,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.711979323940843,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.640843668782312,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.315278728677288,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9424037404084811
+   },
+   "left alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.1705355757766012,
+    "rms_m": 0.021722445791469466,
+    "off_axis_rms_m": 0.04576334600118023,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.145543808167655,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.9756800149513065,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.878561669009478,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.550857607440519,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.0170862107615466
+   },
+   "right alone, lifter path": {
+    "n": 765,
+    "slope": 1.1217874702829298,
+    "rms_m": 0.164374591551258,
+    "off_axis_rms_m": 0.12533099248219298,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 4.8508134269139696,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 4.507129288309054,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 4.7241079158434305,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 4.283443574233179,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 0.9603717374997965
+   },
+   "right alone, keypoint fit": {
+    "n": 765,
+    "slope": 1.3405023741415218,
+    "rms_m": 0.0909834715128662,
+    "off_axis_rms_m": 0.042654912205819996,
+    "passes": [
+     {
+      "truth_m": 4.408853754382045,
+      "est_m": 5.824610180955908,
+      "truth_is_lower_bound": true
+     },
+     {
+      "truth_m": 4.200795481036131,
+      "est_m": 5.633479143194674,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 4.117037540183496,
+      "est_m": 5.512084405648336,
+      "truth_is_lower_bound": false
+     },
+     {
+      "truth_m": 3.853095676142919,
+      "est_m": 5.045585699939774,
+      "truth_is_lower_bound": false
+     }
+    ],
+    "slope_in_body_heights": 1.1624787544451949
+   }
+  },
+  "body_m": {
+   "merge": 1.780442701207126,
+   "joint fit": 1.7331708883142776,
+   "left alone, lifter path": 1.780442701207126,
+   "left alone, keypoint fit": 1.7594309941083597,
+   "right alone, lifter path": 1.785733315052073,
+   "right alone, keypoint fit": 1.7629011051350372
+  },
+  "camera_b": {
+   "baseline_m": 5.465918203369619,
+   "axis_angle_deg": 89.35204114159389,
+   "reproj_px_median": [
+    3.94454288482666,
+    5.566803932189941
+   ],
+   "seen_both_frac": 1.0
+  }
+ }
+}

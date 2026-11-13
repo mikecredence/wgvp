@@ -802,8 +802,8 @@ The thigh's sagittal range rises from 0.76 to 0.83 of the truth's and the knee's
 where the merge has them. A second view of the same keypoints does not say how the pelvis is turned, and the fit
 does not try.
 
-**Limits.** These are rendered rooms; no real two-camera recording has a truth. The fit's settings were chosen on
-these same six recordings, with none held out. The fitted camera pose is 1.6-3.7 deg off the true one on five
+**Limits.** These are rendered rooms. The fit's settings were chosen on these same six recordings, with none held
+out. The fitted camera pose is 1.6-3.7 deg off the true one on five
 recordings and 7.2 on HC901, where the along camera stands so close that both views show the whole body in 30 % of
 the frames (`jointfit.json` notes the case: `views_complete_frac`). The scene's scale rests on the body's size as the
 lifts saw it, and the speed reads 1.04 times the truth. With the render's true camera pose held fixed the path error
@@ -813,6 +813,22 @@ is 0.02 m and the speed ratio 1.00, so a camera pose measured once per room is t
 `python -m wgvp demo <root> --target jointfit` renders the demo video with this estimate in place of the merge
 (`<recording>_demo_jointfit.mp4`), to watch beside the merge's. Design and every measurement:
 [docs/design.md](docs/design.md) section 2.15.
+
+**On one real recording.** One real two-camera recording has a truth for the distance walked: our own, a walk back
+and forth between two chalk lines 13 ft apart on pavement, a tablet to the side and a phone at one end, both still,
+synced by a clap. `tools/chalk_walk.py` reads the pelvis's position along the walk from the side view (the two lines'
+vanishing point and the known distance; no lens, camera height or subject height) and scores each estimate against
+it (`docs/chalk_walk.json`). Both targets ran unchanged, 100 % of the frames exported, and the fit placed the two
+cameras by itself. Counted in body heights, so that the body's size drops out, the merge reads 0.955 of the true
+distance and the joint fit 1.043: about 5 % short and 4 % long, the rendered rooms' result over again, and not
+separable within that measure's 2 to 3 %.
+The fit's path is the straighter (0.04 m off the walk's axis against 0.12 m). The same geometry measures the walker,
+and it found the larger error: with the lines at 13 ft the walker's box is 1.53 m tall, while the lifter's body
+stands 1.78 m and the fit's 1.74 m, so in metres both targets read the walk long (11 and 19 %). Every estimate takes
+its scale from its body, and the body's height is the lifter's guess. If distances in metres matter, record the
+subject's height; a rescale by it is not built. The subject's height was not on record for this clip, so which of
+the two is off, the bodies or the 13 ft, is open. Section 2.16 of the design document has the method and every
+number.
 
 ### When there is no truth: a real clip
 
@@ -1042,8 +1058,11 @@ intrinsics are known exactly: a real lens's distortion, and a panel that the rec
 scaled, are untested. `tools/estimate_focal.py` has read one real camera, a phone's, and no clinic camera; on that
 clip the only check of its number is the lifted floor coming out level. The rest hold has been run only on rendered people. The step-summed path,
 the stride-band flexion rule and the velocity on the mat were tuned and scored on the same six rendered recordings,
-and so were the settings of the optional joint two-view fit, whose self-calibration of the cameras has met rendered
-pinhole cameras only.
+and so were the settings of the optional joint two-view fit. Its self-calibration of the cameras has met rendered
+pinhole cameras and one real pair, a tablet and a phone outdoors, where the only truth was the distance walked and
+neither lens was measured. On that recording the lifted body stood 15 to 18 % taller than the walker's picture says
+if the chalk lines were 13 ft apart, and the subject's height was not on record to settle it: GVHMR's scale on a
+real person is unverified.
 The decisive number, the subject's `r_fine` in real footage, comes out of the first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
 section 4 the questions to settle with a dataset's owners before that run.
 
@@ -1070,9 +1089,12 @@ tools/           make_sample.py (how the samples were rendered), make_partner_la
                  Sub 00N/Video + IMU layout), make_readme_figures.py, two_view_fusion.py (the fusion experiment
                  against the truth), make_target_figure.py, estimate_focal.py (a camera's field of view from the
                  room's straight edges), compare_jointfit.py (the merge and the joint two-view fit against the truth),
-                 one_camera_speed.py (one view's walking speed: the lifter's path against a keypoint fit)
+                 one_camera_speed.py (one view's walking speed: the lifter's path against a keypoint fit),
+                 chalk_walk.py (a real walk between two ground marks a known distance apart: the truth from one side
+                 view, and every estimate against it)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
-docs/            design.md (design, test results, open questions), jointfit.json (the joint fit's comparison), figures/
+docs/            design.md (design, test results, open questions), jointfit.json (the joint fit's comparison),
+                 chalk_walk.json (one real two-camera recording against a chalk truth), figures/
 ```
 
 ## Citing
