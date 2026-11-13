@@ -579,6 +579,40 @@ def heading_yaw_deg(root_aa: np.ndarray) -> np.ndarray:
     return out
 
 
+def rate_in_runs(x: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """d/dt of x, (T,) or (T, D), on the clock t (s), inside each run of finite rows of two or more; NaN elsewhere."""
+    out = np.full(x.shape, np.nan); ok = np.isfinite(x).all(1) if x.ndim == 2 else np.isfinite(x)
+    e = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
+    for a, b in zip(e[::2], e[1::2]):
+        if b - a >= 2:
+            out[a:b] = np.gradient(x[a:b], t[a:b], axis=0)
+    return out
+
+
+def heading_frame(root_aa: np.ndarray):
+    """A root track's heading and the root with the heading taken out: (yaw, yaw_unwrapped, root_heading_rel).
+    yaw is heading_yaw_deg; yaw_unwrapped is the same angle made continuous inside each finite run;
+    root_heading_rel is the root turned by -yaw about the vertical, so the body faces +z whichever way it walks."""
+    root_aa = np.asarray(root_aa, float); T = len(root_aa)
+    yaw = heading_yaw_deg(root_aa); yaw_u = np.full(T, np.nan); ok = np.isfinite(yaw)
+    edges = np.flatnonzero(np.diff(np.r_[0, ok.astype(int), 0]))
+    for a, b in zip(edges[::2], edges[1::2]):
+        yaw_u[a:b] = np.degrees(np.unwrap(np.radians(yaw[a:b])))
+    root_hr = np.full((T, 3), np.nan)
+    with np.errstate(all="ignore"):
+        root_hr[ok] = (R.from_euler("y", -yaw[ok], degrees=True) * R.from_rotvec(root_aa[ok])).as_rotvec()
+    return yaw, yaw_u, root_hr
+
+
+def heading_rel(vec: np.ndarray, yaw_deg: np.ndarray) -> np.ndarray:
+    """World vectors (T, 3) turned by -yaw about the vertical: x to the body's left, y up, z forward. NaN where
+    the vector or the heading is missing."""
+    out = np.full((len(vec), 3), np.nan); ok = np.isfinite(vec).all(1) & np.isfinite(yaw_deg)
+    with np.errstate(all="ignore"):
+        out[ok] = R.from_euler("y", -yaw_deg[ok], degrees=True).apply(vec[ok])
+    return out
+
+
 def circular_median_deg(d: np.ndarray) -> float:
     """Median of angles (deg) that is insensitive to the +-180 wrap: centre on the circular mean, take the median
     of the wrapped deviations."""

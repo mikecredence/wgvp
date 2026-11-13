@@ -16,8 +16,11 @@ from scipy.spatial.transform import Rotation as R
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wgvp.cli import main as cli_main, merged_sessions   # noqa: E402
 from wgvp.fusion import geodesic   # noqa: E402
-from wgvp.jointfit import (KPJ, KPS, KP_MIRROR, body_joints, jointfit_recording, kabsch, level_axis, lift_up, load_skeleton, load_views,   # noqa: E402
-                           mean_skeleton, unmirror_view, up_from_levels)
+from wgvp.config import is_view_item   # noqa: E402
+from wgvp.demo import resolve_target   # noqa: E402
+from wgvp.jointfit import (KPJ, KPS, KP_MIRROR, body_joints, fit_and_settle, jointfit_recording, kabsch, level_axis, lift_up, load_skeleton,   # noqa: E402
+                           load_views, mean_skeleton, merge_stamp, record_no_fit, settle_target, summary_items, unmirror_view, up_from_levels)
+from wgvp.summary import collect_rows   # noqa: E402
 
 FPS, F, SIZE = 30.0, 700.0, (900.0, 600.0)
 BOX = {"left": ([0, 0, 900, 600], 1.0), "right": ([900, 0, 2700, 1200], 0.5)}                 # the right panel is cut at half scale
@@ -204,3 +207,125 @@ def test_the_demo_finds_its_sessions_without_being_told(tmp_path):
         d = tmp_path / "wgvp_output" / sid / "deliver" / rec; d.mkdir(parents=True); (d / "merged_smpl.npz").write_bytes(b"")
     (tmp_path / "wgvp_output" / "Sub 003" / "deliver" / "Sub003_selfpace").mkdir(parents=True)      # lifted, not merged
     assert merged_sessions(tmp_path) == ["Sub 001", "Sub 002"] and merged_sessions(tmp_path / "nothing") == []
+
+
+def _remerge(d: Path, shift=0.25):
+    """The merge run again with another path: what a fit on file was made from is no longer the merge on file."""
+    m = dict(np.load(d / "merged_smpl.npz")); m["transl"] = m["transl"] + np.float32(shift); np.savez(d / "merged_smpl.npz", **m)
+
+
+def test_the_fit_file_stands_alone_as_a_target(tmp_path):
+    """What a learner reads from merged_smpl.npz is in jointfit_smpl.npz under the same names: the heading and the
+    heading-relative root and velocity (from the fit's own root and path), the weights, the frames and the stamp
+    of the merge it was made from."""
+    d = tmp_path / "s" / "Rec05"; t = _recording(d); s = jointfit_recording(d, mean_skeleton(), params=FAST, log=lambda *_: None)
+    z = np.load(d / "jointfit_smpl.npz", allow_pickle=True); m = np.load(d / "merged_smpl.npz"); ex = t["export_ok"]; T = len(ex)
+    for k in ("body_pose", "global_orient", "transl", "betas", "export_ok", "frame_idx", "imu_t_s", "heading_yaw_deg", "heading_yaw_rate_deg_s", "global_orient_heading_rel",
+              "root_vel_heading_rel_m_s", "weight", "root_weight", "transl_weight", "transl_mat", "joints", "reference_view", "merge_stamp", "fields_doc"):
+        assert k in z.files, k
+    assert str(z["merge_stamp"]) == merge_stamp(m) == s["merge_stamp"] and s["status"] == "PASS" and np.array_equal(z["frame_idx"], m["frame_idx"])
+    assert s["body_height_m"] is None                                                  # no model file here: the mean skeleton has no mesh to measure
+    fwd = R.from_rotvec(z["global_orient_heading_rel"][ex]).apply([0.0, 0.0, 1.0]); assert np.abs(np.degrees(np.arctan2(fwd[:, 0], fwd[:, 2]))).max() < 1e-3
+    v = z["root_vel_heading_rel_m_s"][ex][5:-5]; assert np.isfinite(v).all() and abs(float(np.median(v[:, 2])) - 1.2) < 0.15 and abs(float(np.median(v[:, 0]))) < 0.1   # walks forward at the truth's 1.2 m/s
+    step = np.linalg.norm(np.diff(z["transl"][ex], axis=0), axis=1) * FPS; assert abs(float(np.median(np.linalg.norm(v, axis=1))) - float(np.median(step))) < 0.02     # the fit's own path, no walkway term
+    assert z["weight"].shape == (T, 21) and (z["weight"][~ex] == 0).all() and (z["root_weight"][~ex] == 0).all() and (z["transl_weight"][~ex] == 0).all() and (z["weight"][ex][:, :12] > 0).all()
+    assert np.isnan(z["transl_mat"]).all() and z["transl_mat"].shape == (T, 3) and str(z["reference_view"]) == "left"   # this merge had no walkway
+
+
+def test_the_target_is_the_fit_only_where_it_passes(tmp_path):
+    """target.json names the joint fit when it is switched on, was made from the merge on file and passed; the merge
+    in every other case, with the reason."""
+    quiet = lambda *_: None; skel = mean_skeleton()
+    d = tmp_path / "s" / "Rec05"; _recording(d)
+    t = settle_target(d, log=quiet); assert t["method"] == "merge" and "has not been run" in t["why"] and t["second_estimate"] is None and t["jointfit_status"] is None
+    jointfit_recording(d, skel, params=FAST, log=quiet); t = settle_target(d, log=quiet); on_disk = json.loads((d / "target.json").read_text())
+    assert on_disk == t and t["target"] == "jointfit_smpl.npz" and t["method"] == "jointfit" and t["second_estimate"] == "merged_smpl.npz" and t["jointfit_status"] == "PASS"
+    t = settle_target(d, enabled=False, log=quiet); assert t["target"] == "merged_smpl.npz" and "switched off" in t["why"] and t["second_estimate"] == "jointfit_smpl.npz"
+    (d / "jointfit_smpl.npz").rename(d / "aside.npz"); t = settle_target(d, log=quiet); assert t["method"] == "merge" and "without jointfit_smpl.npz" in t["why"]
+    (d / "aside.npz").rename(d / "jointfit_smpl.npz"); assert settle_target(d, log=quiet)["method"] == "jointfit"
+    _remerge(d); t = settle_target(d, log=quiet)                                        # the merge was run again: the fit on file is of another merge
+    assert t["method"] == "merge" and "earlier merge" in t["why"] and t["second_estimate"] is None and t["jointfit_status"] is None
+    assert settle_target(d, not_run="the joint fit was not run: no model", log=quiet)["why"] == "the joint fit was not run: no model"
+    record_no_fit(d, "FAIL", "ValueError('broke')"); t = settle_target(d, log=quiet)
+    assert t["method"] == "merge" and t["why"].startswith("the joint fit failed: ValueError") and not (d / "jointfit_smpl.npz").exists() and t["jointfit_status"] == "FAIL"
+    t = settle_target(d, merge_error="the views share no frames", log=quiet); assert t["target"] is None and t["method"] is None and "no training target" in t["why"] and t["merge_status"] == "FAIL"
+
+    d = tmp_path / "one" / "Rec04"; _recording(d, views=("left",)); (d / "jointfit_smpl.npz").write_bytes(b"left by an earlier two-view run")
+    jointfit_recording(d, skel, log=quiet); t = settle_target(d, log=quiet)
+    assert not (d / "jointfit_smpl.npz").exists() and t["method"] == "merge" and "does not apply" in t["why"] and "two views" in t["why"] and t["jointfit_status"] == "SKIP"
+
+    d = tmp_path / "twin" / "Rec05"; _recording(d); shutil.rmtree(d / "right"); shutil.copytree(d / "left", d / "right")       # two panels of one camera: the fit warns
+    jointfit_recording(d, skel, params=FAST, log=quiet); t = settle_target(d, log=quiet)
+    assert t["method"] == "merge" and t["why"].startswith("the joint fit is not trusted here:") and t["second_estimate"] == "jointfit_smpl.npz" and t["jointfit_status"] == "WARN"
+
+    d = tmp_path / "gone" / "Rec05"; d.mkdir(parents=True); (d / "target.json").write_text("{}")                             # the merge is gone: so is its target
+    assert settle_target(d, log=quiet) is None and not (d / "target.json").exists() and summary_items(d) == {}
+
+
+def test_the_pipeline_fits_after_the_merge_and_falls_back_to_it(tmp_path):
+    """`fit_and_settle` is the pipeline's step after a merge. Without the model file the merge is the target and the
+    row says why; with it the fit runs and is the target; a fit that breaks leaves the merge as the target."""
+    quiet = lambda *_: None; d = tmp_path / "s" / "Rec05"; _recording(d); cfg = {"jointfit": {"enabled": True, "body_models": str(tmp_path / "no_models")}}
+    cache = {}; it = fit_and_settle(d, cfg, cache, log=quiet)
+    assert cache["skeleton"] is None and it["Rec05/target"]["method"] == "merge" and "no SMPL-X model file" in it["Rec05/target"]["why"]
+    assert it["Rec05/jointfit"] == {"status": "N/A", "fit_status": None, "flags": [it["Rec05/target"]["why"]]} and it["Rec05/target"]["status"] == "N/A"
+
+    import wgvp.jointfit as jf
+    cache = {"skeleton": mean_skeleton()}; real = jf.PARAMS["iters"]; jf.PARAMS["iters"] = FAST["iters"]
+    try:
+        it = fit_and_settle(d, cfg, cache, log=quiet)
+    finally:
+        jf.PARAMS["iters"] = real
+    fit = it["Rec05/jointfit"]; assert fit["status"] == "PASS" and fit["fit_status"] == "PASS" and fit["frames_seen_by_both"] > 0 and "reprojection_px" in fit and "cameras" in fit
+    assert it["Rec05/target"] == {"status": "N/A", "flags": [], "target": "jointfit_smpl.npz", "method": "jointfit", "why": it["Rec05/target"]["why"], "second_estimate": "merged_smpl.npz"}
+
+    it = fit_and_settle(d, {"jointfit": {"enabled": False}}, {}, log=quiet)             # switched off: the fit on file stays, the merge is the target
+    assert it["Rec05/target"]["method"] == "merge" and "switched off" in it["Rec05/target"]["why"] and (d / "jointfit_smpl.npz").exists()
+
+    it = fit_and_settle(d, cfg, {"skeleton": "not a skeleton"}, log=quiet)              # the fit breaks
+    assert it["Rec05/jointfit"]["status"] == "WARN" and it["Rec05/jointfit"]["fit_status"] == "FAIL" and it["Rec05/target"]["method"] == "merge"
+    assert it["Rec05/target"]["why"].startswith("the joint fit failed") and not (d / "jointfit_smpl.npz").exists() and (d / "merged_smpl.npz").exists()
+
+    it = fit_and_settle(d, cfg, {}, merge_error="no frame survives", log=quiet)         # the merge failed: nothing to train on
+    assert it["Rec05/target"]["target"] is None and it["Rec05/jointfit"]["status"] == "N/A"
+
+
+def test_the_summary_table_has_one_row_per_view_and_names_the_target(tmp_path):
+    """The session summary's recording rows (reconcile, merge, jointfit, target) are not views: the table keeps one
+    row per view and carries the fit's status and the target's file name on each."""
+    assert is_view_item("Rec05/left") and is_view_item("Rec05/right") and not any(is_view_item(f"Rec05/{k}") for k in ("reconcile", "merge", "jointfit", "target")) and not is_view_item("Rec05")
+    d = tmp_path / "wgvp_output" / "Sub 001" / "deliver"; d.mkdir(parents=True)
+    items = {"Rec05": {"status": "PASS", "flags": []}, "Rec05/left": {"status": "PASS", "flags": []}, "Rec05/right": {"status": "PASS", "flags": []},
+             "Rec05/reconcile": {"status": "PASS"}, "Rec05/merge": {"status": "PASS", "flags": []},
+             "Rec05/jointfit": {"status": "WARN", "fit_status": "WARN", "flags": ["the two cameras stand 0.02 m apart"]},
+             "Rec05/target": {"status": "N/A", "flags": [], "target": "merged_smpl.npz", "method": "merge", "why": "the joint fit is not trusted here", "second_estimate": "jointfit_smpl.npz"}}
+    (d / "session_summary.json").write_text(json.dumps({"session_id": "Sub 001", "status": "WARN", "items": items}))
+    rows, totals = collect_rows(tmp_path, tmp_path / "wgvp_output")
+    assert [r["view"] for r in rows] == ["left", "right"] and totals["WARN"] == 1
+    assert all(r["jointfit_status"] == "WARN" and r["target"] == "merged_smpl.npz" and r["merge_status"] == "PASS" and "the two cameras stand 0.02 m apart" in r["flags"] for r in rows)
+    items["Rec05/jointfit"] = {"status": "PASS", "fit_status": "PASS", "flags": ["info: a note that is not a warning"]}; items["Rec05/target"]["target"] = "jointfit_smpl.npz"
+    (d / "session_summary.json").write_text(json.dumps({"session_id": "Sub 001", "status": "PASS", "items": items}))
+    rows, _ = collect_rows(tmp_path, tmp_path / "wgvp_output"); assert all(r["target"] == "jointfit_smpl.npz" and r["flags"] == [] for r in rows)
+
+
+def test_the_demo_shows_the_target_unless_told(tmp_path):
+    """`wgvp demo` renders the pose target.json names and keeps the plain file name for it; a pose asked for by name
+    is marked in the file name."""
+    assert resolve_target(tmp_path) == ("merge", "merged_smpl.npz", "")                 # no target.json: the merge
+    (tmp_path / "target.json").write_text(json.dumps({"target": "jointfit_smpl.npz", "method": "jointfit"})); assert resolve_target(tmp_path, "auto") == ("jointfit", "jointfit_smpl.npz", "")
+    assert resolve_target(tmp_path, "merge") == ("merge", "merged_smpl.npz", "_merge") and resolve_target(tmp_path, "jointfit") == ("jointfit", "jointfit_smpl.npz", "_jointfit")
+    (tmp_path / "target.json").write_text(json.dumps({"target": None, "method": None})); assert resolve_target(tmp_path)[0] == "merge"
+    (tmp_path / "target.json").write_text("not json"); assert resolve_target(tmp_path)[:2] == ("merge", "merged_smpl.npz")
+
+
+def test_wgvp_jointfit_settles_the_target_and_the_session_summary(tmp_path, monkeypatch, capsys):
+    """`wgvp jointfit <root>` on a merged session: the fit, target.json, and both rows in the session summary."""
+    import wgvp.jointfit as jf
+    monkeypatch.setattr(jf, "load_skeleton", lambda *_: mean_skeleton()); monkeypatch.setitem(jf.PARAMS, "iters", FAST["iters"])
+    deliver = tmp_path / "wgvp_output" / "Sub 001" / "deliver"; d = deliver / "Rec05"; _recording(d)
+    (deliver / "session_summary.json").write_text(json.dumps({"session_id": "Sub 001", "status": "PASS", "videos": {}, "items": {"Rec05/left": {"status": "PASS", "flags": []}, "Rec05/merge": {"status": "PASS", "flags": []}}}))
+    assert cli_main(["jointfit", str(tmp_path)]) == 0 and "training target: jointfit_smpl.npz" in capsys.readouterr().out
+    s = json.loads((deliver / "session_summary.json").read_text()); t = json.loads((d / "target.json").read_text())
+    assert t["method"] == "jointfit" and s["items"]["Rec05/target"]["target"] == "jointfit_smpl.npz" and s["items"]["Rec05/jointfit"]["status"] == "PASS" and s["status"] == "PASS"
+    assert s["privacy_check"]["ok"] and (tmp_path / "wgvp_output" / "qc_summary.csv").exists()
+

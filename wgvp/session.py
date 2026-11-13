@@ -21,12 +21,13 @@ from pathlib import Path
 import numpy as np
 
 from . import __version__
-from .config import load_config
+from .config import is_view_item, load_config
 from .discovery import scan_root
 from .flash import detect_flash_auto, detect_flash_roi
 from .imu_ref import load_recording, summarize_imu_ref
 from .labels import read_walk_intervals, walk_label_offset
 from .qc import dump_json, privacy_check, tee_logger, write_thumbnails
+from .jointfit import fit_and_settle, summary_items
 from .merge import merge_recording
 from .reconcile import reconcile_recording, SMPLX_BODY_JOINTS
 from .selection import DEFAULTS as SEL_DEFAULTS, coverage, cross_view_selection, decide_view, joint_selection, merged_subject_track, pick_selection, roi_selection
@@ -514,13 +515,32 @@ def _pairs_brief(rec: dict) -> dict:
     return out
 
 
-def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> dict:
+def _close_summary(summ: dict, deliver: Path) -> dict:
+    summ["status"] = _status_merge(*[v["status"] for v in summ["items"].values() if v["status"] != "N/A"], *[v["status"] for v in summ["videos"].values()])
+    pc = privacy_check(deliver); dump_json(pc, deliver / "validation_bundle" / "privacy_check.json")
+    summ["privacy_check"] = {"ok": pc["ok"], "n_files": pc["n_files"], "problems": pc["problems"]}
+    dump_json(summ, deliver / "session_summary.json")
+    return summ
+
+
+def refresh_session_targets(root: Path, sid: str) -> dict:
+    """Read every recording's jointfit.json / target.json back into the session summary (after `wgvp jointfit`)."""
+    deliver = session_out(root, sid) / "deliver"; f = deliver / "session_summary.json"
+    if not f.exists():
+        return {}
+    summ = json.loads(f.read_text())
+    for tf in sorted(deliver.glob("*/target.json")):
+        summ["items"].update(summary_items(tf.parent))
+    return _close_summary(summ, deliver)
+
+
+def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print, gvhmr_root: str | None = None, body_models: str | None = None) -> dict:
     sdir = session_out(root, sid); deliver = sdir / "deliver"; f = deliver / "session_summary.json"
     if not f.exists():
         return {}
-    summ = json.loads(f.read_text()); cams = {}
+    summ = json.loads(f.read_text()); cams = {}; fit_cache = {}
     for key, item in list(summ["items"].items()):
-        if "/" not in key or key.endswith("/reconcile") or key.endswith("/merge"):
+        if not is_view_item(key):
             continue
         rid, vid = key.split("/"); d = deliver / rid / vid
         sync = json.loads((deliver / rid / "sync.json").read_text()) if (deliver / rid / "sync.json").exists() else {}
@@ -568,13 +588,13 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print) -> d
             m = merge_recording(deliver / rid, cfg["params"], log=log)
         except Exception as e:                                      # a merge failure must not hide the per-view outputs
             m = {"status": "FAIL", "flags": [f"merge failed: {e!r}"], "views": sorted(cams[rid])}; log(f"  [{rid}] merge FAILED: {e!r}")
+        for k in ("jointfit", "target"):
+            summ["items"].pop(f"{rid}/{k}", None)
         if m is not None:
             summ["items"][f"{rid}/merge"] = {k: m.get(k) for k in ("status", "flags", "views", "reference_view", "n_frames", "export", "coverage_of_lifted_frames", "continuity", "weight", "betas", "per_view", "files") if k in m}
-    summ["status"] = _status_merge(*[v["status"] for v in summ["items"].values() if v["status"] != "N/A"], *[v["status"] for v in summ["videos"].values()])
-    pc = privacy_check(deliver); dump_json(pc, deliver / "validation_bundle" / "privacy_check.json")
-    summ["privacy_check"] = {"ok": pc["ok"], "n_files": pc["n_files"], "problems": pc["problems"]}
-    dump_json(summ, f)
-    return summ
+            # one body fitted to both views, and the recording's training target: the fit where it applies and passes, the merge elsewhere (target.json)
+            summ["items"].update(fit_and_settle(deliver / rid, cfg, fit_cache, merge_error=m["flags"][0] if m["status"] == "FAIL" else None, body_models=body_models, gvhmr_root=gvhmr_root, log=log))
+    return _close_summary(summ, deliver)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -620,7 +640,7 @@ def run_root(root: Path, cfg: dict | None = None, gvhmr_root: str | None = None,
     if not cpu_only and (gvhmr_root or cfg["gvhmr"].get("root")):
         gv = run_gvhmr_stage(root, cfg, gvhmr_root, gvhmr_python, log=log)
         for s in sessions:
-            refresh_session_after_gvhmr(root, s["session_id"], cfg, log=log)
+            refresh_session_after_gvhmr(root, s["session_id"], cfg, log=log, gvhmr_root=gvhmr_root)
     elif not cpu_only:
         gv["message"] = "GPU stage not run: set gvhmr.root / gvhmr.python in wgvp_config.json (or the GUI fields) and run `wgvp gvhmr <root>`"
         log(gv["message"])

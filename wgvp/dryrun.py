@@ -52,6 +52,27 @@ def _check_merged_target(out: Path, sid: str, rid: str, ss: dict, exp: dict, che
         _check("merged target exists", False, f"no merged_smpl.npz ({mg})", checks, log)
 
 
+def _check_target(out: Path, sid: str, rid: str, exp: dict, checks: list, log) -> None:
+    """target.json names the training target; where that is the joint two-view fit, the fit against the rendered
+    truth (GPU runs). Without the SMPL-X model file the fit does not run and the merge is the target: that passes,
+    and the detail says why."""
+    rec = session_out(out, sid) / "deliver" / rid; tf = rec / "target.json"
+    if not tf.exists():
+        _check("training target named", False, "no target.json", checks, log); return
+    t = json.loads(tf.read_text()); f = rec / str(t.get("target"))
+    _check("training target named, and the file is there", t.get("target") is not None and f.exists(), f"{t.get('target')} ({t.get('why')})", checks, log)
+    if t.get("method") != "jointfit" or not f.exists():
+        return
+    from .fusion import LEGS, geodesic
+    m = np.load(f); gt = np.load(SAMPLE_DIR / exp["gt_npz"]); gi = {int(x): i for i, x in enumerate(gt["frame_idx"])}
+    keep = m["export_ok"] & np.array([int(x) in gi for x in m["frame_idx"]]); sel = [gi[int(x)] for x in m["frame_idx"][keep]]
+    body = m["body_pose"][keep].reshape(-1, 21, 3); gt_body = gt["pose_aa"][sel, 3:66].reshape(-1, 21, 3)
+    legs = float(np.nanmedian(geodesic(body[:, LEGS], gt_body[:, LEGS]))) if keep.any() else float("nan")
+    mg = np.load(rec / "merged_smpl.npz"); same = bool(np.array_equal(m["frame_idx"], mg["frame_idx"]) and np.array_equal(m["export_ok"], mg["export_ok"]))
+    _check("joint fit (the target) on the merge's frames, legs within 15 deg of the rendered truth", same and np.isfinite(legs) and legs < 15.0,
+           f"legs median {legs:.1f} deg over {int(keep.sum())} exported frames; fitted body height {t.get('body_height_m')} m", checks, log)
+
+
 def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_python: str | None = None, cpu_only: bool = False, log=print, keep: bool = True) -> dict:
     exp = json.loads((SAMPLE_DIR / "expected.json").read_text())
     out = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="wgvp_dryrun_"))
@@ -134,7 +155,7 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
         _check("two views agree on SMPL leg joints", pair["pose"].get("legs_median_deg", 99) < 25 and abs(pair["pose"]["knee_residual_lag"].get("residual_lag_s", 9)) <= cfg["params"]["tol_frames"] / 30.0,
                f"legs median {pair['pose'].get('legs_median_deg')} deg, knee residual lag {pair['pose']['knee_residual_lag'].get('residual_lag_s')} s", checks, log)
     if gpu_ran:
-        _check_merged_target(out, sid, rid, ss, exp, checks, log)
+        _check_merged_target(out, sid, rid, ss, exp, checks, log); _check_target(out, sid, rid, exp, checks, log)
     _check("walk bouts covered by at least one view", ri.get("n_walk_bouts", 0) > 0 and ri.get("n_walk_bouts_ok") == ri.get("n_walk_bouts"), f"{ri.get('n_walk_bouts_ok')}/{ri.get('n_walk_bouts')}", checks, log)
     _check("privacy check on the deliverables", ss.get("privacy_check", {}).get("ok"), f"{ss.get('privacy_check')}", checks, log)
     ok = all(c["ok"] for c in checks)

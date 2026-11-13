@@ -82,7 +82,7 @@ Per video (CPU, one decode pass, cached by file hash):
    (always) and, after GVHMR, per-joint geodesic disagreement of the SMPL-X body pose, knee/hip flexion correlations
    and the knee-signal residual lag (tolerance 3 frames); the per-frame disagreement is written to
    `pose_agreement_<a>_<b>.npz`.
-9. **Merge: the training target** (`wgvp.merge`, CPU, after the lift; `wgvp merge <root>` re-runs it alone). Both
+9. **Merge, and the training target** (`wgvp.merge`, CPU, after the lift; `wgvp merge <root>` re-runs it alone). Both
    views come from one tiled video, so they share frame indices; the merge covers every frame some view lifted. Per
    view and frame the joints it can vouch for are those whose ViTPose keypoints are confident and inside the panel
    (`fusion.usable_joints_rt`; 8 px inside, and since 2026-11-10 4 px for the shoulders at the top edge, 2 px to
@@ -146,6 +146,9 @@ Per video (CPU, one decode pass, cached by file hash):
    anywhere in this stage: the recording CSV serves the sync, the subject identity and (walkway columns) the
    position reference only, so the file can supervise a sensor-to-pose model without circularity. Output:
    `merged_smpl.npz` + `merge.json` beside `reconcile.json`; `merge_status` / `export_frac` in the QC summary.
+   Since 2026-11-13 (2.18) the merge is followed by the joint two-view fit (`wgvp.jointfit`, CPU, 2.15), which
+   fits one body to both views' 2D keypoints, and `target.json` names the recording's training target: the fit
+   where there are two views and its checks pass, the merge everywhere else. The merge's file is always there.
 10. **QC and privacy.** Every stage writes JSON; skeleton-only thumbnails (black background, green = subject) at the
    sync frame and along the video; `QC_SUMMARY.html` + `qc_summary.csv` across sessions with the panel previews
    (edge maps); `privacy_check.json` asserts no video/image file, no image-like array, only sparse skeleton PNGs in
@@ -1368,10 +1371,11 @@ suite is at 82 tests (five for the estimator on synthetic room edges, one for th
 
 Round six named the largest remaining lever: one body fitted to both views' 2D keypoints at once, in place of a mean
 of two single-view lifts. This round builds it as an optional stage (`wgvp jointfit`, `wgvp/jointfit.py`), runs it on
-the six rendered sessions and scores it beside the merge on the same frames (`tools/compare_jointfit.py`; every number
-below is in `docs/jointfit.json`). The merge stays the default training target and `jointfit_smpl.npz` is written
-beside it. Two things could not be checked. There is no real two-camera recording with a truth, so every number here
-comes from rendered rooms. And the fit's settings were chosen on these six sessions, with none held out.
+the six rendered sessions and scores it beside the merge on the same frames (`tools/compare_jointfit.py`; every
+number below is in `docs/jointfit.json`). The merge stays the default training target and `jointfit_smpl.npz` is
+written beside it (until round eleven, 2.18). Two things could not be checked. There is no real two-camera recording
+with a truth, so every number here comes from rendered rooms. And the fit's settings were chosen on these six
+sessions, with none held out.
 
 **Why it can help.** The merge takes each joint from the view that can vouch for it, but each view was lifted on its
 own. A limb's depth along a camera's line of sight is that lift's guess, and the pelvis path is two monocular depth
@@ -1630,13 +1634,14 @@ phone at 27.1 mm they read 1.109 and 1.181 (0.952 and 1.041).
    the lens scales it. In the rendered rooms, where the lens is known, the same fit read 0.94 to 1.06 of the true
    speed (section 2.15). An along view needs its lens measured before the distance from its fit is used.
 
-**What it means for the choice.** On the one thing this recording can score, neither target is the more accurate:
-5 % short against 4 % long. The fit's path has the better shape. The merge stays the default and the joint fit the
-optional second estimate, as before; the recording gives no reason to change either, and it confirms on real video
-that the fit runs unattended on two still cameras that were placed by hand and never calibrated. The larger finding
-is the scale. If the lines are 13 ft apart, both targets read the walk 11 and 19 % long, because both bodies are too
-tall, and no choice between them repairs that. Scaling the body to the subject's measured height would: it is one
-number per subject, it removes the common factor, and it leaves the 5 % and 4 % above. It is not built.
+**What it means for the choice.** On the one thing this recording can score, neither target is the more accurate: 5 %
+short against 4 % long. The fit's path has the better shape. The merge stays the default and the joint fit the
+optional second estimate, as before (2.18 changes that); the recording gives no reason to change either, and it
+confirms on real video that the fit runs unattended on two still cameras that were placed by hand and never
+calibrated. The larger finding is the scale. If the lines are 13 ft apart, both targets read the walk 11 and 18 %
+long, because both bodies are too tall, and no choice between them repairs that. Scaling the body to the subject's
+measured height would: it is one number per subject, it removes the common factor, and it leaves the 5 % and 4 %
+above. It is not built.
 
 **What stays open.** The subject's height for OWN03, which decides between the two readings of the scale check, and
 how the 13 ft was measured. A scale taken from a measured height. A truth for the joint angles on real video, which
@@ -1677,9 +1682,9 @@ and with the body rescaled to the subject's height (slope = estimate on truth, 7
 With the height trusted the bodies are 7.8 % (the lifter's, 1.780 m) and 5.1 % (the joint fit's, 1.736 m) too tall,
 not 15 to 18 %. As delivered, the merge then reads the walk 2 % long and the joint fit 9 % long: the merge's short
 path and tall body nearly cancel, and the fit's two errors add. Rescaled to the subject they read 5 % short and 4 %
-long, which is the body-height column of 2.16 again, as it has to be. The choice made in 2.16 stands. Its "larger
-finding" depends on which number is right: in metres the two targets are 2 and 9 % long if the height is, 11 and 19 %
-if the tape is. Measuring the lines again would settle it.
+long, which is the body-height column of 2.16 again, as it has to be. The choice made in 2.16 stands (until 2.18).
+Its "larger finding" depends on which number is right: in metres the two targets are 2 and 9 % long if the height is,
+11 and 18 % if the tape is. Measuring the lines again would settle it.
 
 **The side view cut below the head.** Rows 300 to 880 of the side picture's 1080 were kept and tiled as a strip (1920
 x 580) beside the full-height end view, which is untouched. In the full run the top of the walker's head sits at row
@@ -1812,6 +1817,147 @@ higher and looks down, is not known, and no correction is built. The neck and he
 are a guess in the export and are not flagged. A truth for the upper body on real video. The suite is at 100 tests (a
 known height against a wrong distance, a strip view beside a full-height view, and the demo finding its sessions).
 
+### 2.18 Round eleven: the joint fit becomes the training target where it passes (2026-11-13)
+
+Rounds eight to ten scored the joint two-view fit beside the merge and left the merge as the default. The question
+put after round ten was whether that evidence is enough to train on the fit. The answer taken here is yes, for a
+recording with two still cameras whose fit passes its own checks, with the merge as the fallback everywhere else and
+the merge's file in every delivery. Nothing new was recorded or lifted for this round: the decision rests on the numbers of
+2.15 to 2.17 and on one new reading of the mat session. Not checked: the GPU end-to-end run on the box was not
+repeated, so the dry run's new check has met only a copy of an earlier GPU run of the sample.
+
+**The evidence in one place.** Each cell is merge / joint fit.
+
+| six rendered recordings, median (2.15) | merge / joint fit | better on |
+|---|---|---|
+| path after one rigid fit (m) | 0.20 / 0.05 | 6 of 6 |
+| speed RMSE while moving (m/s) | 0.169 / 0.067 | 6 of 6 |
+| thigh direction (deg) | 6.0 / 3.8 | 6 of 6 |
+| shank direction (deg) | 5.5 / 4.7 | 6 of 6 |
+| ankle about the pelvis (cm) | 8.6 / 6.8 | 6 of 6 |
+| upper arm direction (deg) | 9.0 / 6.0 | 6 of 6 |
+| knee angle RMSE (deg) | 6.2 / 5.6 | 6 of 6 |
+| root, three-axis (deg) | 9.4 / 9.8 | no gain |
+| heading (deg) | 3.0 / 3.2 | no gain |
+| root while seated, TUG (deg) | 21.5 / 22.6 | no gain |
+| speed over the truth's | 0.97 / 1.04 | neither |
+| limb jitter at rest, walking (cm per frame) | 0.06, 0.56 / 0.09, 0.60 | the merge, by a little |
+
+| one real recording, OWN03 (2.16, 2.17) | full side view | side view cut below the head |
+|---|---|---|
+| distance over the truth, subject's height trusted | 1.022 / 1.088 | 1.095 / 1.161 |
+| the same, 13 ft tape trusted | 1.112 / 1.185 | 1.192 / 1.264 |
+| body rescaled to the subject, height trusted | 0.947 / 1.035 | 1.013 / 1.061 |
+| body rescaled to the subject, tape trusted | 1.031 / 1.127 | 1.103 / 1.155 |
+| spread about the fitted line (m) | 0.041 / 0.035 | 0.140 / 0.046 |
+| off the walk's axis, rms (m) | 0.118 / 0.042 | 0.130 / 0.045 |
+| the three complete passes (m; truth 4.20, 4.12, 3.85) | 4.74, 4.67, 4.32 / 5.03, 4.89, 4.59 | 4.89, 4.89, 4.46 / 5.38, 5.22, 4.90 |
+
+**What speaks for the fit.** Where there is a truth for the body it is the better body: every limb row of the rendered
+table, on every recording. Its path has the better shape on rendered and on real video. And it held under the framing
+a clinic's side camera gives: with the head cut the merge's spread about its line tripled and its passes stopped
+tracking the truth's (the second and third read the same 4.89 m), while the fit's passes kept their order and its
+spread stayed at 0.05 m.
+
+**What speaks against it.** Distance. As delivered the fit reads the walk longer than the merge in every reading of
+OWN03, and longer than the truth in every one: on the full view 9 % with the subject's height trusted and 18 % with
+the tape. Of the eight readings of mean distance (two truths, as delivered or rescaled, two framings) the merge is
+the nearer in seven. On the rendered rooms the two sit on either side of the truth, 3 % short and 4 % long. The
+fit's limbs also move a little less smoothly from frame to frame: 0.03 cm more at rest, 0.04 cm more walking.
+
+**Why the fit all the same.** A sensor-to-pose model is trained on joint rotations and on the velocity in the heading
+frame. The scale error is one factor per recording, it is in both targets, and it comes from the lifted body's
+height: a known height removes about 5 points of it from the fit (1.09 to 1.04) and nothing else in the pipeline
+can. The merge's near-correct distance on the full view is two errors that cancel, a short path and a tall body
+(2.17), and the cancelling did not survive the head cut, where the merge reads 10 to 19 % long. The merge's errors
+of shape are not one factor: a path whose passes do not track the truth, and limb directions 1 to 3 deg worse at the
+median, cannot be corrected afterwards. So the fit is the target, the over-read is stated wherever the target is
+described, and `body_height_m` is written beside the target for a consumer who has the subject's height.
+
+**The rule** (`settle_target` in `wgvp/jointfit.py`, written as `target.json` in each recording's folder). In order:
+
+1. The merge failed: `target` is null and the recording has no target.
+2. `jointfit.enabled` is false in `wgvp_config.json`: the merge.
+3. No fit is on file for this merge: the merge. The fit records a stamp of the merge it was made from (a hash of
+   `frame_idx`, `body_pose`, `global_orient`, `transl` and `export_ok`), so a fit left from an earlier merge counts as
+   not run. The usual reason is a machine without the SMPL-X model file.
+4. The fit's status is SKIP (it does not apply: one view) or FAIL: the merge.
+5. The fit's status is PASS: `jointfit_smpl.npz`, with the merge as `second_estimate`.
+6. The fit's status is WARN: the merge, with the fit as `second_estimate` and its first warning as the reason. Notes
+   that begin `info:` do not make a WARN.
+
+The warnings that exist today are two cameras whose level axes are nearly parallel, a baseline so short that the
+views are one viewpoint, and a mirrored view. `target.json` holds `target`, `method`, `why`, `second_estimate`, both
+statuses, the merge's stamp and the fitted body's height.
+
+**What changed in the pipeline.** The fit runs after every merge, inside `run`, `gvhmr` and `merge`, and
+`wgvp jointfit` runs it alone; each of them settles `target.json` again. The SMPL-X model file is looked for in
+`--body-models`, then `jointfit.body_models` in the config, then the GVHMR checkout. A missing file, or one that
+does not load, costs the fit and never the merge. The session summary has two more items per recording,
+`<recording>/jointfit` and `<recording>/target`, and the QC summary two more columns. A fit that WARNs or FAILs on a
+two-view recording makes the session WARN: it is worth a look, and the merge is still there. `wgvp demo` shows the
+target unless told otherwise (`--target merge` or `jointfit`). The dry run on a GPU checks that a target is named
+and its file exists, and, where the target is the fit, that it holds the merge's frames and stands within 15 deg of
+the rendered truth at the legs.
+
+**What changed in the fit's file.** It now stands alone as a target. Besides the fit's own pose, path and body shape
+it carries the heading, the heading-relative root and the heading-relative velocity, computed from the fit's pose
+and path by the same three functions the merge uses (`heading_frame`, `heading_rel`, `rate_in_runs` in
+`wgvp/fusion.py`; the merge was moved onto them and its output is unchanged to the byte). The export mask, the loss
+weights and `transl_mat` are the merge's, copied. Fields that describe how the merge was made (`usable`, `source`,
+`share`, the alignment, the other mat paths) stay in the merge's file.
+
+**The velocity without the walkway.** The merge ties its velocity on the mat to the mat's measured progress (2.13).
+The fit's has no such term, so the one rendered session with a mat (HC905) was read again. The path is scored
+after one rigid fit, the speed against the truth's while the walker moves:
+
+| HC905 | path (m) | path scale | speed ratio | speed RMSE (m/s) |
+|---|---|---|---|---|
+| merge, `transl` | 0.210 | 1.056 | 0.968 | 0.185 |
+| merge, `transl_scaled` | 0.180 | 0.977 | 0.898 | 0.197 |
+| merge, `transl_from_walkway` | 0.032 | 1.018 | 1.031 | 0.301 |
+| joint fit, `transl` | 0.019 | 1.026 | 1.025 | 0.050 |
+| merge, `root_vel_heading_rel_m_s` | | | 0.960 | 0.179 |
+| joint fit, `root_vel_heading_rel_m_s` | | | 1.028 | 0.051 |
+
+Without the mat the fit's path is nearer the truth than the merge's path on the mat, and its velocity is more than three
+times nearer than the merge's with the mat's help. Over the six recordings the fit's velocity field reads 1.039 of the
+truth's speed at 0.069 m/s RMSE, the merge's 0.973 at 0.168. The fit's path scale runs from 1.016 to 1.087 across
+the six and the merge's from 1.029 to 1.129. One mat session, with fabricated footfalls: tying the fit's velocity to
+a real mat is untested and not built.
+
+**Verification.** `wgvp merge` was run again over five data roots that hold eleven recordings: the dry-run sample
+from an earlier GPU run, the six rendered sessions, OWN03 in both framings, and the two bundled clips. No array of
+any `merged_smpl.npz` changed. The fit's pose, root, path and shape came out identical to round ten's files, so the
+fit is deterministic. Session statuses are as before. The targets:
+
+| recording | target | reason given |
+|---|---|---|
+| the dry-run sample, the six rendered sessions | joint fit | checks passed |
+| OWN03, full side view and head cut | joint fit | checks passed |
+| OWN02 (one camera, tiled twice) | merge | the two cameras' level axes are nearly parallel |
+| OWN01 (one view) | merge | the fit takes two views |
+
+On the dry-run sample the fit stands 8.5 deg from the rendered truth at the legs over 1447 frames, the merge 8.5.
+Fitted body heights: 1.74 to 1.79 m on the rendered sessions (the dry-run sample 1.82), 1.736 m on OWN03 and 1.807 m
+with its head cut, against the subject's 1.651 m. The fit takes 3 to 7 s per recording. The CPU dry run passes (10
+of 10), the bundled example verifies, and the suite is at 107 tests: the rule's every branch, a fit file read alone,
+the fallback without a model file and with one that does not load, the summary's rows, and the demo's choice.
+
+**What stays open.**
+
+* Distance. The fit reads long and nothing rescales it. A rescale by a recorded subject height is the next step, and
+  on OWN03 it would leave 4 % (13 % if the tape is right, which is still not settled).
+* A moving camera. The fit solves one camera pose per recording and assumes both cameras stand still. Nothing
+  detects one that moved. OWN02, hand-held with a pan, was kept out by the parallel-axes warning and not by any test
+  of motion: none of the checks would stop a hand-held camera at right angles to a still one.
+* The weights. The fit's file carries the merge's, which measure how far the two lifts agree and not how well the
+  fit met the keypoints. A weight from the fit's own reprojection is not built.
+* The root's rotation, the heading and the seated phase of the TUG, which the fit leaves where the merge has them.
+* The evidence. The fit's settings were chosen on the six rendered sessions it is scored on. One real recording has
+  a truth, for distance alone, of one person, outdoors. There is still no truth for the body on real video.
+* The GPU end-to-end run with the fit in the pipeline, on the box.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with
@@ -1861,6 +2007,11 @@ known height against a wrong distance, a strip view beside a full-height view, a
   rule, so the lifter's guess is exported: 19 to 23 deg off for the neck on the rendered sessions, with no truth on
   real video and no flag in the export. A clinic's side view that cuts the head leaves the neck and head to the along
   view.
+* The joint two-view fit is the training target wherever its checks pass (2.18), and it has met no clinic recording.
+  Its settings were chosen on the six rendered sessions. The one real recording with a truth is of one person
+  outdoors and scores distance alone, which the fit reads 9 % long if the subject's height is trusted and 18 % if
+  the tape is. It assumes that both cameras stand still for the whole recording, and nothing detects one that does
+  not: set `jointfit.enabled` to false for such a session and the merge is the target.
 
 Two cautions for a first real run: (1) the acceptance thresholds were set on crowded public footage and a rendered
 sample, and the co-walker case shows that a person walking in step 0.8 s behind the subject is the one configuration
@@ -1897,3 +2048,7 @@ annotation-sheet cross-checks have only been exercised on synthetic inputs.
    cell (`params.walkway_cell_cm`) from the grid's size and the footprints' extents. Please confirm the mat model
    and cell pitch, which way X runs relative to the cameras, and whether `Other 1` cells are unassigned footprints
    or walking aids; with that the merge writes the pelvis path on the mat (`transl_mat`).
+10. **Still cameras, stature, and the body model file.** Do both cameras stand on tripods for a whole recording, or
+    is either one moved or re-aimed while it records? Is each participant's height on record? The joint fit (2.18)
+    assumes still cameras, and a recorded height is what would correct its scale. The fit also needs the SMPL-X
+    model file on the machine that runs the merge; the GVHMR checkout has it.
