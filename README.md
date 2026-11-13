@@ -49,21 +49,25 @@ along view and 0.63 in the side view; the co-walker stays between 0.04 and 0.31,
 
 ## Demos and results
 
-Each picture opens the demo video of one recording; the files are in [docs/demos/](docs/demos/), 1 to 2 MB each.
-A demo shows the two views with the lifter's 2D input, the reconstruction, the exported training target, the path
-from above, a filmstrip and knee-flexion timelines. Every one below was rendered by `python -m wgvp demo` from the
-pipeline's own outputs, with the target `target.json` names, which is the joint two-view fit in all seven.
+Each picture below plays a 14-s excerpt of one recording's demo video in a loop and links to the full video in
+[docs/demos/](docs/demos/), 1 to 2 MB each. GitHub does not play a video file kept in a repository: use *View raw*
+on the page the link opens, or play the file from a clone. A demo shows the two views with the lifter's 2D input,
+the reconstruction, the exported training target, the path from above, a filmstrip and knee-flexion timelines.
+Every one below was rendered by `python -m wgvp demo` from the pipeline's own outputs, with the target
+`target.json` names, which is the joint two-view fit in all seven.
 
 **Six rendered sessions with a known truth.** Rendered rooms laid out like the clinic's, one folder per subject
 (HC900 to HC905). The truth stands beside the reconstruction in these, and the leg and root errors of each frame
 are printed.
 
-| | | |
-|:---:|:---:|:---:|
-| [![HC900 demo](docs/demos/HC900_demo.jpg)](docs/demos/HC900_demo.mp4) | [![HC901 demo](docs/demos/HC901_demo.jpg)](docs/demos/HC901_demo.mp4) | [![HC902 demo](docs/demos/HC902_demo.jpg)](docs/demos/HC902_demo.mp4) |
-| HC900, self-paced walk | HC901, self-paced walk, along camera close | HC902, self-paced walk with a co-walker |
-| [![HC903 demo](docs/demos/HC903_demo.jpg)](docs/demos/HC903_demo.mp4) | [![HC904 demo](docs/demos/HC904_demo.jpg)](docs/demos/HC904_demo.mp4) | [![HC905 demo](docs/demos/HC905_demo.jpg)](docs/demos/HC905_demo.mp4) |
-| HC903, timed up and go | HC904, hurried pace | HC905, walk on the pressure mat |
+| | |
+|:---:|:---:|
+| [![HC900 demo](docs/demos/HC900_preview.webp)](docs/demos/HC900_demo.mp4) | [![HC901 demo](docs/demos/HC901_preview.webp)](docs/demos/HC901_demo.mp4) |
+| HC900, self-paced walk | HC901, self-paced walk, along camera close |
+| [![HC902 demo](docs/demos/HC902_preview.webp)](docs/demos/HC902_demo.mp4) | [![HC903 demo](docs/demos/HC903_preview.webp)](docs/demos/HC903_demo.mp4) |
+| HC902, self-paced walk with a co-walker | HC903, timed up and go |
+| [![HC904 demo](docs/demos/HC904_preview.webp)](docs/demos/HC904_demo.mp4) | [![HC905 demo](docs/demos/HC905_preview.webp)](docs/demos/HC905_demo.mp4) |
+| HC904, hurried pace | HC905, walk on the pressure mat |
 
 The training target against the rendered truth, on the exported frames:
 
@@ -88,7 +92,7 @@ scores mean under [How good these scores are](#how-good-these-scores-are-and-wha
 a tablet to the side and a phone at one end. It has no truth for the pose; the chalk lines give the distance
 walked. The clip ships at half size in `examples/two_camera/` and runs offline (Quick start, step 2).
 
-[![OWN03 demo](docs/demos/OWN03_demo.jpg)](docs/demos/OWN03_demo.mp4)
+[![OWN03 demo](docs/demos/OWN03_preview.webp)](docs/demos/OWN03_demo.mp4)
 
 | on the published clip | merge | joint fit (the target) |
 |---|---|---|
@@ -1245,7 +1249,7 @@ tools/           make_sample.py (how the samples were rendered), make_partner_la
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), jointfit.json (the joint fit's comparison),
                  chalk_walk.json (one real two-camera recording against a chalk truth), figures/,
-                 demos/ (the demo videos of the six rendered sessions and of the two-camera recording, with a still each)
+                 demos/ (the demo videos of the six rendered sessions and of the two-camera recording, with a looping excerpt each)
 ```
 
 ## Citing
