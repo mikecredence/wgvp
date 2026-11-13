@@ -2130,6 +2130,13 @@ disagreement. They are measured again; the session passes its check as before.
 **Verification.** The suite is at 114 tests. The dry run passes, both shipped examples verify, and the driven GUI
 finishes every step with no error in its log.
 
+**After the fix.** With `python-tk@3.12` installed, `python -m wgvp` opens the window in the pinned environment
+under Tk 9.1. The install also moved the Homebrew Python from 3.12.13 to 3.12.16; the environment followed it
+without a rebuild, because its interpreter link points at Homebrew's stable path, and the suite still passes. The
+same script then drove the window in process, with the real pipeline and no relay: panels detected 2.4 s after
+**Scan**, the bundled example run in 50 s and run again in 9 s, the dry run in 71 s, the two-camera example in
+68 s, every session row ending with its status and reason, and no error.
+
 **What stays open.** The window has not been seen on a screen by us, on any platform, and has not been run on
 Windows at all. It has no stop button, no single-session run (the command line has `--only`), no step inside a
 session for the bar to show (a session of the two-camera example sits still for a minute), and **Check GPU** holds
