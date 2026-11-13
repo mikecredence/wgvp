@@ -26,6 +26,12 @@ Weights go under `GVHMR/inputs/checkpoints/` exactly as GVHMR's `docs/INSTALL.md
 | yolo/yolov8x.pt | ultralytics release |
 | body_models/smplx/SMPLX_NEUTRAL.npz, body_models/smpl/SMPL_NEUTRAL.pkl | smpl-x.is.tue.mpg.de / smpl.is.tue.mpg.de (registration; licence forbids redistribution, so they are NOT in this package or the Docker image) |
 
+No NVIDIA GPU: the same install with the CPU build of torch (`pip install torch==2.5.1 torchvision==0.20.1
+--index-url https://download.pytorch.org/whl/cpu`) and without pytorch3d, then `"device": "cpu"` under `gvhmr` in
+`wgvp_config.json` or `--lift-device cpu`. The poses match the GPU's; the time is about 35 s of lifting per second
+of video per view (README, "The lift without a GPU"). `check-gpu` reports the missing GPU as it should; the lift
+runs regardless.
+
 Known pitfalls (each cost us a run):
 
 * The `ffmpeg` PyPI stub shadows `ffmpeg-python` and GVHMR dies with `module 'ffmpeg' has no attribute 'input'`.

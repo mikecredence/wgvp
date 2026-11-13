@@ -48,8 +48,10 @@ def main(argv=None):
     p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python"); p.add_argument("--only", nargs="*", help="session ids")
     p.add_argument("--cpu-only", action="store_true"); p.add_argument("--force", action="store_true", help="re-track cached videos")
     p.add_argument("--device", default=None, help="cpu / cuda for the 2D tracker"); p.add_argument("--keep-face-keypoints", action="store_true")
+    p.add_argument("--lift-device", choices=["cuda", "cpu"], help="cpu: run the lift (GVHMR) without a GPU; the same result, slowly")
     p = sub.add_parser("gvhmr", help="run only the GPU stage on pending chunks (inside or via the GVHMR environment)"); p.add_argument("root")
     p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python"); p.add_argument("--only")
+    p.add_argument("--lift-device", choices=["cuda", "cpu"], help="cpu: run the lift (GVHMR) without a GPU; the same result, slowly")
     p = sub.add_parser("summary", help="rebuild the cross-session QC summary"); p.add_argument("root")
     p = sub.add_parser("demo", help="render the demo video of a lifted recording from the pipeline's outputs (demo extras; the file holds video frames and stays under work/)")
     p.add_argument("root"); p.add_argument("--session"); p.add_argument("--recording"); p.add_argument("--gt", help="a rendered sample's <sid>_gt.npz: adds the truth panels and the error")
@@ -99,8 +101,10 @@ def main(argv=None):
     if a.cmd == "run":
         from .config import load_config, write_default_config
         from .session import run_root
-        root = Path(a.root); write_default_config(root)
-        s = run_root(root, load_config(root), gvhmr_root=a.gvhmr_root, gvhmr_python=a.gvhmr_python, only=a.only, force=a.force,
+        root = Path(a.root); write_default_config(root); cfg = load_config(root)
+        if a.lift_device:
+            cfg["gvhmr"]["device"] = a.lift_device
+        s = run_root(root, cfg, gvhmr_root=a.gvhmr_root, gvhmr_python=a.gvhmr_python, only=a.only, force=a.force,
                      keep_face=a.keep_face_keypoints, device=a.device, cpu_only=a.cpu_only)
         if a.cpu_only:
             print("CPU stages done (subject chosen, sync found, lifter inputs cut). The poses come from the GPU stage: "
@@ -111,6 +115,8 @@ def main(argv=None):
         from .session import run_gvhmr_stage, refresh_session_after_gvhmr
         from .summary import build_summary
         root = Path(a.root); cfg = load_config(root)
+        if a.lift_device:
+            cfg["gvhmr"]["device"] = a.lift_device
         r = run_gvhmr_stage(root, cfg, a.gvhmr_root, a.gvhmr_python, only=a.only)
         if not r.get("ran"):
             print(f"GPU stage not run: {r.get('message', 'see the log')}"); return 1

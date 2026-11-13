@@ -615,6 +615,8 @@ def run_gvhmr_stage(root: Path, cfg: dict, gvhmr_root: str | None = None, gvhmr_
     cmd = [gpy, "-m", "wgvp.gvhmr_stage", "--root", str(root), "--gvhmr-root", groot, "--timeout", str(cfg["gvhmr"].get("timeout_s", 7200))]
     if only:
         cmd += ["--only", only]
+    if str(cfg["gvhmr"].get("device", "cuda")).lower() == "cpu":            # no NVIDIA GPU here: the slow fallback
+        cmd += ["--device", "cpu"]
     env = dict(os.environ, PYTHONPATH=str(PKG_DIR) + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONUTF8="1")   # one text encoding on every system
     logf = out_root(root) / "logs" / "gvhmr_stage.log"; logf.parent.mkdir(parents=True, exist_ok=True)
     log(f"GVHMR stage: {' '.join(cmd)}  (log: {logf})")

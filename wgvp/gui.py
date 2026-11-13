@@ -150,7 +150,7 @@ def launch(initial_root: str | None = None, on_ready=None):
         save_gvhmr_cfg(r)
         from .session import run_root
         state["running"] = True; b_run.config(state="disabled"); b_dry.config(state="disabled"); v_prog.set("running ..."); pb["value"] = 0
-        state["rp"] = RunProgress(); state["prefix"] = ""
+        state["rp"] = RunProgress(); state["prefix"] = ""; state["cur"] = None
         worker(run_root, r, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, cpu_only=v_cpu.get(), log=log, progress=progress)
 
     def do_dry():
@@ -182,8 +182,8 @@ def launch(initial_root: str | None = None, on_ready=None):
         f = r / "wgvp_output"
         f.mkdir(exist_ok=True); webbrowser.open(f.as_uri())
 
-    def show_session_status():
-        """After a run, each session row carries its PASS / WARN / FAIL and the reason."""
+    def show_session_status(only=None):
+        """Each finished session's row carries its PASS / WARN / FAIL and the reason (only: one session, as it finishes)."""
         r = Path(v_root.get().strip())
         try:
             from .summary import collect_rows
@@ -193,6 +193,8 @@ def launch(initial_root: str | None = None, on_ready=None):
                     if f not in why.setdefault(row["session"], []):
                         why[row["session"]].append(f)
             for sid, n in state.get("rows", {}).items():
+                if only and sid != only:
+                    continue
                 ss = json.loads((r / "wgvp_output" / sid / "deliver" / "session_summary.json").read_text(encoding="utf-8"))
                 flags = why.get(sid) or ([ss["error"]] if ss.get("error") else [])
                 tree.set(n, "status", ss.get("status", "?") + (": " + ", ".join(map(str, flags[:2])) if flags else ""))
@@ -207,6 +209,14 @@ def launch(initial_root: str | None = None, on_ready=None):
                     txt.insert("end", payload + "\n"); txt.see("end")
                 elif kind == "progress":
                     frac, text = state["rp"].update(*payload)            # one bar for the whole run, fed frame by frame
+                    if payload[0] == "root" and not state.get("prefix"):   # the list follows the run: the last session's result, this one running
+                        if state.get("cur"):
+                            show_session_status(only=state["cur"])
+                        state["cur"] = payload[3]
+                        if payload[3] in state.get("rows", {}):
+                            tree.set(state["rows"][payload[3]], "status", "running ...")
+                    elif payload[0] in ("lift", "wrap") and state.get("cur") and not state.get("prefix"):
+                        show_session_status(only=state["cur"]); state["cur"] = None      # the CPU stages of the last session are done
                     pb["value"] = BAR * frac; v_prog.set(f"{state.get('prefix', '')}{text}  ({frac:.0%})")
                 elif kind == "tree":
                     vn, txt_, prev = payload
@@ -230,6 +240,9 @@ def launch(initial_root: str | None = None, on_ready=None):
                     state["html"] = payload.get("html")
                     if t:
                         show_session_status()
+                    elif state.get("cur") in state.get("rows", {}):                      # a run that raised: no result for this session
+                        tree.set(state["rows"][state["cur"]], "status", "stopped (see the log)")
+                    state["cur"] = None
         except queue.Empty:
             pass
         app.after(200, poll)

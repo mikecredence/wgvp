@@ -46,11 +46,15 @@ def write_bbx_pt(gvhmr_root: Path, pred_root: Path, stem: str, bbox_xyxy: np.nda
     torch.save({"bbx_xyxy": bb, "bbx_xys": xys}, d / "bbx.pt")
 
 
-def run_demo(gvhmr_root: Path, video: Path, pred_root: Path, timeout: int, log_path: Path, f_mm: float | None = None) -> dict:
+def run_demo(gvhmr_root: Path, video: Path, pred_root: Path, timeout: int, log_path: Path, f_mm: float | None = None, device: str = "cuda") -> dict:
     demo = gvhmr_root / "tools/demo/demo.py"
     has_guard = "GVHMR_RENDER" in demo.read_text(encoding="utf-8")
     env = dict(os.environ, GVHMR_RENDER="0")
     cmd = [sys.executable, str(demo), "--video", str(video), "--output_root", str(pred_root), "-s"]
+    if device == "cpu":              # no GPU: the same script, with its moves to the GPU switched off (wgvp/gvhmr_cpu.py)
+        env["CUDA_VISIBLE_DEVICES"] = ""
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent) + os.pathsep + env.get("PYTHONPATH", "")
+        cmd = [sys.executable, "-m", "wgvp.gvhmr_cpu"] + cmd[1:]
     if f_mm:                         # the view's focal length (35 mm equivalent, on the diagonal); demo.py takes whole millimetres
         cmd += ["--f_mm", str(int(round(float(f_mm))))]
     t0 = time.time()
@@ -90,7 +94,7 @@ def cleanup_pred_dir(pred_dir: Path):
         f.unlink(missing_ok=True)
 
 
-def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int) -> dict:
+def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int, device: str = "cuda") -> dict:
     meta = json.loads(chunk_json.read_text(encoding="utf-8"))
     work = chunk_json.parent
     pred_root = work / "gvhmr"
@@ -102,7 +106,7 @@ def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int) -> dict:
         if (pred_root / stem).exists():
             shutil.rmtree(pred_root / stem)
         write_bbx_pt(gvhmr_root, pred_root, stem, smooth_boxes(bbox))
-        r = run_demo(gvhmr_root, video.resolve(), pred_root.resolve(), timeout, work / "gvhmr_run.log", f_mm=meta.get("focal_35mm"))
+        r = run_demo(gvhmr_root, video.resolve(), pred_root.resolve(), timeout, work / "gvhmr_run.log", f_mm=meta.get("focal_35mm"), device=device)
         meta["gvhmr_run"] = r
         if not res_pt.exists():
             meta["status"] = "failed"; meta["error"] = f"GVHMR produced no hmr4d_results.pt (rc {r['returncode']}); see gvhmr_run.log"
@@ -208,6 +212,7 @@ def main(argv=None):
     ap.add_argument("--timeout", type=int, default=7200, help="seconds per chunk")
     ap.add_argument("--only", default=None, help="restrict to <recording>/<camera>")
     ap.add_argument("--keep-face-keypoints", action="store_true")
+    ap.add_argument("--device", choices=["cuda", "cpu"], default="cuda", help="cpu: lift without a GPU (slow fallback)")
     a = ap.parse_args(argv)
     if not a.root and not a.session:
         _log("FAIL: give --root or --session"); return 2
@@ -221,9 +226,12 @@ def main(argv=None):
             _log(f"FAIL: missing GVHMR weight {ck}"); return 2
     try:
         import torch
-        if not torch.cuda.is_available():
-            _log("FAIL: torch.cuda.is_available() is False in this environment"); return 2
-        _log(f"GPU: {torch.cuda.get_device_name(0)}")
+        if a.device == "cpu":
+            _log(f"no GPU asked for: lifting on the CPU with {torch.get_num_threads()} thread(s). This is slow: expect minutes per second of video")
+        elif not torch.cuda.is_available():
+            _log("FAIL: torch.cuda.is_available() is False in this environment (to lift on the CPU instead, slowly: --lift-device cpu)"); return 2
+        else:
+            _log(f"GPU: {torch.cuda.get_device_name(0)}")
     except Exception as e:
         _log(f"FAIL: torch not importable here ({e}); run this stage inside the GVHMR environment"); return 2
     jobs = [j for sd in scan_dirs for j in sorted(sd.glob("work/*/*/chunks/chunk_*.json"))]
@@ -242,7 +250,7 @@ def main(argv=None):
         if meta.get("status") == "done":
             _log(f"skip {j.parent.parent.name}/{j.stem} (done)"); done_dirs.add(j.parent); continue
         _log(f"run  {j.parts[-4]}/{j.parts[-3]}/{j.stem} ({meta['n_frames']} frames)")
-        m = process_chunk(root, j, a.timeout)
+        m = process_chunk(root, j, a.timeout, device=a.device)
         _log(f"     -> {m['status']} {m.get('error', '')} ({m.get('gvhmr_run', {}).get('elapsed_s', 0):.0f}s)")
         failed += m["status"] != "done"; done_dirs.add(j.parent)
     for d in sorted(done_dirs):
