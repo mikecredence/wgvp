@@ -3,7 +3,7 @@ estimate of the recording against it.
 
     python tools/chalk_walk.py <root> --session S --recording R --distance-m 3.9624 \
         --marks "148,829 246,787 1783,758 1703,730" [--view left] [--span 3.0,28.5] [--label NAME] \
-        [--body-models DIR] [--out docs/chalk_walk.json]
+        [--subject-height-m 1.651] [--truth-root OTHER_ROOT] [--body-models DIR] [--out docs/chalk_walk.json]
 
 The recording is a straight walk back and forth between two lines drawn on the ground across the walk (chalk, tape),
 `--distance-m` apart along the ground, seen by a still camera that looks across the walk. `--marks` is two image
@@ -26,6 +26,16 @@ off its axis (a straight walk has none) and the travel from turn to turn. Every 
 from the size of its body, so the slope is also given in body heights: slope x the truth's stature / the estimate's
 own standing height. Rows: the merge, the joint fit when present, and each view alone read two ways, the lifter's
 own world path and `wgvp.jointfit.joint_fit` handed that view twice (as in `tools/one_camera_speed.py`).
+
+**The other reading.** The picture fixes the distance between the lines in walker heights and nothing more. With
+`--subject-height-m` (standing, barefoot) the same picture is read from the height instead: the distance the height
+implies, and every slope under it. Each slope is also given with the estimate's body rescaled to that height, which
+is what a pipeline told the subject's height could deliver. When the tape and the height disagree the picture cannot
+say which one is off, and both readings are printed.
+
+**A truth from another run.** `--truth-root` takes the side track from another root that holds the same recording
+(same session, recording and frame numbers), for a run whose own side view cuts the body and cannot place the feet
+or size the walker.
 """
 from __future__ import annotations
 
@@ -50,6 +60,7 @@ EDGE_PX = 6                      # a box this close to the panel's edge is cut b
 HIP_EDGE_PX = 40                 # a pelvis this close to the panel's side is leaving the picture: the turn there reads short
 TURN_GAP_S, TURN_PROM_M, TURN_WIN_S = 2.0, 1.0, 0.8
 MIN_FRAMES = 100
+BOX_OVER_HEIGHT = 1.008          # the walker's box in mid-stride, shoes on, over the barefoot standing height: 3 cm of sole, 1 % of dip
 
 
 def _line(p, q):
@@ -79,6 +90,15 @@ def ground_path(marks, distance_m, hip_x, foot_y, box_h, whole) -> dict:
         out[name] = {"X": h * (x2 - vp[0]) / (y2 - vp[1]), "camera_height_m": float(abs(h)), "lines_m": [float(h * kk[0]), float(h * kk[1])],
                      "stature_m": float(np.median(st[whole])), "stature_sd_m": float(np.std(st[whole]))}
     return out
+
+
+def height_reading(truth: dict, distance_m: float, height_m: float) -> dict:
+    """The picture read from the walker's standing height instead of the distance. truth: one reading of
+    `ground_path` (its stature and camera height at `distance_m`). Returns the distance between the lines and the
+    camera's height that the height implies, and the factor every slope takes under them."""
+    box = BOX_OVER_HEIGHT * height_m; f = box / truth["stature_m"]
+    return {"subject_height_m": float(height_m), "box_m": float(box), "distance_in_boxes": float(distance_m / truth["stature_m"]),
+            "distance_m": float(f * distance_m), "camera_height_m": float(f * truth["camera_height_m"]), "slope_factor": float(1 / f)}
 
 
 def side_track(rec_dir: Path, view: str) -> dict:
@@ -127,16 +147,21 @@ def main():
     ap.add_argument("--marks", required=True, help='"x,y x,y x,y x,y": two points on the first line, two on the second, panel pixels')
     ap.add_argument("--distance-m", type=float, required=True); ap.add_argument("--view", default="left", help="the view that looks across the walk")
     ap.add_argument("--span", help="start,end in seconds of the recording: the walk, without what comes before and after")
+    ap.add_argument("--subject-height-m", type=float, help="the walker's standing height, barefoot: adds the reading that trusts it over the distance")
+    ap.add_argument("--truth-root", help="another root with the same recording, whose view gives the truth (for a run whose side view cuts the body)")
     ap.add_argument("--label"); ap.add_argument("--body-models"); ap.add_argument("--out")
     a = ap.parse_args(); root = Path(a.root); d = root / "wgvp_output" / a.session / "deliver" / a.recording
+    dt = Path(a.truth_root) / "wgvp_output" / a.session / "deliver" / a.recording if a.truth_root else d
     marks = [[float(v) for v in p.split(",")] for p in a.marks.split()]
     m = np.load(d / "merged_smpl.npz", allow_pickle=True); frames = np.asarray(m["frame_idx"]); T = len(frames); fps = float(m["fps"]); t = frames / fps
-    tk = side_track(d, a.view); g = ground_path(marks, a.distance_m, tk["hip_x"], tk["foot_y"], tk["box_h"], tk["whole"])
+    tk = side_track(dt, a.view); g = ground_path(marks, a.distance_m, tk["hip_x"], tk["foot_y"], tk["box_h"], tk["whole"])
     Xs = np.convolve(np.pad(g["sloped"]["X"], 2, mode="edge"), np.ones(5) / 5, "valid"); Xt = np.interp(frames, tk["frame_idx"], Xs, left=np.nan, right=np.nan)
     at_edge = np.interp(frames, tk["frame_idx"], tk["at_edge"].astype(float)) > 0
     lo, hi = (float(v) for v in a.span.split(",")) if a.span else (-np.inf, np.inf); ok = (t > lo) & (t < hi)
     turns = [(i, sg) for i, sg in find_turns(np.where(ok, Xt, np.nan), fps) if ok[i]]; st = g["sloped"]["stature_m"]
-    res = {"truth": {"view": a.view, "distance_m": a.distance_m, "marks_px": marks, "turns_s": [round(float(t[i]), 2) for i, _ in turns],
+    hr = height_reading(g["sloped"], a.distance_m, a.subject_height_m) if a.subject_height_m else None
+    res = {"truth": {"view": a.view, "from_another_run": bool(a.truth_root), "distance_m": a.distance_m, "marks_px": marks,
+                     "turns_s": [round(float(t[i]), 2) for i, _ in turns], **({"by_height": hr} if hr else {}),
                      **{k: v for k, v in g.items() if k not in ("level", "sloped")},
                      **{n: {k: v for k, v in g[n].items() if k != "X"} for n in ("level", "sloped")}}, "estimates": {}, "body_m": {}}
     bm = find_body_models(load_config(root), a.body_models); skel = load_skeleton(bm)
@@ -145,6 +170,9 @@ def main():
         r = score(P, Xt, ok, turns, fps, at_edge)
         if r is not None:
             b = standing_height(bm, betas); res["body_m"][name] = b; r["slope_in_body_heights"] = r["slope"] * st / b; res["estimates"][name] = r
+            if hr:
+                k = a.subject_height_m / b; r["slope_body_rescaled"] = r["slope"] * k
+                r["by_height"] = {"slope": r["slope"] * hr["slope_factor"], "slope_body_rescaled": r["slope"] * hr["slope_factor"] * k}
 
     add("merge", m["transl"][:, [0, 2]].astype(float), m["betas"])
     if (d / "jointfit_smpl.npz").exists():
@@ -165,6 +193,13 @@ def main():
     for k, r in res["estimates"].items():
         print(f"{k:28s} n {r['n']:4d}  slope {r['slope']:.3f}  rms {r['rms_m']:.3f} m  off-axis {r['off_axis_rms_m']:.3f} m  body {res['body_m'][k]:.3f} m  "
               f"in body heights {r['slope_in_body_heights']:.3f}  passes " + " ".join(f"{p['est_m']:.2f}/{p['truth_m']:.2f}{'+' if p['truth_is_lower_bound'] else ''}" for p in r["passes"]))
+    if hr:
+        print(f"the lines are {hr['distance_in_boxes']:.3f} walker boxes apart. A walker of {hr['subject_height_m']:.3f} m (box {hr['box_m']:.3f} m) puts them "
+              f"{hr['distance_m']:.3f} m apart, not {a.distance_m:.3f}, and the camera {hr['camera_height_m']:.3f} m up. Slopes, as delivered and with the body "
+              f"rescaled to the walker:")
+        for k, r in res["estimates"].items():
+            print(f"{k:28s} distance trusted {r['slope']:.3f} {r['slope_body_rescaled']:.3f}   height trusted {r['by_height']['slope']:.3f} "
+                  f"{r['by_height']['slope_body_rescaled']:.3f}")
     if a.out:
         out = Path(a.out); doc = json.loads(out.read_text()) if out.exists() else {}; doc[a.label or a.recording] = res; out.write_text(json.dumps(doc, indent=1) + "\n")
 

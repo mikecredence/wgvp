@@ -247,12 +247,16 @@ def detect_panels(path: str | Path, n_samples: int = 40, black_level: int = 28, 
         ext = M.mean(0)                                               # content fraction per line
         jump = np.abs(np.diff(ext))                                   # letterboxing differs between panels
         score = np.where(valid, np.log1p(edge_ratio) * (1 - 0.5 * np.clip(np.nan_to_num(corr, nan=0.0), 0, 1)) + 0.5 * jump, 0.0)
-        # black separator bands strictly inside the content extent with content on both sides
-        content_lines = np.where(ext >= 0.5)[0]; seps = set()
+        # black separator bands strictly inside the content extent with content on both sides. A view may fill only a
+        # strip of the other dimension (a wide view beside a tall one): beside such a view the band must be all black.
+        content_lines = np.where(ext >= 0.25)[0]; seps = set()
         if len(content_lines):
             lo_c, hi_c = content_lines[0], content_lines[-1]
             for s0, s1 in _runs(ext < 0.2, 1):
-                if s0 > lo_c and s1 - 1 < hi_c and ext[max(lo_c, s0 - 4):s0].max() >= 0.5 and ext[s1:min(hi_c + 1, s1 + 4)].max() >= 0.5:
+                if not (s0 > lo_c and s1 - 1 < hi_c):
+                    continue
+                flank = min(ext[max(lo_c, s0 - 4):s0].max(), ext[s1:min(hi_c + 1, s1 + 4)].max())
+                if flank >= 0.5 or (flank >= 0.25 and np.median(ext[s0:s1]) < 0.02):
                     score[max(0, (s0 + s1) // 2 - 1)] = max(score[max(0, (s0 + s1) // 2 - 1)], 3.0); seps.add(max(0, (s0 + s1) // 2 - 1))
         return score, corr, ext, edge_ratio, seps
 
@@ -273,7 +277,8 @@ def detect_panels(path: str | Path, n_samples: int = 40, black_level: int = 28, 
             continue
         s = score.copy(); s[:lo] = -1; s[hi:] = -1
         for i in range(lo, hi):   # content must exist on both sides (looking past a black separator band)
-            if ext[max(0, i - 24):i + 1].max() < 0.3 or ext[i + 1:i + 25].max() < 0.3:
+            need = 0.25 if i in seps else 0.3
+            if ext[max(0, i - 24):i + 1].max() < need or ext[i + 1:i + 25].max() < need:
                 s[i] = -1
         i = int(np.argmax(s))
         cand = {"layout": name, "seam_small": i + 1, "score": float(s[i]), "corr_at_seam": float(corr[i]) if np.isfinite(corr[i]) else None,

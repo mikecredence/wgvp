@@ -814,21 +814,30 @@ is 0.02 m and the speed ratio 1.00, so a camera pose measured once per room is t
 (`<recording>_demo_jointfit.mp4`), to watch beside the merge's. Design and every measurement:
 [docs/design.md](docs/design.md) section 2.15.
 
-**On one real recording.** One real two-camera recording has a truth for the distance walked: our own, a walk back
-and forth between two chalk lines 13 ft apart on pavement, a tablet to the side and a phone at one end, both still,
-synced by a clap. `tools/chalk_walk.py` reads the pelvis's position along the walk from the side view (the two lines'
-vanishing point and the known distance; no lens, camera height or subject height) and scores each estimate against
-it (`docs/chalk_walk.json`). Both targets ran unchanged, 100 % of the frames exported, and the fit placed the two
-cameras by itself. Counted in body heights, so that the body's size drops out, the merge reads 0.955 of the true
+**On one real recording.** One real two-camera recording has a truth for the distance walked: our own, a walk back and
+forth between two chalk lines taped about 13 ft apart on pavement, a tablet to the side and a phone at one end, both
+still, synced by a clap. `tools/chalk_walk.py` reads the pelvis's position along the walk from the side view (the two
+lines' vanishing point and the known distance; no lens, camera height or subject height) and scores each estimate
+against it (`docs/chalk_walk.json`). Both targets ran unchanged, 100 % of the frames exported, and the fit placed the
+two cameras by itself. Counted in body heights, so that the body's size drops out, the merge reads 0.955 of the true
 distance and the joint fit 1.043: about 5 % short and 4 % long, the rendered rooms' result over again, and not
-separable within that measure's 2 to 3 %.
-The fit's path is the straighter (0.04 m off the walk's axis against 0.12 m). The same geometry measures the walker,
-and it found the larger error: with the lines at 13 ft the walker's box is 1.53 m tall, while the lifter's body
-stands 1.78 m and the fit's 1.74 m, so in metres both targets read the walk long (11 and 19 %). Every estimate takes
-its scale from its body, and the body's height is the lifter's guess. If distances in metres matter, record the
-subject's height; a rescale by it is not built. The subject's height was not on record for this clip, so which of
-the two is off, the bodies or the 13 ft, is open. Section 2.16 of the design document has the method and every
-number.
+separable within that measure's 2 to 3 %. The fit's path is the straighter (0.04 m off the walk's axis against 0.12
+m). The same geometry measures the walker, and two inputs that should agree do not: the subject stands 1.651 m, which
+puts the lines 14.2 ft apart, not 13. The gap is 8.8 % and the recording cannot say which is off. With the height
+trusted the bodies are 5 to 8 % too tall (1.74 and 1.78 m) and the walk reads 2 % long in the merge and 9 % long in
+the joint fit as delivered; with the tape trusted, 11 and 19 %. Every estimate takes its scale from its body, and the
+body's height is the lifter's guess. If distances in metres matter, record the subject's height; a rescale by it is
+not built.
+
+**The same recording with the side view cut below the head**, as a clinic's side camera frames a walker: everything
+still ran and exported 100 %, and the leg angles held (knee flexion within 1.8 deg rms of the full-view run, in both
+targets). Two things changed. The side view's lift put the walker 8 % further away, so both targets' paths grew by
+about 7 %, and the merge's path lost shape (spread about its line 0.04 to 0.14 m) while the fit's did not (0.05 m).
+And the neck and head, which the side view no longer shows, are still taken from both views in 80 % of the frames,
+because the shoulder keypoints at the picture's edge pass as seen; on rendered truth such a neck is 21 to 27 deg off.
+Choosing the view that shows the head instead was tested on the rendered sessions and gained 1 to 3 deg on the neck
+while losing up to 3 on the head, so the merge is unchanged. Sections 2.16 and 2.17 of the design document have the
+method and every number.
 
 ### When there is no truth: a real clip
 
@@ -1060,9 +1069,9 @@ clip the only check of its number is the lifted floor coming out level. The rest
 the stride-band flexion rule and the velocity on the mat were tuned and scored on the same six rendered recordings,
 and so were the settings of the optional joint two-view fit. Its self-calibration of the cameras has met rendered
 pinhole cameras and one real pair, a tablet and a phone outdoors, where the only truth was the distance walked and
-neither lens was measured. On that recording the lifted body stood 15 to 18 % taller than the walker's picture says
-if the chalk lines were 13 ft apart, and the subject's height was not on record to settle it: GVHMR's scale on a
-real person is unverified.
+neither lens was measured. On that recording the lifted bodies stand 5 to 8 % taller than the
+subject (1.651 m), and the subject's height and the taped 13 ft between the chalk lines disagree by a further 8.8 %
+that is not resolved: GVHMR's scale on a real person is unverified.
 The decisive number, the subject's `r_fine` in real footage, comes out of the first real run and is printed in the QC summary. [docs/design.md](docs/design.md) section 3 lists everything, and
 section 4 the questions to settle with a dataset's owners before that run.
 

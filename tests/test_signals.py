@@ -212,6 +212,18 @@ def test_panel_detection(tmp_path):
     w.release()
     pan3 = detect_panels(out3, n_samples=20)
     assert pan3["layout"] == "single" and abs(pan3["panels"][0]["box"][1] - 60) <= 12, pan3
+    # a wide view that fills 30 % of the height (a walker cut at the neck) beside a tall one, a black band between
+    W4, H4, LW4, Y0, Y1, GAP = 1516, 960, 960, 360, 650, 16
+    out4 = tmp_path / "strip.mp4"; w = cv2.VideoWriter(str(out4), cv2.VideoWriter_fourcc(*"mp4v"), 30, (W4, H4))
+    texF = _smooth_texture(rng, Y1 - Y0 + 40, LW4); texG = _smooth_texture(rng, H4, W4 - LW4 - GAP + 40)
+    for f in range(90):
+        fr = np.zeros((H4, W4, 3), np.uint8); dy = int(round(10 * np.sin(f / 9))); dx = int(round(12 * np.cos(f / 11)))
+        fr[Y0:Y1, :LW4] = texF[20 + dy:20 + dy + Y1 - Y0][..., None]; fr[:, LW4 + GAP:] = texG[:, 20 + dx:20 + dx + W4 - LW4 - GAP][..., None]
+        cv2.circle(fr, (int(60 + 9 * f), 520), 60, (20, 20, 20), -1); w.write(fr)             # dark clothes in the strip
+    w.release()
+    pan4 = detect_panels(out4, n_samples=20); b4 = {p["id"]: p["box"] for p in pan4["panels"]}
+    assert pan4["layout"] == "horizontal" and pan4["detail"]["separator"], pan4
+    assert np.abs(np.array(b4["left"]) - [0, Y0, LW4, Y1]).max() <= 12 and np.abs(np.array(b4["right"]) - [LW4 + GAP, 0, W4, H4]).max() <= 12, b4
 
 
 def test_single_view_with_a_wall_corner_is_not_split(tmp_path):
