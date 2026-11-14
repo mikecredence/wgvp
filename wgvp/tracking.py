@@ -16,6 +16,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .progress import check_stop
+
 # ultralytics must never try to pip-install or phone home on the partner's machine
 os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 os.environ.setdefault("YOLO_OFFLINE", "true")
@@ -153,7 +155,7 @@ def torso_histogram(img_bgr: np.ndarray, kp: np.ndarray, box: np.ndarray, min_co
 
 def analyze_video(video: str | Path, weights: str | Path, panels: list[dict], start: int = 0, end: int | None = None, step: int = 1,
                   max_width: int = 1280, conf: float = 0.3, device: str | None = None, imgsz: int = 640, rois: dict | None = None,
-                  log=print, tracker: str = "bytetrack.yaml", on_frame=None) -> dict:
+                  log=print, tracker: str = "bytetrack.yaml", on_frame=None, stop=None) -> dict:
     """Decode once; per panel: crop, downscale to max_width, YOLO-pose tracking with its own tracker, appearance,
     visibility, brightness grid. Returns {view_id: TrackSet}."""
     info = probe_video(video, with_hash=False)
@@ -199,6 +201,8 @@ def analyze_video(video: str | Path, weights: str | Path, panels: list[dict], st
         n += 1
         if on_frame and (n % every == 0 or n == total):
             on_frame(min(n, total), total)
+        if stop is not None and n % every == 0:                                 # the Stop button reaches the loop here
+            check_stop(stop)
         if n % 500 == 0:
             log(f"      tracked {n} frames ({n / (time.time() - t0):.1f} fps)")
     out = {}

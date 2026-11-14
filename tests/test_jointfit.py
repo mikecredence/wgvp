@@ -14,7 +14,8 @@ import pytest
 from scipy.spatial.transform import Rotation as R
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wgvp.cli import main as cli_main, merged_sessions   # noqa: E402
+from wgvp.cli import main as cli_main   # noqa: E402
+from wgvp.demo import merged_sessions   # noqa: E402
 from wgvp.fusion import geodesic   # noqa: E402
 from wgvp.config import is_view_item   # noqa: E402
 from wgvp.demo import resolve_target   # noqa: E402

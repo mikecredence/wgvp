@@ -61,3 +61,13 @@ class RunProgress:
             x = 1.0 - WRAP_SHARE; self.text = "writing the QC summary"
         self.fraction = min(max(self.fraction, x), 1.0)
         return self.fraction, self.text
+
+
+class RunStopped(Exception):
+    """The run was asked to stop (the GUI's Stop button): raised at the next check, caught by run_root."""
+
+
+def check_stop(stop) -> None:
+    """stop is None or a callable with no arguments; raise RunStopped when it says the run should end."""
+    if stop is not None and stop():
+        raise RunStopped("stopped by the user")

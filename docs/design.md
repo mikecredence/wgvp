@@ -2211,6 +2211,66 @@ QC table's width. The bar is calibrated on the bundled examples; on a long clini
 per video the matching share may be larger than the 8 % allowed for, and the bar would then sit near full for
 longer than it should.
 
+### 2.22 Round fifteen: a Stop button, and the demo video from the window (2026-11-13)
+
+**Asked.** Can the GUI have a stop button; and after a partner runs a recording, do they get the picture the
+README's demo clips show (the two views with the lifter's input, the mesh in each, the timelines)?
+
+**The stop.** One callable, `stop`, travels from the window into every loop that can take long: the tracker
+checks it at the cadence of its progress reports (every frame on a short clip, every fifth frame on a thousand),
+the session runner before each video and each recording, the run before each session and before the lift. When it
+says so, `RunStopped` (`wgvp/progress.py`) is raised and `run_root` catches it: finished sessions keep their
+results, the session under way gets a `session_summary.json` with status STOPPED and the reason, the QC summary is
+still built over what there is, and the result carries `stopped = {after, of, during}`. The next run reuses the
+finished tracking (cached per video) and the finished lift pieces (the stage skips done chunks), so a stop costs
+the piece under way and nothing more. The dry run stops the same way and returns STOPPED without its checks.
+
+The lift runs in another process (the GVHMR environment's python), which starts the lifter as its own child. The
+stage now starts as its own process group (`start_new_session` on POSIX, `taskkill /T` on Windows) and a watcher
+thread polls the stop every half second, so the button ends the stage and the lifter together even during the
+minutes in which the stage prints nothing. Ctrl-C in a terminal ends the group the same way: a process in its own
+session no longer receives the terminal's SIGINT, so the stage kills it explicitly. `stream_child` in `session.py`
+holds this and the demo below shares it.
+
+| what was running | the stop reached it in |
+|---|---|
+| tracking (bundled OWN01, CPU, asked 60 frames in) | the next frame; the run returned 0.0 s after the request |
+| the lift stage and its child (a stand-in stage, in the test) | both processes gone within 2 s |
+| the demo render (OWN02, 393 frames, from the window) | 0.3 to 0.7 s, the part-written file removed |
+
+**The window.** Stop is live only while a job runs and the job buttons are off meanwhile. The status line says
+"stopping ..." at the press, then "stopped after k of n session(s) (PASS a, WARN b, FAIL c kept). Run all sessions
+again continues: finished tracking and lifts are reused." The stopped session's row reads STOPPED with the reason.
+
+**The demo video from the window.** The answer to the second question was: yes, from the command line, with the
+demo extras and the SMPL-X files. Now **Demo video** renders every lifted recording of the selected session (every
+lifted session when no row is selected), the bar follows it frame by frame, and the file opens when it is done. It
+says three things instead of failing: no lifted recording yet; the extras are missing (with the pip line); the
+SMPL-X files are not found (with where it looked). Two things had to be learned to make it work on this Mac:
+
+1. pyrender's pyglet backend lists screens with `CGGetActiveDisplayList`. While the display is asleep or locked
+   that list is empty (the online list still names the display), so `wgvp demo` died in pyglet with an
+   `IndexError` from an unattended session, in the window's process and in a terminal alike. `_mac_screen_fallback`
+   in `demo.py` falls back to the online list when the active one is empty; an offscreen context works on it. A
+   renderer that still cannot start now says so in a sentence instead of a traceback.
+2. pyglet wants the main thread of its process (it installs a signal handler), so the render cannot run in the
+   window's worker thread. The window runs `wgvp demo --progress` as a child through `stream_child`, reads its
+   `[demo] i/n` lines for the bar and its `demo -> path` line for the file. A stop ends the child with SIGTERM,
+   which the demo turns into a clean exit that removes the part-written file; on Windows the kill is hard, so the
+   window removes any video in the demo folder newer than the job's start.
+
+On this Mac: 18 s from the click to the first frames (the child's imports and the body model), 393 frames in 55 s,
+a 1.8 MB file of 1840 x 1574.
+
+**Tests.** `test_stop.py` (3): the signal; a run stopped 30 frames into the tracking (ends within the limit,
+STOPPED summary, QC summary present, the log line); the lift stage as a stand-in that starts a grandchild, both
+gone after the stop (a sh or bat wrapper stands in for the GVHMR python). The GUI test now starts a run, stops it
+at 12 % of the bar, checks the status line, the row and the buttons, presses Demo video where nothing is lifted
+(the dialog), then runs to the end as before: 23 s on this Mac. 126 unit tests pass.
+
+**What stays open.** Check GPU still holds the window; no single-session run; the QC table's width; the demo on
+Windows is untested (the install of its extras there too); the lift on Windows (2.21) is unchanged.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

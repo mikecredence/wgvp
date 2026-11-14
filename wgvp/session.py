@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from .discovery import scan_root
 from .flash import detect_flash_auto, detect_flash_roi
 from .imu_ref import load_recording, summarize_imu_ref
 from .labels import read_walk_intervals, walk_label_offset
+from .progress import RunStopped, check_stop
 from .qc import dump_json, privacy_check, tee_logger, write_thumbnails
 from .jointfit import fit_and_settle, summary_items
 from .merge import merge_recording
@@ -113,7 +115,7 @@ def panels_for(video: Path, cfg: dict, work: Path, log) -> dict:
     return pan
 
 
-def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: Path, log, force=False, device=None, on_frame=None) -> tuple[dict, dict, dict]:
+def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: Path, log, force=False, device=None, on_frame=None, stop=None) -> tuple[dict, dict, dict]:
     """-> ({view_id: TrackSet}, probe info, panels). Cached per video file hash + panel boxes."""
     vdir = work / video.stem; vdir.mkdir(parents=True, exist_ok=True)
     info = probe_video(video); dump_json(info, vdir / "probe.json")
@@ -131,7 +133,7 @@ def analyze_one_video(video: Path, cfg: dict, work: Path, sconf: dict, weights: 
         if f"light_{p['id']}" in sconf:
             rois.setdefault(p["id"], {})["light"] = sconf[f"light_{p['id']}"]
     log(f"    tracking {info['width']}x{info['height']} {info['fps_nominal']:.2f} fps, {info['n_frames_nominal']} frames, {len(pan['panels'])} view(s) ...")
-    views = analyze_video(video, weights, pan["panels"], max_width=cfg["params"]["track_max_width"], rois=rois, log=log, device=device, conf=cfg["params"]["pose_conf"], imgsz=imgsz, on_frame=on_frame)
+    views = analyze_video(video, weights, pan["panels"], max_width=cfg["params"]["track_max_width"], rois=rois, log=log, device=device, conf=cfg["params"]["pose_conf"], imgsz=imgsz, on_frame=on_frame, stop=stop)
     for vid, ts in views.items():
         split_fragments(ts); ts.meta["video_sha256"] = info["sha256"]; ts.save(vdir / f"tracks_{vid}.npz")
     cache.write_text(json.dumps(key), encoding="utf-8")
@@ -302,7 +304,7 @@ def export_subject_track(subj: dict, out: Path, view_box: list, keep_face: bool 
 
 # ----------------------------------------------------------------------------------------------------------------
 def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAULT_WEIGHTS, force: bool = False, keep_face: bool = False,
-                      device: str | None = None, log=None, progress=None) -> dict:
+                      device: str | None = None, log=None, progress=None, stop=None) -> dict:
     sid = entry["session_id"]; sdir = session_out(root, sid)
     work, deliver, cdir = sdir / "work", sdir / "deliver", sdir / "config"
     bundle = deliver / "validation_bundle"
@@ -317,11 +319,14 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
     vcache = {}
     for vi, v in enumerate(entry["videos"]):
         video = Path(v["path"])
+        check_stop(stop)
         if progress:
             progress("video", vi, len(entry["videos"]), video.name)
         on_frame = (lambda d, t: progress("frames", d, t, "")) if progress else None
         try:
-            views, info, pan = analyze_one_video(video, cfg, work, sconf, Path(weights), log, force=force, device=device, on_frame=on_frame)
+            views, info, pan = analyze_one_video(video, cfg, work, sconf, Path(weights), log, force=force, device=device, on_frame=on_frame, stop=stop)
+        except RunStopped:
+            raise
         except Exception as e:
             import traceback
             log(f"    [{video.name}] FAIL: {e}\n{traceback.format_exc()}")
@@ -354,6 +359,7 @@ def run_session_entry(entry: dict, root: Path, cfg: dict, weights: Path = DEFAUL
     cam_results = {}
     for ri, rec in enumerate(entry["recordings"]):
         rid = rec["recording_id"]
+        check_stop(stop)
         if progress:
             progress("session", ri, len(entry["recordings"]), f"{sid}: {rid}")
         try:
@@ -607,8 +613,51 @@ def refresh_session_after_gvhmr(root: Path, sid: str, cfg: dict, log=print, gvhm
 
 
 # ----------------------------------------------------------------------------------------------------------------
+def _kill_tree(p: subprocess.Popen) -> None:
+    """End the stage process and everything it started (the lifter runs as its grandchild)."""
+    if p.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    import signal
+    for sig in (signal.SIGTERM, signal.SIGKILL):                     # the stage was started as its own process group
+        try:
+            os.killpg(p.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            p.wait(timeout=5); return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def stream_child(cmd: list[str], log, stop=None, on_line=None, env: dict | None = None, cwd: str | None = None) -> int:
+    """Run cmd as its own process group, hand every output line to log (and on_line), and end it with everything it
+    started when stop() says so or on Ctrl-C. Returns the exit code (negative when it was ended)."""
+    env = dict(env if env is not None else os.environ, PYTHONUTF8="1")             # one text encoding on every system
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=cwd, text=True, encoding="utf-8", errors="replace",
+                         start_new_session=(os.name != "nt"))
+
+    def watch():                                                     # the Stop button, while the child is quiet for minutes
+        while p.poll() is None:
+            if stop():
+                _kill_tree(p); return
+            time.sleep(0.5)
+    if stop is not None:
+        threading.Thread(target=watch, daemon=True).start()
+    try:
+        for line in p.stdout:
+            log(line.rstrip())
+            if on_line:
+                on_line(line)
+        return p.wait()
+    except KeyboardInterrupt:
+        _kill_tree(p); raise
+
+
 def run_gvhmr_stage(root: Path, cfg: dict, gvhmr_root: str | None = None, gvhmr_python: str | None = None, log=print, only: str | None = None,
-                    progress=None) -> dict:
+                    progress=None, stop=None) -> dict:
     groot = gvhmr_root or cfg["gvhmr"].get("root") or ""; gpy = gvhmr_python or cfg["gvhmr"].get("python") or sys.executable
     if not groot:
         return {"ran": False, "message": "no GVHMR root configured (config gvhmr.root or --gvhmr-root)"}
@@ -617,29 +666,31 @@ def run_gvhmr_stage(root: Path, cfg: dict, gvhmr_root: str | None = None, gvhmr_
         cmd += ["--only", only]
     if str(cfg["gvhmr"].get("device", "cuda")).lower() == "cpu":            # no NVIDIA GPU here: the slow fallback
         cmd += ["--device", "cpu"]
-    env = dict(os.environ, PYTHONPATH=str(PKG_DIR) + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONUTF8="1")   # one text encoding on every system
+    env = dict(os.environ, PYTHONPATH=str(PKG_DIR) + os.pathsep + os.environ.get("PYTHONPATH", ""))
     logf = out_root(root) / "logs" / "gvhmr_stage.log"; logf.parent.mkdir(parents=True, exist_ok=True)
     log(f"GVHMR stage: {' '.join(cmd)}  (log: {logf})")
-    t0 = time.time()
+    t0 = time.time(); count = {"n": 0, "done": 0}
+
+    def on_line(line):                                                   # the stage names every piece as it starts and ends
+        lf.write(line)
+        m = re.match(r"\[gvhmr_stage\] (?:(\d+) chunk\(s\)|(run|skip) +(\S+)|( +-> ))", line) if progress else None
+        if m and m.group(1):
+            count["n"] = int(m.group(1))
+        elif m and count["n"]:
+            count["done"] += bool(m.group(4)) or m.group(2) == "skip"
+            progress("lift", min(count["done"], count["n"]), count["n"], m.group(3) if m.group(2) == "run" else "")
     with open(logf, "a", encoding="utf-8") as lf:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, encoding="utf-8", errors="replace")
-        n_pieces = done = 0
-        for line in p.stdout:
-            lf.write(line); log("    " + line.rstrip())
-            if progress:                                                     # the stage names every piece as it starts and ends
-                m = re.match(r"\[gvhmr_stage\] (?:(\d+) chunk\(s\)|(run|skip) +(\S+)|( +-> ))", line)
-                if m and m.group(1):
-                    n_pieces = int(m.group(1))
-                elif m and n_pieces:
-                    done += bool(m.group(4)) or m.group(2) == "skip"
-                    progress("lift", min(done, n_pieces), n_pieces, m.group(3) if m.group(2) == "run" else "")
-        rc = p.wait()
+        rc = stream_child(cmd, lambda s: log("    " + s), stop=stop, on_line=on_line, env=env)
+    check_stop(stop)                                                     # a piece under way when the stop came is redone by the next run
     return {"ran": True, "returncode": rc, "elapsed_s": time.time() - t0, "cmd": " ".join(cmd), "log": str(logf)}
 
 
 def run_root(root: Path, cfg: dict | None = None, gvhmr_root: str | None = None, gvhmr_python: str | None = None, only: list[str] | None = None,
              force: bool = False, keep_face: bool = False, device: str | None = None, cpu_only: bool = False, log=None, progress=None,
-             weights: Path = DEFAULT_WEIGHTS) -> dict:
+             weights: Path = DEFAULT_WEIGHTS, stop=None) -> dict:
+    """Every session's CPU stages, then the lift and the merge, then the QC summary. stop (a callable) ends the run at
+    the next check: the summary covers what finished, the session under way is marked STOPPED, the next run reuses
+    the finished tracking and lifts."""
     root = Path(root).resolve(); cfg = cfg or load_config(root)
     oroot = out_root(root); oroot.mkdir(parents=True, exist_ok=True)
     log = log or tee_logger(oroot / "logs" / "run.log")
@@ -651,27 +702,46 @@ def run_root(root: Path, cfg: dict | None = None, gvhmr_root: str | None = None,
     if progress:
         sizes = [sum(Path(v["path"]).stat().st_size for v in s["videos"] if Path(v["path"]).exists()) or 1 for s in sessions]
         progress("plan", int(lift), len(sessions), ",".join(str(b) for b in sizes))      # a session's share of the bar follows its video size
-    for i, s in enumerate(sessions):
-        if progress:
-            progress("root", i, len(sessions), s["session_id"])
-        try:
-            run_session_entry(s, root, cfg, weights=weights, force=force, keep_face=keep_face, device=device, log=log, progress=progress)
-        except Exception as e:
-            import traceback
-            log(f"[{s['session_id']}] CRASH {e}\n{traceback.format_exc()}")
-            dump_json({"session_id": s["session_id"], "status": "FAIL", "error": str(e), "items": {}, "videos": {}}, session_out(root, s["session_id"]) / "deliver" / "session_summary.json")
-    gv = {"ran": False}
-    if lift:
-        gv = run_gvhmr_stage(root, cfg, gvhmr_root, gvhmr_python, log=log, progress=progress)
-        for s in sessions:
-            refresh_session_after_gvhmr(root, s["session_id"], cfg, log=log, gvhmr_root=gvhmr_root)
-    elif not cpu_only:
-        gv["message"] = "GPU stage not run: set gvhmr.root / gvhmr.python in wgvp_config.json (or the GUI fields) and run `wgvp gvhmr <root>`"
-        log(gv["message"])
+    gv = {"ran": False}; stopped = None; cur = None; n_done = 0
+    try:
+        for i, s in enumerate(sessions):
+            cur = s["session_id"]; check_stop(stop)
+            if progress:
+                progress("root", i, len(sessions), s["session_id"])
+            try:
+                run_session_entry(s, root, cfg, weights=weights, force=force, keep_face=keep_face, device=device, log=log, progress=progress, stop=stop)
+            except RunStopped:
+                raise
+            except Exception as e:
+                import traceback
+                log(f"[{s['session_id']}] CRASH {e}\n{traceback.format_exc()}")
+                dump_json({"session_id": s["session_id"], "status": "FAIL", "error": str(e), "items": {}, "videos": {}}, session_out(root, s["session_id"]) / "deliver" / "session_summary.json")
+            n_done = i + 1
+        cur = None
+        if lift:
+            check_stop(stop)
+            gv = run_gvhmr_stage(root, cfg, gvhmr_root, gvhmr_python, log=log, progress=progress, stop=stop)
+            for s in sessions:
+                refresh_session_after_gvhmr(root, s["session_id"], cfg, log=log, gvhmr_root=gvhmr_root)
+        elif not cpu_only:
+            gv["message"] = "GPU stage not run: set gvhmr.root / gvhmr.python in wgvp_config.json (or the GUI fields) and run `wgvp gvhmr <root>`"
+            log(gv["message"])
+    except RunStopped:
+        stopped = {"after": n_done, "of": len(sessions), "during": cur or "lift"}
+        if cur:                                                          # this session's row says so until a run completes it
+            dump_json({"session_id": cur, "status": "STOPPED", "error": "stopped by the user before this session finished", "items": {}, "videos": {}},
+                      session_out(root, cur) / "deliver" / "session_summary.json")
+            gv["message"] = "GPU stage not run: the run was stopped"
+        else:
+            gv = {"ran": False, "message": "GPU stage stopped by the user; the next run resumes it (finished pieces are kept)"}
+        log(f"stopped by the user: {n_done} of {len(sessions)} session(s) finished, " + (f"{cur} not finished" if cur else "the lift not finished")
+            + "; the next run reuses the finished tracking and lifts")
     if progress:
         progress("wrap", 0, 1, "")
     from .summary import build_summary
     summ = build_summary(root, cfg, gvhmr=gv, log=log)
+    if stopped:
+        summ["status"] = "STOPPED"; summ["stopped"] = stopped
     if hasattr(log, "close"):
         log.close()
     return summ

@@ -9,11 +9,6 @@ from pathlib import Path
 from . import __version__
 
 
-def merged_sessions(root: Path) -> list[str]:
-    """The sessions under <root>/wgvp_output that hold a merged recording (deliver/<recording>/merged_smpl.npz)."""
-    return sorted({d.parents[2].name for d in (Path(root) / "wgvp_output").glob("*/deliver/*/merged_smpl.npz")})
-
-
 def _q(path) -> str:
     """A path as it can be pasted into a command line: quoted when it holds a space."""
     return f'"{path}"' if " " in str(path) else str(path)
@@ -58,6 +53,7 @@ def main(argv=None):
     p.add_argument("--out"); p.add_argument("--body-models"); p.add_argument("--t0", type=float); p.add_argument("--t1", type=float); p.add_argument("--step", type=int, default=1)
     p.add_argument("--gif"); p.add_argument("--gif-span", help="A,B seconds of IMU time for the GIF (default: the first 14 s of the span)")
     p.add_argument("--readout", choices=["both", "charts", "strips"], default="both"); p.add_argument("--strip-step", type=float, default=2.0)
+    p.add_argument("--progress", action="store_true", help="print a '[demo] <frame>/<frames> <session>/<recording>' line every few frames (the GUI reads them)")
     p.add_argument("--target", choices=["auto", "merge", "jointfit"], default="auto",
                    help="the pose shown: the recording's training target as target.json names it (default), or the merge / the joint two-view fit by name (the file name then gets _merge / _jointfit)")
     p = sub.add_parser("merge", help="(re)build the training target from existing GVHMR outputs: the merge (merged_smpl.npz), the joint two-view fit (jointfit_smpl.npz) and target.json; no GPU needed")
@@ -124,12 +120,23 @@ def main(argv=None):
             refresh_session_after_gvhmr(root, d.parent.parent.name, cfg, gvhmr_root=a.gvhmr_root)
         build_summary(root, cfg, gvhmr=r); return 0 if r.get("returncode", 1) == 0 else 1
     if a.cmd == "demo":
-        from .demo import render_demo
+        from .demo import merged_sessions, render_demo
         root = Path(a.root); sessions = [a.session] if a.session else merged_sessions(root)
         if not sessions:
             print("no merged recording under wgvp_output (run the GPU stage, then `wgvp merge`)"); return 1
-        for sid in sessions:
-            render_demo(root, sid, a.recording, a.gt, a.out if len(sessions) == 1 else None, a.body_models, a.t0, a.t1, a.step, a.gif if len(sessions) == 1 else None, a.gif_span, a.readout, a.strip_step, target=a.target)
+        import signal
+        from .progress import RunStopped
+
+        def _term(*_):                                                   # the GUI's Stop: the part-written file is removed on the way out
+            raise RunStopped("terminated")
+        signal.signal(signal.SIGTERM, _term)
+        prog = (lambda stage, i, n, msg: print(f"[demo] {i}/{n} {msg}", flush=True)) if a.progress else None
+        try:
+            for sid in sessions:
+                render_demo(root, sid, a.recording, a.gt, a.out if len(sessions) == 1 else None, a.body_models, a.t0, a.t1, a.step, a.gif if len(sessions) == 1 else None, a.gif_span, a.readout, a.strip_step, target=a.target,
+                            progress=prog)
+        except RunStopped:
+            print("demo stopped"); return 130
         return 0
     if a.cmd == "merge":
         from .config import load_config

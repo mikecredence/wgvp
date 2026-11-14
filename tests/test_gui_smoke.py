@@ -1,4 +1,5 @@
-"""The window itself, driven the way a user drives it: scan a folder, run it, read the result, open the summary.
+"""The window itself, driven the way a user drives it: scan a folder, start a run and stop it, ask for a demo video
+where nothing is lifted, run to the end, read the result, open the summary.
 
 It needs a display and about a minute, so it runs only with WGVP_GUI_SMOKE=1 (the CI sets it on Windows, macOS
 and Linux). The data folder has a space and an accent in its name, as a folder on a real PC may."""
@@ -53,7 +54,26 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
             yield 200
         assert [t for _, t, _ in rows() if t == "OWN01"], rows()
         _find(app, "TCheckbutton").invoke()                        # CPU stages only
-        _find(app, "TButton", "Run all sessions").invoke()
+        _find(app, "TButton", "Run all sessions").invoke()         # a run, stopped while it tracks
+        t0 = time.time()
+        while float(bar.cget("value")) < 0.12 * gui.BAR:
+            assert time.time() - t0 < 600, f"the run did not get going: {status()}"
+            yield 200
+        _find(app, "TButton", "Stop").invoke()
+        t0 = time.time()
+        while not status().startswith("stopped"):
+            assert time.time() - t0 < 120, f"the run did not stop: {status()}"
+            yield 200
+        yield 400
+        seen["stop_status"] = status(); seen["stop_row"] = next(v for _, t, v in rows() if t == "OWN01")
+        seen["buttons"] = tuple(str(_find(app, "TButton", b).cget("state")) for b in ("Run all sessions", "Stop", "Demo video"))
+        _find(app, "TButton", "Demo video").invoke()                # nothing is lifted here: a dialog says so and nothing runs
+        t0 = time.time()
+        while not seen["boxes"] or status() != "idle":
+            assert time.time() - t0 < 60, f"no answer to the demo button: {status()} {seen['boxes']}"
+            yield 200
+        seen["demo_box"] = list(seen["boxes"])
+        _find(app, "TButton", "Run all sessions").invoke()         # the run, to the end
         t0 = time.time()
         while not status().startswith("finished"):
             assert time.time() - t0 < 900, f"the run did not finish: {status()}"
@@ -78,7 +98,11 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
 
     gui.launch(str(root), on_ready=on_ready)
     assert seen["error"] is None, seen["error"]
-    assert seen["boxes"] == [], seen["boxes"]
+    assert seen["stop_status"].startswith("stopped after 0 of 1 session(s)"), seen["stop_status"]
+    assert seen["stop_row"][-1].startswith("STOPPED: stopped by the user"), seen["stop_row"]
+    assert seen["buttons"] == ("normal", "disabled", "normal"), seen["buttons"]
+    assert len(seen["demo_box"]) == 1 and seen["demo_box"][0].startswith("no lifted recording under wgvp_output yet"), seen["demo_box"]
+    assert seen["boxes"] == seen["demo_box"], seen["boxes"]        # no other dialog came up
     # PASS on macOS and Windows; on Linux the same clip decodes a little differently and ends WARN (flash_disagrees)
     assert seen["status"].startswith(("finished: PASS 1, WARN 0, FAIL 0 of 1", "finished: PASS 0, WARN 1, FAIL 0 of 1")), seen["status"]
     assert seen["row"][-1].startswith(("PASS", "WARN: ")), seen["row"]
