@@ -182,8 +182,12 @@ python -m wgvp run  /path/to/data_root --cpu-only
 
 or open the GUI (`python -m wgvp`): choose the data folder, **Scan**, **Dry run**, **Run all sessions**,
 **Open QC summary**. While a run is going, the bar and the line under it follow the work frame by frame, and each
-session's row in the list takes its PASS, WARN or FAIL with the reason as soon as that session finishes. The
-GUI needs tkinter, which the python.org installers include; on Debian/Ubuntu `sudo apt install python3-tk`, with a
+session's row in the list takes its PASS, WARN or FAIL with the reason as soon as that session finishes. **Stop**
+ends the run at the next frame (during the lift it ends the lifter too): finished sessions keep their results, the
+session under way is marked STOPPED in the list, and the next **Run all sessions** reuses the finished tracking and
+lifts. **Demo video** renders the demo of the selected session's lifted recordings (of every lifted session when no
+row is selected), frame by frame on the bar, and opens it; it needs the extras of step 6 and says so when they are
+missing. The GUI needs tkinter, which the python.org installers include; on Debian/Ubuntu `sudo apt install python3-tk`, with a
 Homebrew Python on macOS `brew install python-tk@3.12` (match your Python version). Without tkinter
 `python -m wgvp` prints these fixes and the equivalent commands in place of the window.
 
@@ -216,7 +220,8 @@ from the pipeline's outputs with `pip install -e .[demo]` and the SMPL-X body mo
 python -m wgvp demo /path/to/data_root --session "Sub 001"     # -> wgvp_output/<session>/work/demo/<recording>_demo.mp4
 ```
 
-It contains video frames, so it is written under `work/` and is not part of the deliverable.
+It contains video frames, so it is written under `work/` and is not part of the deliverable. The GUI's **Demo video**
+button renders the same file for the selected session, or for every lifted session, and opens it when it is done.
 
 ## Expected input
 

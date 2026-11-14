@@ -22,12 +22,14 @@ import json
 import os
 import subprocess
 import tempfile
+import warnings
 from pathlib import Path
 
 import numpy as np
 
 from .fusion import ARMS, LEGS, SPINE, chordal_mean, collapsed_legs, fit_yaw, geodesic, mirror_body, mirror_root, seen_frames, smooth_rotations
 from .merge import path_slope_deg
+from .progress import RunStopped, check_stop
 from .tracking import FACE_KP, SKELETON
 
 COL = {"ok": [150, 160, 200], "missing": [220, 70, 70], "truth": [170, 170, 170]}
@@ -62,6 +64,64 @@ def side_consistent(kp: np.ndarray, max_gap: int = 10) -> np.ndarray:
     return kp
 
 
+def merged_sessions(root: Path) -> list[str]:
+    """The sessions under <root>/wgvp_output that hold a merged recording (deliver/<recording>/merged_smpl.npz)."""
+    return sorted({d.parents[2].name for d in (Path(root) / "wgvp_output").glob("*/deliver/*/merged_smpl.npz")})
+
+
+def merged_recordings(root: Path, session: str) -> list[str]:
+    """The merged recordings of one session, by recording id."""
+    return sorted(p.parent.name for p in (Path(root) / "wgvp_output" / session / "deliver").glob("*/merged_smpl.npz"))
+
+
+def body_models_dir(cfg: dict) -> Path:
+    """Where the SMPL-X files are looked for: the GVHMR install's body_models, else ~/data/WearGait/body_models."""
+    cand = Path(cfg.get("gvhmr", {}).get("root") or "") / "inputs" / "checkpoints" / "body_models"
+    return cand if (cand / "smplx").exists() else Path.home() / "data" / "WearGait" / "body_models"
+
+
+def extras_missing() -> list[str]:
+    """The demo's optional packages that do not import here (pip install -e .[demo])."""
+    import importlib
+    out = []
+    for m in ("torch", "smplx", "trimesh", "pyrender", "av", "matplotlib"):
+        try:
+            importlib.import_module(m)
+        except Exception:
+            out.append(m)
+    return out
+
+
+def _mac_screen_fallback() -> None:
+    """macOS lists no ACTIVE display while the screen is asleep or locked; pyglet then finds no screen and pyrender
+    cannot open its context. The ONLINE list still names the display, and an offscreen context works on it."""
+    import sys
+    if sys.platform != "darwin":
+        return
+    from ctypes import byref, c_uint32
+    import pyglet.display.cocoa as pc
+    if getattr(pc.CocoaDisplay, "_wgvp_fallback", False):
+        return
+    active = pc.CocoaDisplay.get_screens
+
+    def get_screens(self):
+        screens = active(self)
+        if screens:
+            return screens
+        ids = (pc.CGDirectDisplayID * 256)(); n = c_uint32(); pc.quartz.CGGetOnlineDisplayList(256, ids, byref(n))
+        return [pc.CocoaScreen(self, d) for d in list(ids)[:n.value]]
+    pc.CocoaDisplay.get_screens = get_screens; pc.CocoaDisplay._wgvp_fallback = True
+
+
+def _offscreen(pyrender, w: int, h: int):
+    """An offscreen renderer, or a plain sentence when this machine cannot open an OpenGL context."""
+    try:
+        return pyrender.OffscreenRenderer(w, h)
+    except Exception as e:
+        raise RuntimeError(f"the demo's renderer could not open an OpenGL context on this machine ({type(e).__name__}: {e}); "
+                           "a desktop session with a display is needed (on a headless Linux box, PYOPENGL_PLATFORM=egl with an NVIDIA driver)") from e
+
+
 def _video_path(root: Path, deliver: Path, rid: str) -> Path | None:
     summ = json.loads((deliver / "session_summary.json").read_text(encoding="utf-8")) if (deliver / "session_summary.json").exists() else {}
     vid = (summ.get("items", {}).get(rid) or {}).get("video_id"); vrec = (summ.get("videos") or {}).get(vid or "", {})
@@ -93,7 +153,9 @@ def resolve_target(rdir: Path, target: str = "auto") -> tuple[str, str, str]:
 
 def render_demo(root: Path, session: str, recording: str | None = None, gt: str | None = None, out: str | None = None, body_models: str | None = None,
                 t0: float | None = None, t1: float | None = None, step: int = 1, gif: str | None = None, gif_span: str | None = None,
-                readout: str = "both", strip_step: float = 2.0, log=print, target: str = "auto") -> dict:
+                readout: str = "both", strip_step: float = 2.0, log=print, target: str = "auto", stop=None, progress=None) -> dict:
+    """Render the demo video of one lifted recording. stop (a callable) ends the render at the next frame and removes the
+    part-written file; progress("demo", frame, n_frames, recording) is called every few frames."""
     import cv2
     from scipy.spatial.transform import Rotation as R
     from .config import load_config
@@ -107,8 +169,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     if video is None:
         raise SystemExit(f"video of {session}/{rid} not found (session_summary.json / manifest.json)")
     if body_models is None:
-        cand = Path(cfg.get("gvhmr", {}).get("root") or "") / "inputs" / "checkpoints" / "body_models"
-        body_models = str(cand if (cand / "smplx").exists() else Path.home() / "data" / "WearGait" / "body_models")
+        body_models = str(body_models_dir(cfg))
     target, tfile, suffix = resolve_target(rdir, target); tname = "joint fit" if target == "jointfit" else "merge"     # the pose shown: the recording's training target unless one is asked for by name
     out = Path(out) if out else sdir / "work" / "demo" / f"{rid}_demo{suffix}.mp4"; out.parent.mkdir(parents=True, exist_ok=True)
     M = np.load(rdir / "merged_smpl.npz"); views = [str(v) for v in M["views"]]; V = len(views)
@@ -170,7 +231,9 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     t0 = float(span.min()) if t0 is None else t0; t1 = float(span.max()) if t1 is None else t1
     frames = [f for f in range(n_video) if t0 <= t_all[f] <= t1][::max(step, 1)]
     # ---- SMPL-X + renderer
-    os.environ.pop("PYOPENGL_PLATFORM", None)
+    if "PYOPENGL_PLATFORM" not in os.environ or os.environ["PYOPENGL_PLATFORM"] != "egl":
+        os.environ.pop("PYOPENGL_PLATFORM", None)
+    _mac_screen_fallback()
     import torch, smplx, trimesh, pyrender
     bm = smplx.create(body_models, model_type="smplx", gender="neutral", use_pca=False, batch_size=1); faces = bm.faces.astype(np.int32)
     dom = bm.lbs_weights.detach().cpu().numpy()[:, :22].argmax(1)
@@ -180,7 +243,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
                    transl=torch.zeros(1, 3) if transl is None else torch.tensor(transl, dtype=torch.float32)[None])
         return o.vertices[0].numpy()
     RW, RH = 340, 442; AW, AH = 360, 250
-    renderer = pyrender.OffscreenRenderer(RW, RH); aerial_r = pyrender.OffscreenRenderer(AW, AH)
+    renderer = _offscreen(pyrender, RW, RH); aerial_r = _offscreen(pyrender, AW, AH)
     # the aerial scene: with a truth, the sample's room (mat, cameras, operator, bystander) from expected.json; without one, the
     # reconstruction's own path in the reference view's world
     if G is not None:
@@ -319,7 +382,8 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     if V >= 2:                                                                # where both views vouch for a leg joint: how far apart their rotations are
         a_, b_ = views[0], views[1]; both = usable[a_][:, LEGS] & usable[b_][:, LEGS]
         d_ = geodesic(body[a_][:, LEGS], body[b_][:, LEGS]); d_[~both] = np.nan
-        with np.errstate(all="ignore"):
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)                 # an all-NaN column is a view that saw nothing
             dis = np.nanmedian(d_, axis=1)
     for i, v in enumerate(views):
         y = V - 1 - i
@@ -351,7 +415,7 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     # ---- the filmstrip: every strip_step seconds a small render of what each view outputs, the merge (and the truth)
     ticks = np.arange(t0 + 0.5 * strip_step, t1, strip_step); n_tick = len(ticks); TW = min(56, int((R_ - L_) * W / max(n_tick, 1))); TH = int(TW * 5 / 3); RP = TH + 11
     rows = [(f"{v} view", v) for v in views] + [(tname, None)] + ([("truth", "truth")] if G is not None else []); SH = len(rows) * RP + 20
-    thumb_r = pyrender.OffscreenRenderer(2 * TW, 2 * TH)
+    thumb_r = _offscreen(pyrender, 2 * TW, 2 * TH)
     def thumb(Vv, colours):
         sc = pyrender.Scene(bg_color=(0.16, 0.16, 0.16, 1.0), ambient_light=(0.5, 0.5, 0.5)); sc.add(body_mesh(Vv, colours))
         c = np.array([0.0, Vv[:, 1].mean(), 0.0]); az = np.deg2rad(40); eye = c + 3.0 * np.array([np.sin(az), 0.2, side * np.cos(az)])
@@ -397,116 +461,124 @@ def render_demo(root: Path, session: str, recording: str | None = None, gt: str 
     container = av.open(str(out), mode="w"); stream = container.add_stream("libx264", rate=int(round(fps / max(step, 1)))); stream.width, stream.height = W, Hh; stream.pix_fmt = "yuv420p"; stream.options = {"crf": "22"}
     gif_frames = []; g0, g1 = ([float(x) for x in gif_span.split(",")] if gif_span else (t0, min(t1, t0 + 14.0))); err_hist = []
     min_run_s = float(json.loads((rdir / "merge.json").read_text(encoding="utf-8")).get("export", {}).get("min_run_frames", 15)) / fps if (rdir / "merge.json").exists() else 0.5
-    for n, f in enumerate(frames):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, f); ok, img = cap.read()
-        if not ok:
-            break
-        canvas = np.full((Hh, W, 3), 28, np.uint8); t = t_all[f]
-        x = 10
-        for i, v in enumerate(views):                                             # top: the views
-            x0, y0, x1, y1 = vbox[v]; crop = img[y0:y1, x0:x1].copy()
-            kp = kp_draw[v][f]; legs_merged = bool(collapsed[v][f])
-            for a_, b_ in SKELETON:
-                if a_ in FACE_KP or b_ in FACE_KP:
-                    continue
-                if np.isfinite(kp[[a_, b_], :2]).all() and kp[a_, 2] >= 0.3 and kp[b_, 2] >= 0.3:
-                    bone_col = (40, 190, 250) if (legs_merged and a_ >= 11 and b_ >= 11) else (40, 230, 40)     # amber: both legs found on one leg
-                    cv2.line(crop, (int(kp[a_, 0] - x0), int(kp[a_, 1] - y0)), (int(kp[b_, 0] - x0), int(kp[b_, 1] - y0)), bone_col, 3, cv2.LINE_AA)
-            crop = cv2.resize(crop, (pw[v], PH), interpolation=cv2.INTER_AREA)
-            if legs_merged:
-                label(crop, "2D: both legs on one leg", (8, 22), col=(40, 190, 250), scale=0.42)
-            if light_rect and x0 <= light_rect[0] < x1 and y0 <= light_rect[1] < y1:
-                s_ = PH / (y1 - y0); lx, ly = int((light_rect[0] - x0) * s_), int((light_rect[1] - y0) * s_); lw_ = max(int(light_rect[2] * s_), 6)
-                cv2.rectangle(crop, (lx - 3, ly - 3), (lx + lw_ + 3, ly + lw_ + 3), (255, 255, 255), 1); label(crop, "sync light", (lx - 78, ly + lw_ + 2), scale=0.4)
-            legs_ok = leg_ok[v][f]; n_us = int(usable[v][f].sum())
-            col = (40, 200, 40) if legs_ok else ((30, 170, 240) if lifted[v][f] else (60, 60, 220))
-            cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
-            status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge") + (" (at rest: box held)" if held[v][f] else "")))
-            label(canvas, f"{v} view: {status}" + (" (mirror image: reflected back)" if mirrored[v] else ""), (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
-        yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20; at = truth_xz[f]             # middle: (truth | each view alone), reconstruction, export, aerial
-        if G is not None:
-            if gi_f is not None:
-                aa = G["pose_aa"][gi_f]; Vt = verts(aa[:3], aa[3:66]); canvas[yb:yb + RH, 20:20 + RW] = render(Vt, np.tile(COL["truth"], (len(Vt), 1)), at=at)
-            label(canvas, "rendered truth" + ("  (in its room, on the mat)" if room else ""), (28, yb + RH - 12)); xr = 20 + RW + 20
-        elif V >= 2:
-            for i, v in enumerate(views):
-                if lifted[v][f] and vis[v][f] and np.isfinite(root_al[v][f]).all():
-                    Vv = verts(root_al[v][f], np.nan_to_num(body[v][f])); cv = np.tile(COL["ok"], (len(Vv), 1)); cv[np.isin(dom, np.flatnonzero(~usable[v][f]) + 1)] = COL["missing"]
-                    canvas[yb:yb + RH, xr:xr + RW] = render(Vv, cv)
-                else:
-                    canvas[yb:yb + RH, xr:xr + RW] = render(None, None)
-                    label(canvas, "not tracked here" if not lifted[v][f] else "bridged frame", (xr + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
-                label(canvas, f"{v} view alone  ({int(usable[v][f].sum())}/21 usable)", (xr + 8, yb + RH - 12), col=VIEW_BGR[i][::-1] if False else (255, 255, 255))
-                cv2.rectangle(canvas, (xr, yb), (xr + RW - 1, yb + RH - 1), VIEW_BGR[i], 2); xr += RW + 20
-        if not any_lifted[f]:
-            label(canvas, "no data: the subject is tracked in no view", (xr + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
-        elif none[f].all() or not np.isfinite(root_fused[f]).all():
-            label(canvas, "no usable joint in any view", (xr + 8, yb + RH // 2), col=(60, 60, 220))
-        else:
-            Vr = verts(root_show[f], merged_draw[f]); colours = np.tile(COL["ok"], (len(Vr), 1)); colours[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]
-            canvas[yb:yb + RH, xr:xr + RW] = render(Vr, colours, at=at)
-            if gi_f is not None:
-                e = geodesic(merged_out[f], G["pose_aa"][gi_f, 3:66].reshape(21, 3)); le = np.nanmedian(e[LEGS]) if np.isfinite(e[LEGS]).any() else np.nan
-                if np.isfinite(le):
-                    err_hist.append(le)
-                label(canvas, f"leg-joint error vs truth: {le:5.1f} deg" if np.isfinite(le) else "leg joints: no usable view", (xr + 8, yb + 24))
-                if room:
-                    he = float(geodesic(root_show[f][None], truth_root[f][None])[0])
-                    label(canvas, f"root orientation error: {he:5.1f} deg" if np.isfinite(he) else "root orientation: none", (xr + 8, yb + 46), scale=0.5)
-                    label(canvas, f"in the room: one yaw for the recording ({yaw_room:+.0f} deg), true position", (xr + 8, yb + 64), scale=0.36, col=(200, 200, 200))
-            src = []
-            for grp, nm in ((LEGS, "legs"), (ARMS, "arms"), (SPINE, "torso")):
-                who = [v for v in views if usable[v][f][grp].any()]
-                src.append(f"{nm}: " + ("both" if len(who) == V and V > 1 else (who[0] if len(who) == 1 else ("all" if who else "none"))))
-            label(canvas, ("reconstruction  " if target == "merge" else "joint two-view fit  ") + " | ".join(src), (xr + 8, yb + RH - 12), scale=0.5)
-        label(canvas, "red = no view could see this part (not output)", (xr + 8, yb + RH - 34), col=(90, 90, 230), scale=0.5)
-        label(canvas, "2D skeletons: ViTPose keypoints (the lifter's input); amber legs = the detector put both legs on one leg (the 3D lifter copes, measured)",
-              (10, 20 + PH + 8), scale=0.4, col=(200, 200, 200), bg=(28, 28, 28))
-        xe = xr + RW + 20                                                           # the export
-        if export_ok[f] and np.isfinite(root_fused[f]).all():
-            Ve = verts(root_show[f], np.nan_to_num(merged_out[f])); keep = ~np.isin(dom[faces], np.flatnonzero(none[f]) + 1).any(1)
-            canvas[yb:yb + RH, xe:xe + RW] = render(Ve, np.tile(COL["ok"], (len(Ve), 1)), keep, at=at)
-        else:
-            canvas[yb:yb + RH, xe:xe + RW] = render(None, None, at=at)
-            why = ("subject tracked in no view" if not any_lifted[f] else ("a leg joint seen by no view" if not np.isfinite(merged_out[f][LEGS]).all()
-                   else ("a torso joint seen by no view" if not np.isfinite(merged_out[f][SPINE]).all() else f"run shorter than {min_run_s:.1f} s")))
-            label(canvas, "frame not exported:", (xe + 8, yb + RH // 2 - 22), col=(60, 60, 220), scale=0.5); label(canvas, why, (xe + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
-        label(canvas, f"frames kept so far: {export_ok[win & (tt <= t)].mean():.0%}", (xe + 8, yb + RH - 56), scale=0.5)
-        label(canvas, "an arm no view saw is absent; legs and torso are required", (xe + 8, yb + RH - 34), scale=0.42)
-        label(canvas, f"export  ({tfile}: what a user takes away)", (xe + 8, yb + RH - 12))
-        xt = xe + RW + 20
-        if G is not None:
-            Vw = verts(G["pose_aa"][gi_f, :3], G["pose_aa"][gi_f, 3:66], G["transl"][gi_f]) if gi_f is not None else None
-            canvas[yb:yb + AH, xt:xt + AW] = render_aerial(Vw)
-            label(canvas, "aerial truth  (" + ", ".join(f"{v} camera" for v in cams) + ")", (xt + 6, yb + AH - 8), scale=0.42)
-        else:
-            Vw = None
-            if export_ok[f] and np.isfinite(transl_f[f]).all() and np.isfinite(root_fused[f]).all():
-                Vw = verts(root_fused[f], np.nan_to_num(merged_out[f]), transl_f[f]); trail.append(transl_f[f].copy())
-            canvas[yb:yb + AH, xt:xt + AW] = render_aerial(Vw, trail[-600:])
-            label(canvas, "aerial: the reconstruction on its own path (reference view's world)", (xt + 6, yb + AH - 8), scale=0.42)
-        lines = [f"IMU t = {t:6.2f} s   (video frame {f})", "3D reconstruction from partial views:", "a joint is output only from the view(s) that",
-                 "see it, cross-faded over 0.5 s at segment edges;", "nothing where no view sees it.",
-                 "legs usable so far: " + "  ".join(f"{v} {leg_ok[v][win & (tt <= t)].mean():.0%}" for v in views) + f"  any {np.any([leg_ok[v] for v in views], axis=0)[win & (tt <= t)].mean():.0%}"]
-        if err_hist:
-            lines += [f"median leg error so far: {np.nanmedian(err_hist):.1f} deg"]
-        if slope:
-            lines += ["lifted floor slope (0 = level): " + "  ".join(f"{v} {s_:.1f}" for v, s_ in slope.items()) + " deg"]
-        for k_, ln in enumerate(lines):
-            cv2.putText(canvas, ln, (xt, yb + AH + 26 + 22 * k_), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (230, 230, 230), 1, cv2.LINE_AA)
-        yt = yb + RH + 20; cx = cursor_x(t)
-        if show_strip:
-            canvas[yt:yt + SH] = strip
-            k_cur = int(np.clip((t - t0) // strip_step, 0, max(n_tick - 1, 0))); x_c = int(L_ * W) + k_cur * TW
-            cv2.rectangle(canvas, (x_c - 2, yt + 14), (x_c + TW + 1, yt + SH - 2), (255, 255, 255), 1); yt += SH + 10
-        if show_charts:
-            canvas[yt:yt + TLH] = timeline; cv2.line(canvas, (cx, yt + 8), (cx, yt + TLH - 24), (255, 255, 255), 2)
-        for pkt in stream.encode(av.VideoFrame.from_ndarray(canvas[:, :, ::-1].copy(), format="rgb24")):
-            container.mux(pkt)
-        if gif and g0 <= t <= g1 and n % 3 == 0:
-            gif_frames.append(cv2.resize(canvas, (W // 2, Hh // 2), interpolation=cv2.INTER_AREA))
-        if n % 300 == 0:
-            log(f"  {n}/{len(frames)} frames", flush=True) if log is print else log(f"  {n}/{len(frames)} frames")
+    try:
+        for n, f in enumerate(frames):
+            if n % 5 == 0:
+                check_stop(stop)
+                if progress:
+                    progress("demo", n, len(frames), f"{session}/{rid}")
+            cap.set(cv2.CAP_PROP_POS_FRAMES, f); ok, img = cap.read()
+            if not ok:
+                break
+            canvas = np.full((Hh, W, 3), 28, np.uint8); t = t_all[f]
+            x = 10
+            for i, v in enumerate(views):                                             # top: the views
+                x0, y0, x1, y1 = vbox[v]; crop = img[y0:y1, x0:x1].copy()
+                kp = kp_draw[v][f]; legs_merged = bool(collapsed[v][f])
+                for a_, b_ in SKELETON:
+                    if a_ in FACE_KP or b_ in FACE_KP:
+                        continue
+                    if np.isfinite(kp[[a_, b_], :2]).all() and kp[a_, 2] >= 0.3 and kp[b_, 2] >= 0.3:
+                        bone_col = (40, 190, 250) if (legs_merged and a_ >= 11 and b_ >= 11) else (40, 230, 40)     # amber: both legs found on one leg
+                        cv2.line(crop, (int(kp[a_, 0] - x0), int(kp[a_, 1] - y0)), (int(kp[b_, 0] - x0), int(kp[b_, 1] - y0)), bone_col, 3, cv2.LINE_AA)
+                crop = cv2.resize(crop, (pw[v], PH), interpolation=cv2.INTER_AREA)
+                if legs_merged:
+                    label(crop, "2D: both legs on one leg", (8, 22), col=(40, 190, 250), scale=0.42)
+                if light_rect and x0 <= light_rect[0] < x1 and y0 <= light_rect[1] < y1:
+                    s_ = PH / (y1 - y0); lx, ly = int((light_rect[0] - x0) * s_), int((light_rect[1] - y0) * s_); lw_ = max(int(light_rect[2] * s_), 6)
+                    cv2.rectangle(crop, (lx - 3, ly - 3), (lx + lw_ + 3, ly + lw_ + 3), (255, 255, 255), 1); label(crop, "sync light", (lx - 78, ly + lw_ + 2), scale=0.4)
+                legs_ok = leg_ok[v][f]; n_us = int(usable[v][f].sum())
+                col = (40, 200, 40) if legs_ok else ((30, 170, 240) if lifted[v][f] else (60, 60, 220))
+                cv2.rectangle(crop, (0, 0), (pw[v] - 1, PH - 1), col, 4); canvas[20:20 + PH, x:x + pw[v]] = crop
+                status = ("subject not tracked here" if not lifted[v][f] else ("bridged frame (not used)" if not vis[v][f] else f"{n_us}/21 usable" + ("" if legs_ok else ", legs at edge") + (" (at rest: box held)" if held[v][f] else "")))
+                label(canvas, f"{v} view: {status}" + (" (mirror image: reflected back)" if mirrored[v] else ""), (x + 8, 20 + PH - 10), col=col); x += pw[v] + 30
+            yb = 20 + PH + 30; gi_f = gi.get(f); xr = 20; at = truth_xz[f]             # middle: (truth | each view alone), reconstruction, export, aerial
+            if G is not None:
+                if gi_f is not None:
+                    aa = G["pose_aa"][gi_f]; Vt = verts(aa[:3], aa[3:66]); canvas[yb:yb + RH, 20:20 + RW] = render(Vt, np.tile(COL["truth"], (len(Vt), 1)), at=at)
+                label(canvas, "rendered truth" + ("  (in its room, on the mat)" if room else ""), (28, yb + RH - 12)); xr = 20 + RW + 20
+            elif V >= 2:
+                for i, v in enumerate(views):
+                    if lifted[v][f] and vis[v][f] and np.isfinite(root_al[v][f]).all():
+                        Vv = verts(root_al[v][f], np.nan_to_num(body[v][f])); cv = np.tile(COL["ok"], (len(Vv), 1)); cv[np.isin(dom, np.flatnonzero(~usable[v][f]) + 1)] = COL["missing"]
+                        canvas[yb:yb + RH, xr:xr + RW] = render(Vv, cv)
+                    else:
+                        canvas[yb:yb + RH, xr:xr + RW] = render(None, None)
+                        label(canvas, "not tracked here" if not lifted[v][f] else "bridged frame", (xr + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
+                    label(canvas, f"{v} view alone  ({int(usable[v][f].sum())}/21 usable)", (xr + 8, yb + RH - 12), col=VIEW_BGR[i][::-1] if False else (255, 255, 255))
+                    cv2.rectangle(canvas, (xr, yb), (xr + RW - 1, yb + RH - 1), VIEW_BGR[i], 2); xr += RW + 20
+            if not any_lifted[f]:
+                label(canvas, "no data: the subject is tracked in no view", (xr + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
+            elif none[f].all() or not np.isfinite(root_fused[f]).all():
+                label(canvas, "no usable joint in any view", (xr + 8, yb + RH // 2), col=(60, 60, 220))
+            else:
+                Vr = verts(root_show[f], merged_draw[f]); colours = np.tile(COL["ok"], (len(Vr), 1)); colours[np.isin(dom, np.flatnonzero(none[f]) + 1)] = COL["missing"]
+                canvas[yb:yb + RH, xr:xr + RW] = render(Vr, colours, at=at)
+                if gi_f is not None:
+                    e = geodesic(merged_out[f], G["pose_aa"][gi_f, 3:66].reshape(21, 3)); le = np.nanmedian(e[LEGS]) if np.isfinite(e[LEGS]).any() else np.nan
+                    if np.isfinite(le):
+                        err_hist.append(le)
+                    label(canvas, f"leg-joint error vs truth: {le:5.1f} deg" if np.isfinite(le) else "leg joints: no usable view", (xr + 8, yb + 24))
+                    if room:
+                        he = float(geodesic(root_show[f][None], truth_root[f][None])[0])
+                        label(canvas, f"root orientation error: {he:5.1f} deg" if np.isfinite(he) else "root orientation: none", (xr + 8, yb + 46), scale=0.5)
+                        label(canvas, f"in the room: one yaw for the recording ({yaw_room:+.0f} deg), true position", (xr + 8, yb + 64), scale=0.36, col=(200, 200, 200))
+                src = []
+                for grp, nm in ((LEGS, "legs"), (ARMS, "arms"), (SPINE, "torso")):
+                    who = [v for v in views if usable[v][f][grp].any()]
+                    src.append(f"{nm}: " + ("both" if len(who) == V and V > 1 else (who[0] if len(who) == 1 else ("all" if who else "none"))))
+                label(canvas, ("reconstruction  " if target == "merge" else "joint two-view fit  ") + " | ".join(src), (xr + 8, yb + RH - 12), scale=0.5)
+            label(canvas, "red = no view could see this part (not output)", (xr + 8, yb + RH - 34), col=(90, 90, 230), scale=0.5)
+            label(canvas, "2D skeletons: ViTPose keypoints (the lifter's input); amber legs = the detector put both legs on one leg (the 3D lifter copes, measured)",
+                  (10, 20 + PH + 8), scale=0.4, col=(200, 200, 200), bg=(28, 28, 28))
+            xe = xr + RW + 20                                                           # the export
+            if export_ok[f] and np.isfinite(root_fused[f]).all():
+                Ve = verts(root_show[f], np.nan_to_num(merged_out[f])); keep = ~np.isin(dom[faces], np.flatnonzero(none[f]) + 1).any(1)
+                canvas[yb:yb + RH, xe:xe + RW] = render(Ve, np.tile(COL["ok"], (len(Ve), 1)), keep, at=at)
+            else:
+                canvas[yb:yb + RH, xe:xe + RW] = render(None, None, at=at)
+                why = ("subject tracked in no view" if not any_lifted[f] else ("a leg joint seen by no view" if not np.isfinite(merged_out[f][LEGS]).all()
+                       else ("a torso joint seen by no view" if not np.isfinite(merged_out[f][SPINE]).all() else f"run shorter than {min_run_s:.1f} s")))
+                label(canvas, "frame not exported:", (xe + 8, yb + RH // 2 - 22), col=(60, 60, 220), scale=0.5); label(canvas, why, (xe + 8, yb + RH // 2), col=(60, 60, 220), scale=0.5)
+            label(canvas, f"frames kept so far: {export_ok[win & (tt <= t)].mean():.0%}", (xe + 8, yb + RH - 56), scale=0.5)
+            label(canvas, "an arm no view saw is absent; legs and torso are required", (xe + 8, yb + RH - 34), scale=0.42)
+            label(canvas, f"export  ({tfile}: what a user takes away)", (xe + 8, yb + RH - 12))
+            xt = xe + RW + 20
+            if G is not None:
+                Vw = verts(G["pose_aa"][gi_f, :3], G["pose_aa"][gi_f, 3:66], G["transl"][gi_f]) if gi_f is not None else None
+                canvas[yb:yb + AH, xt:xt + AW] = render_aerial(Vw)
+                label(canvas, "aerial truth  (" + ", ".join(f"{v} camera" for v in cams) + ")", (xt + 6, yb + AH - 8), scale=0.42)
+            else:
+                Vw = None
+                if export_ok[f] and np.isfinite(transl_f[f]).all() and np.isfinite(root_fused[f]).all():
+                    Vw = verts(root_fused[f], np.nan_to_num(merged_out[f]), transl_f[f]); trail.append(transl_f[f].copy())
+                canvas[yb:yb + AH, xt:xt + AW] = render_aerial(Vw, trail[-600:])
+                label(canvas, "aerial: the reconstruction on its own path (reference view's world)", (xt + 6, yb + AH - 8), scale=0.42)
+            lines = [f"IMU t = {t:6.2f} s   (video frame {f})", "3D reconstruction from partial views:", "a joint is output only from the view(s) that",
+                     "see it, cross-faded over 0.5 s at segment edges;", "nothing where no view sees it.",
+                     "legs usable so far: " + "  ".join(f"{v} {leg_ok[v][win & (tt <= t)].mean():.0%}" for v in views) + f"  any {np.any([leg_ok[v] for v in views], axis=0)[win & (tt <= t)].mean():.0%}"]
+            if err_hist:
+                lines += [f"median leg error so far: {np.nanmedian(err_hist):.1f} deg"]
+            if slope:
+                lines += ["lifted floor slope (0 = level): " + "  ".join(f"{v} {s_:.1f}" for v, s_ in slope.items()) + " deg"]
+            for k_, ln in enumerate(lines):
+                cv2.putText(canvas, ln, (xt, yb + AH + 26 + 22 * k_), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (230, 230, 230), 1, cv2.LINE_AA)
+            yt = yb + RH + 20; cx = cursor_x(t)
+            if show_strip:
+                canvas[yt:yt + SH] = strip
+                k_cur = int(np.clip((t - t0) // strip_step, 0, max(n_tick - 1, 0))); x_c = int(L_ * W) + k_cur * TW
+                cv2.rectangle(canvas, (x_c - 2, yt + 14), (x_c + TW + 1, yt + SH - 2), (255, 255, 255), 1); yt += SH + 10
+            if show_charts:
+                canvas[yt:yt + TLH] = timeline; cv2.line(canvas, (cx, yt + 8), (cx, yt + TLH - 24), (255, 255, 255), 2)
+            for pkt in stream.encode(av.VideoFrame.from_ndarray(canvas[:, :, ::-1].copy(), format="rgb24")):
+                container.mux(pkt)
+            if gif and g0 <= t <= g1 and n % 3 == 0:
+                gif_frames.append(cv2.resize(canvas, (W // 2, Hh // 2), interpolation=cv2.INTER_AREA))
+            if n % 300 == 0:
+                log(f"  {n}/{len(frames)} frames", flush=True) if log is print else log(f"  {n}/{len(frames)} frames")
+    except RunStopped:                                                           # nothing half-written is left behind
+        container.close(); cap.release()
+        out.unlink(missing_ok=True); raise
     for pkt in stream.encode():
         container.mux(pkt)
     container.close(); renderer.delete(); aerial_r.delete(); cap.release()
