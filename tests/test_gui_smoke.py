@@ -1,10 +1,12 @@
-"""The window itself, driven the way a user drives it: scan a folder, start a run and stop it, ask for a demo video
-where nothing is lifted, run to the end, read the result, open the summary.
+"""The window itself, driven the way a user drives it: scan a folder, check the GPU environment, start a run and stop it,
+ask for a demo video where nothing is lifted, run to the end, read the result, open the summary, run the one session
+again by itself.
 
 It needs a display and about a minute, so it runs only with WGVP_GUI_SMOKE=1 (the CI sets it on Windows, macOS
 and Linux). The data folder has a space and an accent in its name, as a folder on a real PC may."""
 import os
 import shutil
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -53,6 +55,21 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
             assert time.time() - t0 < 180, f"the scan did not finish: {rows()}"
             yield 200
         assert [t for _, t, _ in rows() if t == "OWN01"], rows()
+        entries = [w for w in _widgets(app) if w.winfo_class() == "TEntry"]      # data folder, GVHMR folder, GVHMR python
+        app.setvar(str(entries[2].cget("textvariable")), sys.executable)        # no GVHMR in this interpreter: the check must say so
+        ticks = {"n": 0, "on": True}                                             # and the window must keep painting meanwhile
+
+        def tick():
+            if ticks["on"]:
+                ticks["n"] += 1; app.after(20, tick)
+        app.after(20, tick); t0 = time.time()
+        _find(app, "TButton", "Check GPU").invoke()
+        seen["gpu_busy"] = (status(), tuple(str(_find(app, "TButton", b).cget("state")) for b in ("Run all sessions", "Stop", "Check GPU")))
+        while not status().startswith("GPU stage"):
+            assert time.time() - t0 < 180, f"the GPU check did not end: {status()}"
+            yield 100
+        ticks["on"] = False; seen["gpu"] = (status(), time.time() - t0, ticks["n"]); seen["gpu_log"] = _find(app, "Text").get("1.0", "end")
+        app.setvar(str(entries[2].cget("textvariable")), "")
         _find(app, "TCheckbutton").invoke()                        # CPU stages only
         _find(app, "TButton", "Run all sessions").invoke()         # a run, stopped while it tracks
         t0 = time.time()
@@ -83,6 +100,17 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
         seen["bar"].append(float(bar.cget("value"))); seen["status"] = status()
         seen["row"] = next(v for _, t, v in rows() if t == "OWN01")
         _find(app, "TButton", "Open QC summary").invoke()
+        _find(app, "TButton", "Run selected session").invoke()     # nothing selected: a dialog, nothing runs
+        yield 300
+        seen["one_box"] = list(seen["boxes"]); own = next(i for i, t, _ in rows() if t == "OWN01")
+        tree.selection_set(own); tree.focus(own)
+        _find(app, "TButton", "Run selected session").invoke()     # the one session by itself (its tracking is cached, so quick)
+        seen["one_start"] = status(); t0 = time.time()
+        while not status().startswith("finished"):
+            assert time.time() - t0 < 600, f"the single-session run did not finish: {status()}"
+            yield 200
+        yield 400
+        seen["one_status"] = status()
 
     def on_ready(app):
         gen = script(app)
@@ -98,11 +126,19 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
 
     gui.launch(str(root), on_ready=on_ready)
     assert seen["error"] is None, seen["error"]
+    assert seen["gpu_busy"][0].startswith("checking the GPU environment of ") and seen["gpu_busy"][1] == ("disabled", "normal", "disabled"), seen["gpu_busy"]
+    st, el, ticks = seen["gpu"]
+    assert st.startswith("GPU stage NOT ready: ") and st.endswith("the log below says what is missing and how to fix it"), st
+    assert el < 0.5 or ticks >= 5 * el, (el, ticks)                # the window kept painting while the check ran in another interpreter
+    assert "[MISSING]" in seen["gpu_log"] and "GPU stage NOT ready" in seen["gpu_log"], seen["gpu_log"][-800:]
     assert seen["stop_status"].startswith("stopped after 0 of 1 session(s)"), seen["stop_status"]
     assert seen["stop_row"][-1].startswith("STOPPED: stopped by the user"), seen["stop_row"]
     assert seen["buttons"] == ("normal", "disabled", "normal"), seen["buttons"]
     assert len(seen["demo_box"]) == 1 and seen["demo_box"][0].startswith("no lifted recording under wgvp_output yet"), seen["demo_box"]
-    assert seen["boxes"] == seen["demo_box"], seen["boxes"]        # no other dialog came up
+    assert seen["one_box"] == seen["demo_box"] + ["click a session in the list first (any of its rows), then Run selected session"], seen["one_box"]
+    assert seen["boxes"] == seen["one_box"], seen["boxes"]         # no other dialog came up
+    assert seen["one_start"] == "running OWN01 ...", seen["one_start"]
+    assert seen["one_status"].startswith(("finished: OWN01 PASS.", "finished: OWN01 WARN.")) and "of 1)" in seen["one_status"], seen["one_status"]
     # PASS on macOS and Windows; on Linux the same clip decodes a little differently and ends WARN (flash_disagrees)
     assert seen["status"].startswith(("finished: PASS 1, WARN 0, FAIL 0 of 1", "finished: PASS 0, WARN 1, FAIL 0 of 1")), seen["status"]
     assert seen["row"][-1].startswith(("PASS", "WARN: ")), seen["row"]
