@@ -720,7 +720,7 @@ def run_root(root: Path, cfg: dict | None = None, gvhmr_root: str | None = None,
         cur = None
         if lift:
             check_stop(stop)
-            gv = run_gvhmr_stage(root, cfg, gvhmr_root, gvhmr_python, log=log, progress=progress, stop=stop)
+            gv = run_gvhmr_stage(root, cfg, gvhmr_root, gvhmr_python, log=log, only=",".join(only) if only else None, progress=progress, stop=stop)
             for s in sessions:
                 refresh_session_after_gvhmr(root, s["session_id"], cfg, log=log, gvhmr_root=gvhmr_root)
         elif not cpu_only:

@@ -85,9 +85,14 @@ def format_rows(rows) -> str:
     return "\n".join(out)
 
 
-def run_in_interpreter(python: str, gvhmr_root: str | None) -> tuple[int, str]:
+def interpreter_cmd(python: str, gvhmr_root: str | None) -> tuple[list[str], dict]:
+    """The check as a command for another interpreter (the GVHMR environment's), with this package on its path."""
     env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parent.parent) + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONUTF8="1")
-    cmd = [python, "-m", "wgvp.check_gpu"] + (["--gvhmr-root", gvhmr_root] if gvhmr_root else [])
+    return [python, "-m", "wgvp.check_gpu"] + (["--gvhmr-root", gvhmr_root] if gvhmr_root else []), env
+
+
+def run_in_interpreter(python: str, gvhmr_root: str | None) -> tuple[int, str]:
+    cmd, env = interpreter_cmd(python, gvhmr_root)
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
     return p.returncode, (p.stdout + p.stderr)
 

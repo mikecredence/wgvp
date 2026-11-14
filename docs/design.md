@@ -2271,6 +2271,45 @@ at 12 % of the bar, checks the status line, the row and the buttons, presses Dem
 **What stays open.** Check GPU still holds the window; no single-session run; the QC table's width; the demo on
 Windows is untested (the install of its extras there too); the lift on Windows (2.21) is unchanged.
 
+### 2.23 Round sixteen: one session at a time, a GPU check off the main thread, and the README split (2026-11-13)
+
+Three asks: a run of one session from the window, a Check GPU that does not freeze the window, and a README clean-up.
+
+**Run selected session.** The window's list already knew which session a row belongs to (the demo button walked up
+to it); `selected_session` now serves both. The button runs `run_root(only=[sid])`, which the command line had as
+`--only` all along, with one change underneath: the lift stage took `--only` as `<recording>/<camera>` only, so a
+one-session run would have lifted every pending chunk of the folder. It now also takes session ids separated by
+commas, and `run_root` passes its session list through. The status line names the session while it runs and at the
+end (`finished: OWN01 PASS. Open QC summary shows why; it covers every session run so far (PASS 1, ...)`), since the
+summary's totals are over the whole folder. Nothing selected gives a dialog, not a run. A one-session run after a full
+one takes seconds: the tracking is cached by file hash.
+
+**Check GPU in the background.** The check used to run `subprocess.run` in the Tk thread, and with a GVHMR python
+named it imports torch, pytorch3d and the rest in that interpreter, which is seconds to tens of seconds of a frozen
+window. It is now a job like the others: `interpreter_cmd` in `check_gpu.py` gives the command and the environment
+(the same `run_in_interpreter` uses), the window streams it through `stream_child` so the rows arrive as they are
+printed, Stop ends it, and the last line (`GPU stage READY` or `NOT ready: n item(s) missing`) becomes the status
+line. A python that does not exist gives a dialog. With no python named the check runs in the window's own
+interpreter, in the worker thread.
+
+**The README.** 1296 lines, of which about 750 were the measurement record (two partial views, the merge's rules,
+the partner-style folder, the other tasks, the score table, the joint fit, the real clip). Those sections moved
+verbatim to `docs/results.md`, with their figure links repointed, and the README keeps the front door: what it does,
+the demos and the summary tables, the quick start, the input layout, selection and sync, the failure table, the GPU
+step, a short "Partial bodies" that states each rule without its numbers, one section on what to train on
+(`target.json`, the merge's fields, the joint fit, the demo), a paragraph that says what `docs/results.md` holds,
+outputs, the command line, privacy, the untested list as bullets, the layout, citing and licences: 707 lines. Every
+link and anchor in both files resolves (checked by a script). The window clip was recorded again with the new
+button bar, 1220 px wide now so that every button has its full label.
+
+**Tests.** The GUI test gained two scenarios: Check GPU with the test's own interpreter named as the GVHMR python
+(no GVHMR there, so the status must end `NOT ready` and the log must carry `[MISSING]` rows), with a 20-ms timer
+counting ticks meanwhile to prove the window kept painting (at least five a second over the check); and, after the
+full run, Run selected session with nothing selected (the dialog), then with OWN01 selected (`running OWN01 ...`,
+then `finished: OWN01 PASS.` or `WARN.` on Linux). 29 s on this Mac for the whole window test. 126 unit tests pass.
+
+**What stays open.** The QC table's width; the demo on Windows and its extras' install there; the lift on Windows.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

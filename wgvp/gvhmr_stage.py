@@ -2,7 +2,7 @@
 not the longest track in the frame), then conversion to the pose-level deliverables.
 
 Runs inside the GVHMR environment (conda env `gvhmr` on our box; the Docker image). Usage:
-    python -m wgvp.gvhmr_stage --session <dir> --gvhmr-root /path/to/GVHMR [--timeout 7200] [--only rec/cam]
+    python -m wgvp.gvhmr_stage --session <dir> --gvhmr-root /path/to/GVHMR [--timeout 7200] [--only rec/cam | sid,sid]
 
 GVHMR's demo.py reuses <output_root>/<stem>/preprocess/bbx.pt when it exists, so we write it first (same layout as
 its tracker: bbx_xyxy (L,4) and bbx_xys (L,3) via hmr4d's get_bbx_xys_from_xyxy). demo.py is called unchanged
@@ -210,7 +210,7 @@ def main(argv=None):
     ap.add_argument("--session", default=None, help="one session output dir (<root>/wgvp_output/<session_id>)")
     ap.add_argument("--gvhmr-root", required=True)
     ap.add_argument("--timeout", type=int, default=7200, help="seconds per chunk")
-    ap.add_argument("--only", default=None, help="restrict to <recording>/<camera>")
+    ap.add_argument("--only", default=None, help="restrict to <recording>/<camera>, <session>/<recording>/<camera>, or session ids separated by commas")
     ap.add_argument("--keep-face-keypoints", action="store_true")
     ap.add_argument("--device", choices=["cuda", "cpu"], default="cuda", help="cpu: lift without a GPU (slow fallback)")
     a = ap.parse_args(argv)
@@ -237,7 +237,10 @@ def main(argv=None):
     jobs = [j for sd in scan_dirs for j in sorted(sd.glob("work/*/*/chunks/chunk_*.json"))]
     if a.only:
         parts = a.only.split("/")
-        if len(parts) == 3:
+        if len(parts) == 1:                                                  # whole sessions, by id
+            sids = set(a.only.split(","))
+            jobs = [j for j in jobs if j.parts[-6] in sids]
+        elif len(parts) == 3:
             jobs = [j for j in jobs if j.parts[-6] == parts[0] and j.parts[-4] == parts[2] and j.parts[-3] == parts[1]]
         else:
             rec, cam = parts[-2], parts[-1]

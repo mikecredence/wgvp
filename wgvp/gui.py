@@ -1,9 +1,11 @@
-"""Minimal tkinter GUI: pick the data folder, scan, run, stop, watch progress, open the QC summary, render the demo video. No extra installs."""
+"""Minimal tkinter GUI: pick the data folder, scan, run (all sessions or one), stop, watch progress, check the GPU environment,
+open the QC summary, render the demo video. No extra installs."""
 from __future__ import annotations
 
 import json
 import queue
 import re
+import shutil
 import sys
 import threading
 import time
@@ -13,7 +15,7 @@ from pathlib import Path
 from . import __version__
 from .config import config_path, load_config, write_default_config
 from .discovery import manifest_text, scan_root
-from .progress import RunProgress, RunStopped
+from .progress import RunProgress, RunStopped, check_stop
 
 BAR = 1000       # the progress bar's full length, in its own units
 
@@ -35,7 +37,7 @@ def launch(initial_root: str | None = None, on_ready=None):
     import tkinter as tk
     from tkinter import filedialog, ttk, messagebox
 
-    app = tk.Tk(); app.title(f"WearGait video pipeline (wgvp {__version__})"); app.geometry("1160x760")
+    app = tk.Tk(); app.title(f"WearGait video pipeline (wgvp {__version__})"); app.geometry("1220x760")
     q: queue.Queue = queue.Queue()
     state = {"manifest": None, "running": False, "summary": None, "rp": RunProgress(), "prefix": "", "stop": threading.Event(), "job": ""}
 
@@ -57,7 +59,7 @@ def launch(initial_root: str | None = None, on_ready=None):
     ttk.Label(top, text="Python of the GVHMR environment:").grid(row=2, column=0, sticky="w")
     v_gpy = tk.StringVar(); ttk.Entry(top, textvariable=v_gpy, width=80).grid(row=2, column=1, sticky="we", padx=4)
     ttk.Button(top, text="Browse...", command=lambda: v_gpy.set(filedialog.askopenfilename() or v_gpy.get())).grid(row=2, column=2)
-    ttk.Button(top, text="Check GPU", command=lambda: do_check_gpu()).grid(row=2, column=3, padx=4)
+    b_gpu = ttk.Button(top, text="Check GPU", command=lambda: do_check_gpu()); b_gpu.grid(row=2, column=3, padx=4)
     top.columnconfigure(1, weight=1)
 
     # --- middle: found items
@@ -75,16 +77,17 @@ def launch(initial_root: str | None = None, on_ready=None):
     # --- buttons
     bar = ttk.Frame(app, padding=8); bar.pack(fill="x")
     b_run = ttk.Button(bar, text="Run all sessions", command=lambda: do_run()); b_run.pack(side="left")
-    b_dry = ttk.Button(bar, text="Dry run (sample)", command=lambda: do_dry()); b_dry.pack(side="left", padx=6)
+    b_one = ttk.Button(bar, text="Run selected session", command=lambda: do_run(selected=True)); b_one.pack(side="left", padx=6)
+    b_dry = ttk.Button(bar, text="Dry run (sample)", command=lambda: do_dry()); b_dry.pack(side="left")
     b_stop = ttk.Button(bar, text="Stop", command=lambda: do_stop(), state="disabled"); b_stop.pack(side="left", padx=6)
-    v_cpu = tk.BooleanVar(value=False); ttk.Checkbutton(bar, text="CPU stages only (skip GVHMR)", variable=v_cpu).pack(side="left", padx=6)
+    v_cpu = tk.BooleanVar(value=False); ttk.Checkbutton(bar, text="CPU stages only (skip GVHMR)", variable=v_cpu).pack(side="left")
     ttk.Button(bar, text="Open QC summary", command=lambda: do_open()).pack(side="right")
     ttk.Button(bar, text="Output folder", command=lambda: do_open_folder()).pack(side="right", padx=6)
     b_demo = ttk.Button(bar, text="Demo video", command=lambda: do_demo()); b_demo.pack(side="right", padx=6)
     pb = ttk.Progressbar(app, mode="determinate", maximum=BAR); pb.pack(fill="x", padx=8)
     v_prog = tk.StringVar(value="idle"); ttk.Label(app, textvariable=v_prog).pack(anchor="w", padx=8)
     txt = tk.Text(app, height=14, wrap="word"); txt.pack(fill="both", expand=True, padx=8, pady=4)
-    jobs = (b_run, b_dry, b_demo)
+    jobs = (b_run, b_one, b_dry, b_demo, b_gpu)
 
     def root_path():
         r = v_root.get().strip()
@@ -144,13 +147,32 @@ def launch(initial_root: str | None = None, on_ready=None):
         cfg.setdefault("gvhmr", {}); cfg["gvhmr"]["root"] = v_groot.get().strip(); cfg["gvhmr"]["python"] = v_gpy.get().strip()
         p.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
 
+    def gpu_job(groot: str | None, gpy: str) -> dict:
+        """The install check for the lift: in the GVHMR environment's interpreter when one is named, else in this one."""
+        from .check_gpu import check, format_rows, interpreter_cmd
+        from .session import stream_child
+        if not gpy:
+            text = format_rows(check(groot)); log(text)
+            return {"gpu": text.splitlines()[-1]}
+        if not (Path(gpy).is_file() or shutil.which(gpy)):
+            raise NotStarted(f"no such interpreter:\n{gpy}\nname the python of the GVHMR environment, or leave the field empty to check this one")
+        cmd, env = interpreter_cmd(gpy, groot); last = {"line": ""}
+
+        def on_line(line):
+            if line.startswith("GPU stage"):
+                last["line"] = line.strip()
+        rc = stream_child(cmd, log, stop=state["stop"].is_set, on_line=on_line, env=env)
+        check_stop(state["stop"].is_set)
+        if not last["line"]:
+            raise RuntimeError(f"the check did not run in {gpy} (exit code {rc}); the log above says why")
+        return {"gpu": last["line"]}
+
     def do_check_gpu():
-        from .check_gpu import check, format_rows, run_in_interpreter
+        if state["running"]:
+            return
         groot = v_groot.get().strip() or None; gpy = v_gpy.get().strip()
-        if gpy:
-            rc, out = run_in_interpreter(gpy, groot); log(out)
-        else:
-            log(format_rows(check(groot)))
+        begin("gpu"); v_prog.set("checking the GPU environment" + (f" of {gpy}" if gpy else "") + " ...")
+        worker(gpu_job, groot, gpy)
 
     def worker(fn, *a, **k):
         def body():
@@ -165,9 +187,16 @@ def launch(initial_root: str | None = None, on_ready=None):
                 q.put(("log", traceback.format_exc())); q.put(("done", {"status": "FAIL", "error": str(e)}))
         threading.Thread(target=body, daemon=True).start()
 
-    def begin(job: str, prefix: str = ""):
+    def selected_session() -> str | None:
+        """The session the selected list row belongs to (a recording or video row counts for its session)."""
+        sel = tree.focus()
+        while sel and tree.parent(sel):
+            sel = tree.parent(sel)
+        return tree.item(sel, "text") if sel and sel in state.get("rows", {}).values() else None
+
+    def begin(job: str, prefix: str = "", only: str | None = None):
         """One job at a time: the Stop button is live while it runs, the job buttons are not."""
-        state["running"] = True; state["job"] = job; state["stop"].clear()
+        state["running"] = True; state["job"] = job; state["stop"].clear(); state["only"] = only
         for b in jobs:
             b.config(state="disabled")
         b_stop.config(state="normal")
@@ -179,15 +208,21 @@ def launch(initial_root: str | None = None, on_ready=None):
         state["stop"].set(); b_stop.config(state="disabled")
         v_prog.set("stopping ... (the step under way ends first; what finished is kept)"); log("stop asked")
 
-    def do_run():
+    def do_run(selected: bool = False):
+        """Every session under the data folder, or (selected) the one whose row is selected in the list."""
         r = root_path()
         if r is None or state["running"]:
             return
+        sid = None
+        if selected:
+            sid = selected_session()
+            if sid is None:
+                messagebox.showinfo("wgvp", "click a session in the list first (any of its rows), then Run selected session"); return
         save_gvhmr_cfg(r)
         from .session import run_root
-        begin("run"); v_prog.set("running ...")
-        worker(run_root, r, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, cpu_only=v_cpu.get(), log=log, progress=progress,
-               stop=state["stop"].is_set)
+        begin("run", only=sid); v_prog.set(f"running {sid} ..." if sid else "running ...")
+        worker(run_root, r, gvhmr_root=v_groot.get().strip() or None, gvhmr_python=v_gpy.get().strip() or None, only=[sid] if sid else None,
+               cpu_only=v_cpu.get(), log=log, progress=progress, stop=state["stop"].is_set)
 
     def do_dry():
         if state["running"]:
@@ -243,10 +278,7 @@ def launch(initial_root: str | None = None, on_ready=None):
         r = root_path()
         if r is None or state["running"]:
             return
-        sel = tree.focus()
-        while sel and tree.parent(sel):                                  # the session the selected row belongs to
-            sel = tree.parent(sel)
-        sid = tree.item(sel, "text") if sel and sel in state.get("rows", {}).values() else None
+        sid = selected_session()
         begin("demo"); v_prog.set("demo video: looking for lifted recordings ...")
         worker(demo_job, r, sid)
 
@@ -296,19 +328,30 @@ def launch(initial_root: str | None = None, on_ready=None):
         if st or payload.get("status") == "STOPPED":
             if isinstance(st, dict):
                 v_prog.set(f"stopped after {st['after']} of {st['of']} session(s)" + (f" (PASS {t.get('PASS', 0)}, WARN {t.get('WARN', 0)}, FAIL {t.get('FAIL', 0)} kept)" if t else "")
-                           + ". Run all sessions again continues: finished tracking and lifts are reused.")
+                           + ". Running again continues: finished tracking and lifts are reused.")
             else:
                 v_prog.set("stopped" + (" (the part-written video was removed)" if state["job"] == "demo" else ""))
             if state.get("cur") in state.get("rows", {}):
                 show_session_status(only=state["cur"])
             state["html"] = payload.get("html"); return
         pb["value"] = BAR
+        if payload.get("gpu"):
+            ok = payload["gpu"].startswith("GPU stage READY")
+            v_prog.set(payload["gpu"].replace(" (see hints above)", "") + ("" if ok else ": the log below says what is missing and how to fix it")); return
         if payload.get("demo"):
             vids = payload["demo"]
             v_prog.set(f"demo video ready: {vids[-1]}" + (f" (and {len(vids) - 1} more, listed in the log)" if len(vids) > 1 else ""))
             webbrowser.open(Path(vids[-1]).as_uri()); return
         if payload.get("status"):                      # the dry run, or a run that raised
             v_prog.set(f"finished: {payload['status']}" + (f" ({payload['error']}; the traceback is in the log below)" if payload.get("error") else ""))
+        elif t and state.get("only"):
+            sid = state["only"]
+            try:
+                ss = json.loads((Path(v_root.get().strip()) / "wgvp_output" / sid / "deliver" / "session_summary.json").read_text(encoding="utf-8")).get("status", "?")
+            except Exception:
+                ss = "?"
+            v_prog.set(f"finished: {sid} {ss}. Open QC summary shows why; it covers every session run so far "
+                       f"(PASS {t.get('PASS', 0)}, WARN {t.get('WARN', 0)}, FAIL {t.get('FAIL', 0)} of {t.get('sessions', 0)}).")
         elif t:
             v_prog.set(f"finished: PASS {t.get('PASS', 0)}, WARN {t.get('WARN', 0)}, FAIL {t.get('FAIL', 0)} of {t.get('sessions', 0)} session(s). Open QC summary shows why.")
         else:
