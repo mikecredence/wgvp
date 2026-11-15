@@ -1,0 +1,127 @@
+{
+ "xcorr": {
+  "available": true,
+  "offset_s": 0.8169861910128411,
+  "confidence": "high",
+  "r_fine": 0.848742791737412,
+  "margin": 0.5620007553767428
+ },
+ "flash": {
+  "available": true,
+  "n_candidates": 10,
+  "candidates": [
+   {
+    "step": 90.41666666666666,
+    "z": 442.94939515329133,
+    "pre_level": -42.375,
+    "post_level": 48.041666666666664,
+    "persistent": true,
+    "onset_frame": 43,
+    "onset_t_s": 1.4333333333333333,
+    "cell": [
+     31,
+     13
+    ],
+    "source": "auto",
+    "view": "left"
+   },
+   {
+    "step": 97.54166666666666,
+    "z": 477.85462398795164,
+    "pre_level": -50.25,
+    "post_level": 47.291666666666664,
+    "persistent": true,
+    "onset_frame": 59,
+    "onset_t_s": 1.9666666666666666,
+    "cell": [
+     31,
+     17
+    ],
+    "source": "auto",
+    "view": "left"
+   },
+   {
+    "step": 89.29166666666666,
+    "z": 437.4380432320292,
+    "pre_level": -38.666666666666664,
+    "post_level": 50.625,
+    "persistent": true,
+    "onset_frame": 72,
+    "onset_t_s": 2.4,
+    "cell": [
+     27,
+     13
+    ],
+    "source": "auto",
+    "view": "left"
+   },
+   {
+    "step": 144.91666666666669,
+    "z": 709.9437771166579,
+    "pre_level": -73.04166666666667,
+    "post_level": 71.875,
+    "persistent": true,
+    "onset_frame": 359,
+    "onset_t_s": 11.966666666666667,
+    "cell": [
+     31,
+     5
+    ],
+    "source": "auto",
+    "view": "right"
+   },
+   {
+    "step": 134.125,
+    "z": 657.0756235015875,
+    "pre_level": -83.83333333333333,
+    "post_level": 50.291666666666664,
+    "persistent": true,
+    "onset_frame": 362,
+    "onset_t_s": 12.066666666666666,
+    "cell": [
+     31,
+     1
+    ],
+    "source": "auto",
+    "view": "right"
+   }
+  ],
+  "used": {
+   "step": 90.41666666666666,
+   "z": 442.94939515329133,
+   "pre_level": -42.375,
+   "post_level": 48.041666666666664,
+   "persistent": true,
+   "onset_frame": 43,
+   "onset_t_s": 1.4333333333333333,
+   "cell": [
+    31,
+    13
+   ],
+   "source": "auto",
+   "view": "left"
+  }
+ },
+ "labels": {
+  "available": false
+ },
+ "sheet": {
+  "available": false,
+  "frame": null,
+  "offset_s": null
+ },
+ "tolerance_frames": 3.0,
+ "agreement": {
+  "flash_minus_xcorr_s": 0.6163471423204923,
+  "flash_minus_xcorr": false
+ },
+ "recording_inside_video_frac": 1.0,
+ "offset_s": 0.8169861910128411,
+ "offset_frame": 25,
+ "source": "pelvis_xcorr",
+ "status": "WARN",
+ "flags": [
+  "flash_disagrees (+0.616s)"
+ ],
+ "message": "sync established with low confidence, from a cross-check only, or with a disagreement - inspect agreement{} and the thumbnails"
+}

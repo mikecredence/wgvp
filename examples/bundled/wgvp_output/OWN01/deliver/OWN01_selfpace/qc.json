@@ -1,0 +1,43 @@
+{
+ "video": "OWN01_SP.mp4",
+ "video_id": "OWN01_SP",
+ "candidates": [
+  "OWN01_SP"
+ ],
+ "status": "PASS",
+ "flags": [],
+ "views": {
+  "full": "PASS"
+ },
+ "sync_status": "PASS",
+ "sync_source": "pelvis_xcorr(validated by flash)",
+ "offset_s": 0.8192070094394808,
+ "offset_frame": 25,
+ "sync_flags": [],
+ "agreement": {
+  "flash_minus_xcorr_s": -0.019207009439480727,
+  "flash_minus_xcorr": true
+ },
+ "r_fine": 0.847670258538938,
+ "margin": 0.64370056237766,
+ "selection_confidence": "high",
+ "lag_ambiguity": 0.0,
+ "lag_candidates": [
+  {
+   "offset_s": 0.819207009439483,
+   "support": 7.396119461719263
+  }
+ ],
+ "walk_bouts": [
+  {
+   "t0": 0.0,
+   "t1": 11.979999542236328,
+   "covered_by": {
+    "full": 0.95
+   },
+   "ok": true
+  }
+ ],
+ "n_walk_bouts_ok": 1,
+ "n_walk_bouts": 1
+}

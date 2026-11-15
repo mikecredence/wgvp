@@ -1,0 +1,51 @@
+{
+ "n_frames": 393,
+ "n_visible": 374,
+ "n_bridged": 19,
+ "n_edge_truncated": 0,
+ "n_pose_jumps_over_30deg": 9,
+ "pose_jump_frames": [
+  58,
+  75,
+  91,
+  92,
+  108,
+  126,
+  142,
+  159,
+  175
+ ],
+ "pose_step_deg_p99": 41.56159210205078,
+ "chunks": [
+  {
+   "chunk_id": 0,
+   "n_frames": 393,
+   "status": "done",
+   "gvhmr_run": {
+    "returncode": 0,
+    "elapsed_s": 148.07901906967163,
+    "render_guard": true,
+    "cmd": "/home/ubuntu/miniconda3/envs/gvhmr/bin/python /home/ubuntu/GVHMR/tools/demo/demo.py --video /data/wgvp_gpu/root/wgvp_output/OWN01/work/full/OWN01_selfpace/chunks/chunk_0.mp4 --output_root /data/wgvp_gpu/root/wgvp_output/OWN01/work/full/OWN01_selfpace/chunks/gvhmr -s"
+   }
+  }
+ ],
+ "frame_step": 1,
+ "cut_scale": 1.0,
+ "view_box": [
+  0,
+  0,
+  720,
+  1280
+ ],
+ "fps_source": 29.999999999999993,
+ "gvhmr": {
+  "static_camera": true,
+  "checkpoint": "gvhmr_siga24_release.ckpt",
+  "render": false
+ },
+ "files": [
+  "smpl_global.npz",
+  "smpl_incam.npz",
+  "kp2d_vitpose.npz"
+ ]
+}

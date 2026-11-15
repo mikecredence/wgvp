@@ -1,0 +1,125 @@
+{
+ "xcorr": {
+  "available": true,
+  "offset_s": 0.8192070094394808,
+  "confidence": "high",
+  "r_fine": 0.847670258538938,
+  "margin": 0.64370056237766
+ },
+ "flash": {
+  "available": true,
+  "n_candidates": 5,
+  "candidates": [
+   {
+    "step": 96.91666666666667,
+    "z": 474.7927618094727,
+    "pre_level": -42.458333333333336,
+    "post_level": 54.458333333333336,
+    "persistent": true,
+    "onset_frame": 24,
+    "onset_t_s": 0.8,
+    "cell": [
+     31,
+     12
+    ],
+    "source": "auto",
+    "view": "full"
+   },
+   {
+    "step": 104.375,
+    "z": 511.3309838059884,
+    "pre_level": -51.5,
+    "post_level": 52.875,
+    "persistent": true,
+    "onset_frame": 29,
+    "onset_t_s": 0.9666666666666667,
+    "cell": [
+     31,
+     15
+    ],
+    "source": "auto",
+    "view": "full"
+   },
+   {
+    "step": 97.625,
+    "z": 478.2628722784155,
+    "pre_level": -59.291666666666664,
+    "post_level": 38.333333333333336,
+    "persistent": true,
+    "onset_frame": 33,
+    "onset_t_s": 1.1,
+    "cell": [
+     31,
+     17
+    ],
+    "source": "auto",
+    "view": "full"
+   },
+   {
+    "step": 97.45833333333333,
+    "z": 477.4463756974878,
+    "pre_level": -72.20833333333333,
+    "post_level": 25.25,
+    "persistent": true,
+    "onset_frame": 80,
+    "onset_t_s": 2.6666666666666665,
+    "cell": [
+     27,
+     17
+    ],
+    "source": "auto",
+    "view": "full"
+   },
+   {
+    "step": 142.04166666666669,
+    "z": 469.3506077806925,
+    "pre_level": -128.70833333333334,
+    "post_level": 13.333333333333334,
+    "persistent": true,
+    "onset_frame": 369,
+    "onset_t_s": 12.3,
+    "cell": [
+     9,
+     5
+    ],
+    "source": "auto",
+    "view": "full"
+   }
+  ],
+  "used": {
+   "step": 96.91666666666667,
+   "z": 474.7927618094727,
+   "pre_level": -42.458333333333336,
+   "post_level": 54.458333333333336,
+   "persistent": true,
+   "onset_frame": 24,
+   "onset_t_s": 0.8,
+   "cell": [
+    31,
+    12
+   ],
+   "source": "auto",
+   "view": "full"
+  }
+ },
+ "labels": {
+  "available": false
+ },
+ "sheet": {
+  "available": false,
+  "frame": null,
+  "offset_s": null
+ },
+ "tolerance_frames": 3.0,
+ "agreement": {
+  "flash_minus_xcorr_s": -0.019207009439480727,
+  "flash_minus_xcorr": true
+ },
+ "recording_inside_video_frac": 1.0,
+ "offset_s": 0.8192070094394808,
+ "offset_frame": 25,
+ "source": "pelvis_xcorr(validated by flash)",
+ "status": "PASS",
+ "flags": [],
+ "message": "sync from the pelvis cross-correlation"
+}

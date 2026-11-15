@@ -38,7 +38,7 @@ jobs:
           grep -v -E "^(torch|torchvision|pytorch3d|--extra-index-url|jupyter|ipdb|black|cython_bbox|chumpy)" "$RUNNER_TEMP/GVHMR/requirements.txt" > "$RUNNER_TEMP/gvhmr-requirements.txt"
           "$GPY" -m pip install -r "$RUNNER_TEMP/gvhmr-requirements.txt"
           "$GPY" -m pip install -e "$RUNNER_TEMP/GVHMR"
-          "$GPY" -m pip install ultralytics==8.3.80 smplx==0.1.28 timm==0.9.0 pytorch-lightning==2.4.0 hydra-core==1.3.2 einops "imageio[pyav]" ffmpeg-python==0.2.0
+          "$GPY" -m pip install ultralytics==8.3.80 smplx==0.1.28 timm==0.9.0 pytorch-lightning==2.4.0 hydra-core==1.3.2 einops "imageio[pyav]" ffmpeg-python==0.2.0 yacs
           "$GPY" -m pip list 2>/dev/null | grep -i -E "^(torch|pytorch3d|numpy|pytorch-lightning|lightning|hydra|ultralytics|smplx|timm|pycolmap|wis3d) "
       - name: Python 3.12 for the pipeline
         uses: actions/setup-python@v5

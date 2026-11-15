@@ -1,0 +1,31 @@
+{
+ "ok": true,
+ "n_files": 24,
+ "problems": [],
+ "files": [
+  "OWN01_selfpace/full/gvhmr_meta.json",
+  "OWN01_selfpace/full/kp2d_vitpose.npz",
+  "OWN01_selfpace/full/qc.json",
+  "OWN01_selfpace/full/selection.json",
+  "OWN01_selfpace/full/smpl_global.npz",
+  "OWN01_selfpace/full/smpl_incam.npz",
+  "OWN01_selfpace/full/subject_track.npz",
+  "OWN01_selfpace/merge.json",
+  "OWN01_selfpace/merged_smpl.npz",
+  "OWN01_selfpace/qc.json",
+  "OWN01_selfpace/reconcile.json",
+  "OWN01_selfpace/selection_joint.json",
+  "OWN01_selfpace/sync.json",
+  "session_summary.json",
+  "validation_bundle/environment.json",
+  "validation_bundle/panels/OWN01_SP_panels.png",
+  "validation_bundle/privacy_check.json",
+  "validation_bundle/thumbnails/OWN01_selfpace__full_f0000000.png",
+  "validation_bundle/thumbnails/OWN01_selfpace__full_f0000025.png",
+  "validation_bundle/thumbnails/OWN01_selfpace__full_f0000078.png",
+  "validation_bundle/thumbnails/OWN01_selfpace__full_f0000156.png",
+  "validation_bundle/thumbnails/OWN01_selfpace__full_f0000235.png",
+  "validation_bundle/thumbnails/OWN01_selfpace__full_f0000313.png",
+  "validation_bundle/thumbnails/OWN01_selfpace__full_f0000392.png"
+ ]
+}

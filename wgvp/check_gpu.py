@@ -34,7 +34,8 @@ def check(gvhmr_root: str | None) -> list[tuple[str, bool, str]]:
         add("torch importable", False, f"{e}; pip install torch (CUDA build)")
     for mod, hint in (("pytorch3d", "pip install from source: see env/install_gvhmr.md"), ("pytorch_lightning", "pip install pytorch-lightning==2.4.0"),
                       ("hydra", "pip install hydra-core==1.3.2"), ("ultralytics", "pip install ultralytics"), ("smplx", "pip install smplx"),
-                      ("einops", "pip install einops"), ("timm", "pip install timm==0.9.0"), ("imageio", "pip install imageio"), ("cv2", "pip install opencv-python")):
+                      ("einops", "pip install einops"), ("timm", "pip install timm==0.9.0"), ("imageio", "pip install imageio"), ("cv2", "pip install opencv-python"),
+                      ("yacs", "pip install yacs (GVHMR's HMR2 module imports it; it is not in GVHMR's requirements)")):
         try:
             __import__(mod); add(f"{mod} importable", True)
         except Exception as e:
@@ -59,6 +60,12 @@ def check(gvhmr_root: str | None) -> list[tuple[str, bool, str]]:
             import hmr4d  # noqa
             from hmr4d.utils.geo.hmr_cam import get_bbx_xys_from_xyxy  # noqa
             add("hmr4d importable from root", True)
+            try:                                                           # the demo's own import chain: every module it needs
+                from hmr4d.utils.preproc import Tracker, Extractor, VitPoseExtractor, SimpleVO  # noqa
+                from hmr4d.model.gvhmr.gvhmr_pl_demo import DemoPL  # noqa
+                add("demo.py's imports resolve", True)
+            except Exception as e:
+                add("demo.py's imports resolve", False, f"{type(e).__name__}: {e}; pip install the package named, in the GVHMR environment")
         except Exception as e:
             add("hmr4d importable from root", False, f"cd {root} && pip install -e . ({type(e).__name__}: {e})")
         try:
@@ -70,7 +77,7 @@ def check(gvhmr_root: str | None) -> list[tuple[str, bool, str]]:
         add("GVHMR root given", False, "pass --gvhmr-root")
     try:
         import psutil
-        add("RAM >= 16 GB", psutil.virtual_memory().total >= 16 * 2**30, f"{psutil.virtual_memory().total / 2**30:.0f} GB")
+        add("RAM >= 16 GB", psutil.virtual_memory().total >= 15 * 2**30, f"{psutil.virtual_memory().total / 2**30:.1f} GiB")   # a nominal 16 GB reports ~15.6 GiB
     except Exception:
         pass
     return rows

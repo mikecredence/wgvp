@@ -1,0 +1,74 @@
+{
+ "track_ids": [
+  1
+ ],
+ "source": "imu_xcorr",
+ "status": "PASS",
+ "agreement": {},
+ "message": "subject identified by IMU cross-correlation with a clear margin",
+ "walkway_roi": {
+  "method": "walkway_roi",
+  "ok": false,
+  "track_ids": [],
+  "reason": "no walkway ROI for this view (optional; `wgvp set-roi`)",
+  "candidates": {}
+ },
+ "operator_pick": {
+  "method": "operator_pick",
+  "ok": false,
+  "track_ids": [],
+  "reason": "no operator pick (optional; `wgvp pick-subject`)"
+ },
+ "primary": {
+  "track_ids": [
+   1
+  ],
+  "accepted_by_xcorr": [
+   1
+  ],
+  "attached_by_appearance": [],
+  "r_fine": 0.7659977454838061,
+  "excess": 0.5620007553767428,
+  "second_best_excess": 0.0,
+  "margin": 0.5620007553767428,
+  "confidence": "high",
+  "view_offset_s": 0.8194098023914407,
+  "consistency": {
+   "1": {
+    "windows": 0,
+    "kept_frac": 1.0
+   }
+  },
+  "fragments": {
+   "1": {
+    "r_at_lag": 0.7659977454838061,
+    "own_best_r": 0.7659977454838061,
+    "own_offset_s": 0.8194098023914421,
+    "r_env": 0.6790826455632322,
+    "duration_s": 13.066666666666666,
+    "locomotion_frac": 0.27548209366391185,
+    "vis_full_frac": 0.9872773536895675,
+    "mean_box_h_frac": 0.31744086742401123,
+    "role": "subject",
+    "reason": ""
+   }
+  },
+  "coverage": {
+   "frames_in_window": 359,
+   "present_frac": 1.0,
+   "full_frac": 1.0,
+   "partial_frac": 0.0,
+   "absent_frac": 0.0,
+   "gaps_imu_time_s": [],
+   "n_gaps": 0,
+   "walk_bouts": [
+    {
+     "t0": 0.0,
+     "t1": 11.979999542236328,
+     "covered_frac": 1.0,
+     "full_frac": 1.0
+    }
+   ]
+  }
+ }
+}

@@ -211,8 +211,9 @@ wgvp gvhmr <root>`). The merge runs by itself after the lift; `python -m wgvp me
 lifts.
 
 **The lift without a GPU.** A machine with no NVIDIA GPU can still run the lift, slowly, with the same GVHMR
-install minus the GPU pieces (a CPU build of torch, no pytorch3d, no `check-gpu` pass). Set `"device": "cpu"` under
-`gvhmr` in `wgvp_config.json`, or pass `--lift-device cpu` to `run` or `gvhmr`. The poses are the same ones:
+install on a CPU build of torch and a prebuilt pytorch3d (`env/install_gvhmr.md` has the two lines; `check-gpu`
+reports the missing GPU and nothing else). Set `"device": "cpu"` under `gvhmr` in `wgvp_config.json`, or pass
+`--lift-device cpu` to `run`, `gvhmr` or `dry-run`. The poses are the same ones:
 on one 13-s, 393-frame recording the CPU and the GPU lift agree to 0.08 deg at the 99th percentile of every joint
 angle (2.8 deg at the single worst frame) and to 3 cm in the walker's position. The time is the cost: 460 s on
 eight Xeon cores against 150 s on a T4, so roughly 35 s of lifting per second of video per view. A 30-s two-view

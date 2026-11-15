@@ -13,7 +13,7 @@ git clone https://github.com/zju3dv/GVHMR && cd GVHMR && git checkout 088caff492
 pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt && pip install -e .
 pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.8"      # needs nvcc (CUDA toolkit 12.x)
-pip install ultralytics==8.3.80 smplx==0.1.28 timm==0.9.0 pytorch-lightning==2.4.0 hydra-core==1.3.2 einops imageio[pyav] ffmpeg-python==0.2.0
+pip install ultralytics==8.3.80 smplx==0.1.28 timm==0.9.0 pytorch-lightning==2.4.0 hydra-core==1.3.2 einops imageio[pyav] ffmpeg-python==0.2.0 yacs
 ```
 
 Weights go under `GVHMR/inputs/checkpoints/` exactly as GVHMR's `docs/INSTALL.md` describes:
@@ -42,6 +42,9 @@ second of video per view (README, "The lift without a GPU"). `check-gpu` reports
 lift runs regardless.
 
 Known pitfalls (each cost us a run):
+
+* `yacs` is imported by GVHMR's HMR2 module and is not in GVHMR's `requirements.txt`; without it the lift dies at
+  import (`No module named 'yacs'`). `wgvp check-gpu` tests for it, and imports the demo's whole module chain.
 
 * The `ffmpeg` PyPI stub shadows `ffmpeg-python` and GVHMR dies with `module 'ffmpeg' has no attribute 'input'`.
   Fix inside the env: `rm -rf $(python -c 'import site;print(site.getsitepackages()[0])')/ffmpeg && pip install --force-reinstall --no-deps ffmpeg-python==0.2.0`.

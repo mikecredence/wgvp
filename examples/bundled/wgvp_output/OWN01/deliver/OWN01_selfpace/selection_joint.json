@@ -1,0 +1,76 @@
+{
+ "method": "imu_xcorr_joint",
+ "ok": true,
+ "offset_s": 0.8192070094394808,
+ "confidence": "high",
+ "views": {
+  "full": {
+   "track_ids": [
+    1
+   ],
+   "accepted_by_xcorr": [
+    1
+   ],
+   "attached_by_appearance": [],
+   "r_fine": 0.847670258538938,
+   "excess": 0.64370056237766,
+   "second_best_excess": 0.0,
+   "margin": 0.64370056237766,
+   "confidence": "high",
+   "view_offset_s": 0.8192070094394808,
+   "consistency": {
+    "1": {
+     "windows": 0,
+     "kept_frac": 1.0
+    }
+   },
+   "fragments": {
+    "1": {
+     "r_at_lag": 0.847670258538938,
+     "own_best_r": 0.847670258538938,
+     "own_offset_s": 0.819207009439483,
+     "r_env": 0.4524115200744843,
+     "duration_s": 13.066666666666666,
+     "locomotion_frac": 0.2703488372093023,
+     "vis_full_frac": 1.0,
+     "mean_box_h_frac": 0.21203620731830597,
+     "role": "subject",
+     "reason": ""
+    }
+   },
+   "coverage": {
+    "frames_in_window": 359,
+    "present_frac": 0.947075208913649,
+    "full_frac": 0.947075208913649,
+    "partial_frac": 0.0,
+    "absent_frac": 0.052924791086350974,
+    "gaps_imu_time_s": [],
+    "n_gaps": 0,
+    "walk_bouts": [
+     {
+      "t0": 0.0,
+      "t1": 11.979999542236328,
+      "covered_frac": 0.947075208913649,
+      "full_frac": 0.947075208913649
+     }
+    ]
+   }
+  }
+ },
+ "reason": "",
+ "n_fragments": {
+  "full": 1
+ },
+ "n_scored": {
+  "full": 1
+ },
+ "lag_candidates": [
+  {
+   "offset_s": 0.819207009439483,
+   "support": 7.396119461719263
+  }
+ ],
+ "lag_ambiguity": 0.0,
+ "r_fine": 0.847670258538938,
+ "margin": 0.64370056237766
+}

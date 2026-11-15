@@ -1,0 +1,162 @@
+{
+ "status": "WARN",
+ "flags": [
+  "left is a mirror image of right (its legs fit 7.8 deg with the sides swapped vs 44.2 deg as lifted, 216 frames): reflected back before merging; check that camera's mirror setting",
+  "left: after alignment its pelvis position differs from right by 0.54 m (median on shared frames)"
+ ],
+ "views": [
+  "left",
+  "right"
+ ],
+ "reference_view": "right",
+ "n_frames": 393,
+ "fps": 29.999999999999993,
+ "imu_span_s": [
+  -0.8169861910128411,
+  12.249680475653825
+ ],
+ "export": {
+  "frac_of_lifted_frames": 1.0,
+  "n_frames": 393,
+  "n_runs": 1,
+  "min_run_frames": 15
+ },
+ "coverage_of_lifted_frames": {
+  "legs": 1.0,
+  "torso": 1.0,
+  "legs_and_torso": 1.0,
+  "arms": 1.0,
+  "all_joints": 1.0
+ },
+ "per_view": {
+  "left": {
+   "lifted_frames": 393,
+   "visible_frames": 392,
+   "mean_usable_fraction": 0.9974554707379135,
+   "legs_usable_frac": 0.9974554707379135,
+   "root_share_mean": 0.49990637295640733,
+   "alignment": {
+    "yaw_deg": -0.3953410327428344,
+    "offset_m": [
+     0.14581702534917085,
+     -0.6399166584014889,
+     -0.607063826813212
+    ],
+    "n_frames": 392,
+    "root_residual_deg": 7.835424387688772,
+    "transl_residual_m": 0.5400425988638049
+   }
+  },
+  "right": {
+   "lifted_frames": 393,
+   "visible_frames": 393,
+   "mean_usable_fraction": 0.9975766387980128,
+   "legs_usable_frac": 1.0,
+   "root_share_mean": 0.5000936270435926,
+   "alignment": {
+    "yaw_deg": 0.0,
+    "offset_m": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "n_frames": 393,
+    "root_residual_deg": 0.0,
+    "transl_residual_m": 0.0,
+    "reference": true
+   }
+  }
+ },
+ "continuity": {
+  "body_step_p99_deg": 10.475552916459957,
+  "body_steps_over_20deg_frac": 0.0,
+  "root_step_p99_deg": 5.444220829187098,
+  "root_flips_over_90deg": 0,
+  "root_turns_over_90deg_in_quarter_s": 0,
+  "root_glitch_frames_repaired": {
+   "left": 0,
+   "right": 0
+  }
+ },
+ "weight": {
+  "mean_over_export": 0.9075057938334422,
+  "frac_cells_over_0_5": 0.9487459105779716,
+  "root_weight_mean": 0.9826687062244905,
+  "transl_weight_mean": 0.40901750853561425
+ },
+ "translation": {
+  "views_disagree_median_m": 0.5412916413797859,
+  "views_disagree_p90_m": 0.895066551129529,
+  "note": "GVHMR's translation is a monocular depth estimate; on the rendered session it is within 0.1 m near the mat centre and off by 1-3 m at the far ends of the walk, which the two views expose where both see the subject (transl_disagree_m) and transl_weight discounts"
+ },
+ "betas": {
+  "recording": [
+   0.26362496614456177,
+   0.39230436086654663,
+   0.9773831367492676,
+   -1.0279440879821777,
+   -0.43135011196136475,
+   -1.0716460943222046,
+   0.26338455080986023,
+   -0.20600548386573792,
+   -0.6814706921577454,
+   -0.13887745141983032
+  ],
+  "per_view": {
+   "left": [
+    0.26362496614456177,
+    0.39230436086654663,
+    0.9773831367492676,
+    -1.0279440879821777,
+    -0.43135011196136475,
+    -1.0716460943222046,
+    0.26338455080986023,
+    -0.20600548386573792,
+    -0.6814706921577454,
+    -0.13887745141983032
+   ],
+   "right": [
+    0.43806880712509155,
+    0.28749001026153564,
+    0.974764883518219,
+    -0.9799453020095825,
+    -0.391290545463562,
+    -1.0066322088241577,
+    0.002638399600982666,
+    -0.34979644417762756,
+    -0.5999831557273865,
+    -0.017056018114089966
+   ]
+  },
+  "n_frames_used": 775,
+  "view_difference_norm": 0.39962994191248075
+ },
+ "walkway": {
+  "rows": 0,
+  "stances": 0,
+  "format": "none",
+  "fit": null,
+  "note": "no usable walkway footfalls in the recording CSV"
+ },
+ "mirror_check": {
+  "left": {
+   "mirrored": true,
+   "n_frames": 216,
+   "as_is_deg": 44.1778397276833,
+   "mirrored_deg": 7.8116121350051255
+  }
+ },
+ "views_mirrored": [
+  "left"
+ ],
+ "camera_fit_rms_m": {
+  "left": 2.5579106415417656,
+  "right": 0.9001301672533847
+ },
+ "imu_time_mismatch_s": 0.0,
+ "files": [
+  "merged_smpl.npz",
+  "merge.json"
+ ],
+ "note": "the body IMUs are not used anywhere in this file: the recording CSV serves the sync and the subject identity only"
+}

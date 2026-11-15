@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import shutil
+import re
 import subprocess
 import sys
 import time
@@ -69,6 +70,18 @@ def run_demo(gvhmr_root: Path, video: Path, pred_root: Path, timeout: int, log_p
     return {"returncode": rc, "elapsed_s": time.time() - t0, "render_guard": has_guard, "cmd": " ".join(cmd)}
 
 
+def last_error(log_path: Path) -> str:
+    """The last line of the GVHMR run log that names an error, else its last line: what went wrong, in the stage's own log."""
+    try:
+        lines = [l.strip() for l in log_path.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+    except OSError:
+        return "no run log"
+    for l in reversed(lines[-80:]):
+        if re.search(r"Error|Exception|Killed|No module|not found|out of memory", l):
+            return l[:220]
+    return lines[-1][:220] if lines else "empty run log"
+
+
 def convert_results(pred_dir: Path) -> dict:
     """hmr4d_results.pt -> numpy dict (no features, no images)."""
     import torch
@@ -109,7 +122,7 @@ def process_chunk(gvhmr_root: Path, chunk_json: Path, timeout: int, device: str 
         r = run_demo(gvhmr_root, video.resolve(), pred_root.resolve(), timeout, work / "gvhmr_run.log", f_mm=meta.get("focal_35mm"), device=device)
         meta["gvhmr_run"] = r
         if not res_pt.exists():
-            meta["status"] = "failed"; meta["error"] = f"GVHMR produced no hmr4d_results.pt (rc {r['returncode']}); see gvhmr_run.log"
+            meta["status"] = "failed"; meta["error"] = f"GVHMR produced no hmr4d_results.pt (rc {r['returncode']}): {last_error(work / 'gvhmr_run.log')} (gvhmr_run.log has the rest)"
             chunk_json.write_text(json.dumps(meta, indent=1), encoding="utf-8"); return meta
     conv = convert_results(pred_root / stem)
     n = len(conv["global"]["body_pose"])

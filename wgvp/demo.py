@@ -126,16 +126,34 @@ def _video_path(root: Path, deliver: Path, rid: str) -> Path | None:
     summ = json.loads((deliver / "session_summary.json").read_text(encoding="utf-8")) if (deliver / "session_summary.json").exists() else {}
     vid = (summ.get("items", {}).get(rid) or {}).get("video_id"); vrec = (summ.get("videos") or {}).get(vid or "", {})
     p = vrec.get("file") or vrec.get("path")
-    if p and Path(p).exists():
-        return Path(p)
+    sdir = root / deliver.parent.name                                       # wgvp_output/<session>/deliver -> <root>/<session>
+    found = _existing(p, sdir, root)
+    if found:
+        return found
     man = root / "wgvp_output" / "manifest.json"
     if man.exists():
         for s in json.loads(man.read_text(encoding="utf-8")).get("sessions", []):
             for r in s.get("recordings", []):
                 if r.get("recording_id") == rid:
                     for v in r.get("videos", []):
-                        if Path(v["path"]).exists():
-                            return Path(v["path"])
+                        found = _existing(v.get("path"), sdir, root)
+                        if found:
+                            return found
+    return None
+
+
+def _existing(p: str | None, sdir: Path, root: Path) -> Path | None:
+    """The video named by `p` (a bare file name, or a path written on another machine): as given, under the session's
+    folder, or anywhere below it by name."""
+    if not p:
+        return None
+    for c in (Path(p), sdir / p, root / p):
+        if c.is_file():
+            return c
+    if sdir.is_dir():
+        hits = sorted(sdir.rglob(Path(p).name))
+        if hits:
+            return hits[0]
     return None
 
 

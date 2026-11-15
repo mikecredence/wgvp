@@ -99,6 +99,8 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
     sid, rid = exp["session_id"], exp["recording_id"]
     ss = json.loads((session_out(out, sid) / "deliver" / "session_summary.json").read_text(encoding="utf-8"))
     gpu_ran = bool(summ.get("gvhmr", {}).get("ran")) and summ["gvhmr"].get("returncode") == 0
+    if not cpu_only and bool(gvhmr_root or cfg["gvhmr"].get("root")):     # the lift was asked for: it must have run to the end
+        _check("the lift (GVHMR) ran to the end", gpu_ran, f"{summ.get('gvhmr')}; the stage's log names the failed chunk and its error", checks, log)
     vrec = next(iter(ss["videos"].values()), {})
     pan = {p["id"]: p["box"] for p in (vrec.get("panels", {}).get("panels") or [])}
     tolpx = 24
@@ -171,6 +173,7 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
         _check_merged_target(out, sid, rid, ss, exp, checks, log); _check_target(out, sid, rid, exp, checks, log)
     _check("walk bouts covered by at least one view", ri.get("n_walk_bouts", 0) > 0 and ri.get("n_walk_bouts_ok") == ri.get("n_walk_bouts"), f"{ri.get('n_walk_bouts_ok')}/{ri.get('n_walk_bouts')}", checks, log)
     _check("privacy check on the deliverables", ss.get("privacy_check", {}).get("ok"), f"{ss.get('privacy_check')}", checks, log)
+    _check("the session's QC verdict is PASS or WARN", ss.get("status") in ("PASS", "WARN"), f"{ss.get('status')}: {ss.get('flags') or ss.get('error')}", checks, log)
     ok = all(c["ok"] for c in checks)
     res = {"status": "PASS" if ok else "FAIL", "checks": checks, "elapsed_s": time.time() - t0, "out": str(out), "gpu_stage_ran": gpu_ran, "html": str(out / "wgvp_output" / "QC_SUMMARY.html")}
     (out / "wgvp_output" / "dry_run_result.json").write_text(json.dumps(res, indent=1), encoding="utf-8")

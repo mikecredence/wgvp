@@ -1,0 +1,664 @@
+{
+ "session_id": "OWN02",
+ "subject": "OWN02",
+ "dir": "OWN02",
+ "wgvp_version": "0.3.0",
+ "started": "2026-11-05 14:14:48",
+ "recordings": {
+  "OWN02_selfpace": {
+   "recording_id": "OWN02_selfpace",
+   "subject": "OWN02",
+   "duration_s": 11.97,
+   "walk_s": 11.979999542236328,
+   "turn_s": 0.0,
+   "standing_s": 0.0,
+   "n_walk_bouts": 1,
+   "walkway_contact_fraction": -1.0,
+   "walkway_stances": 0,
+   "walkway_format": "none",
+   "nan_fraction": 0.0,
+   "source_sha256": "42a5a072f04c812c27de79fe2209444d9ed58053f939ef89b3d782c7dd227987",
+   "source_name": "OWN02_selfpace.csv",
+   "status": "PASS",
+   "flags": []
+  }
+ },
+ "videos": {
+  "OWN02_SP": {
+   "status": "PASS",
+   "file": "OWN02_SP.mp4",
+   "video": {
+    "width": 1296,
+    "height": 1280,
+    "fps_nominal": 30.0,
+    "n_frames_nominal": 393,
+    "codec_fourcc": "h264",
+    "sha256": "a2e40394be0dfebce56f2bcea5621c088b4226e5df989fef677d90deff341782",
+    "size_bytes": 4558753
+   },
+   "timing": {
+    "n_frames": 393,
+    "fps_measured": 29.999999999999993,
+    "fps_span": 30.0,
+    "interval_ms_median": 33.33333333333334,
+    "interval_ms_std": 5.992186183451459e-13,
+    "vfr": false,
+    "n_gaps": 0,
+    "gap_frames_est": 0,
+    "gap_frame_indices": [],
+    "n_nonmonotonic_pts": 0,
+    "pts_start_ms": 0.0,
+    "pts_end_ms": 13066.666666666666
+   },
+   "panels": {
+    "width": 1296,
+    "height": 1280,
+    "n_samples": 40,
+    "panels": [
+     {
+      "id": "left",
+      "box": [
+       0,
+       0,
+       703,
+       1280
+      ],
+      "width": 703,
+      "height": 1280,
+      "frac_of_frame": 0.542
+     },
+     {
+      "id": "right",
+      "box": [
+       707,
+       63,
+       1296,
+       1217
+      ],
+      "width": 589,
+      "height": 1154,
+      "frac_of_frame": 0.41
+     }
+    ],
+    "layout": "horizontal",
+    "seam": 705,
+    "detail": {
+     "layout": "horizontal",
+     "seam_small": 348,
+     "score": 3.0,
+     "corr_at_seam": null,
+     "edge_ratio_at_seam": 0.0,
+     "median_corr": 0.9541975259780884
+    }
+   },
+   "views": {
+    "left": {
+     "n_fragments": 3,
+     "n_detections": 393,
+     "box": [
+      0,
+      0,
+      703,
+      1280
+     ]
+    },
+    "right": {
+     "n_fragments": 1,
+     "n_detections": 393,
+     "box": [
+      707,
+      63,
+      1296,
+      1217
+     ]
+    }
+   },
+   "flash_candidates": {
+    "left": [
+     {
+      "step": 90.41666666666666,
+      "z": 442.94939515329133,
+      "pre_level": -42.375,
+      "post_level": 48.041666666666664,
+      "persistent": true,
+      "onset_frame": 43,
+      "onset_t_s": 1.4333333333333333,
+      "cell": [
+       31,
+       13
+      ],
+      "source": "auto",
+      "view": "left"
+     },
+     {
+      "step": 97.54166666666666,
+      "z": 477.85462398795164,
+      "pre_level": -50.25,
+      "post_level": 47.291666666666664,
+      "persistent": true,
+      "onset_frame": 59,
+      "onset_t_s": 1.9666666666666666,
+      "cell": [
+       31,
+       17
+      ],
+      "source": "auto",
+      "view": "left"
+     },
+     {
+      "step": 89.29166666666666,
+      "z": 437.4380432320292,
+      "pre_level": -38.666666666666664,
+      "post_level": 50.625,
+      "persistent": true,
+      "onset_frame": 72,
+      "onset_t_s": 2.4,
+      "cell": [
+       27,
+       13
+      ],
+      "source": "auto",
+      "view": "left"
+     }
+    ],
+    "right": [
+     {
+      "step": 144.91666666666669,
+      "z": 709.9437771166579,
+      "pre_level": -73.04166666666667,
+      "post_level": 71.875,
+      "persistent": true,
+      "onset_frame": 359,
+      "onset_t_s": 11.966666666666667,
+      "cell": [
+       31,
+       5
+      ],
+      "source": "auto",
+      "view": "right"
+     },
+     {
+      "step": 134.125,
+      "z": 657.0756235015875,
+      "pre_level": -83.83333333333333,
+      "post_level": 50.291666666666664,
+      "persistent": true,
+      "onset_frame": 362,
+      "onset_t_s": 12.066666666666666,
+      "cell": [
+       31,
+       1
+      ],
+      "source": "auto",
+      "view": "right"
+     },
+     {
+      "step": 142.16666666666666,
+      "z": 696.4715835313502,
+      "pre_level": -86.95833333333333,
+      "post_level": 55.208333333333336,
+      "persistent": true,
+      "onset_frame": 365,
+      "onset_t_s": 12.166666666666666,
+      "cell": [
+       30,
+       2
+      ],
+      "source": "auto",
+      "view": "right"
+     }
+    ]
+   },
+   "flags": [],
+   "tags": ""
+  }
+ },
+ "items": {
+  "OWN02_selfpace/left": {
+   "status": "WARN",
+   "flags": [
+    "7 GVHMR frame(s) with a joint-rotation jump over 30 deg/frame (frames in gvhmr_meta.json; check them before use)"
+   ],
+   "selection_source": "imu_xcorr",
+   "subject_track_ids": [
+    1,
+    3
+   ],
+   "accepted_by_xcorr": [
+    1,
+    3
+   ],
+   "attached_by_appearance": [],
+   "r_fine": 0.848742791737412,
+   "margin": 0.44113626678218665,
+   "view_confidence": "high",
+   "view_offset_s": 0.8146657826017716,
+   "n_fragments": 3,
+   "video": "OWN02_SP.mp4",
+   "view_box": [
+    0,
+    0,
+    703,
+    1280
+   ],
+   "selection_status": "PASS",
+   "sync_status": "WARN",
+   "agreement": {
+    "selection": {},
+    "sync": {
+     "flash_minus_xcorr_s": 0.6163471423204923,
+     "flash_minus_xcorr": false
+    }
+   },
+   "coverage": {
+    "frames_in_window": 359,
+    "present_frac": 0.9972144846796658,
+    "full_frac": 0.9972144846796658,
+    "partial_frac": 0.0,
+    "absent_frac": 0.002785515320334262,
+    "gaps_imu_time_s": [],
+    "n_gaps": 0,
+    "walk_bouts": [
+     {
+      "t0": 0.0,
+      "t1": 11.979999542236328,
+      "covered_frac": 0.9972144846796658,
+      "full_frac": 0.9972144846796658
+     }
+    ]
+   },
+   "lag_consistency": {
+    "1": {
+     "windows": 0,
+     "kept_frac": 1.0
+    },
+    "3": {
+     "windows": 0,
+     "kept_frac": 1.0
+    }
+   },
+   "subject_frames": 392,
+   "thumbnails": [
+    "validation_bundle/thumbnails/OWN02_selfpace__left_f0000000.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__left_f0000025.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__left_f0000078.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__left_f0000156.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__left_f0000235.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__left_f0000313.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__left_f0000392.png"
+   ],
+   "gvhmr_prep": {
+    "n_chunks": 1,
+    "chunks": [
+     {
+      "chunk_id": 0,
+      "n_frames": 393,
+      "t_video_s": [
+       0.0,
+       13.066666666666666
+      ]
+     }
+    ],
+    "frame_step": 1,
+    "cut_scale": 1.0,
+    "crop": [
+     0,
+     0,
+     703,
+     1280
+    ]
+   },
+   "gvhmr": {
+    "n_frames": 393,
+    "finite": true,
+    "visible_frames": 392,
+    "bridged_frames": 1,
+    "edge_truncated_frames": 0,
+    "pose_jumps_over_30deg": 7,
+    "n_chunks": 1
+   }
+  },
+  "OWN02_selfpace/right": {
+   "status": "WARN",
+   "flags": [
+    "1 GVHMR frame(s) with a joint-rotation jump over 30 deg/frame (frames in gvhmr_meta.json; check them before use)"
+   ],
+   "selection_source": "imu_xcorr",
+   "subject_track_ids": [
+    1
+   ],
+   "accepted_by_xcorr": [
+    1
+   ],
+   "attached_by_appearance": [],
+   "r_fine": 0.7659977454838061,
+   "margin": 0.5620007553767428,
+   "view_confidence": "high",
+   "view_offset_s": 0.8194098023914407,
+   "n_fragments": 1,
+   "video": "OWN02_SP.mp4",
+   "view_box": [
+    707,
+    63,
+    1296,
+    1217
+   ],
+   "selection_status": "PASS",
+   "sync_status": "WARN",
+   "agreement": {
+    "selection": {},
+    "sync": {
+     "flash_minus_xcorr_s": 0.6163471423204923,
+     "flash_minus_xcorr": false
+    }
+   },
+   "coverage": {
+    "frames_in_window": 359,
+    "present_frac": 1.0,
+    "full_frac": 1.0,
+    "partial_frac": 0.0,
+    "absent_frac": 0.0,
+    "gaps_imu_time_s": [],
+    "n_gaps": 0,
+    "walk_bouts": [
+     {
+      "t0": 0.0,
+      "t1": 11.979999542236328,
+      "covered_frac": 1.0,
+      "full_frac": 1.0
+     }
+    ]
+   },
+   "lag_consistency": {
+    "1": {
+     "windows": 0,
+     "kept_frac": 1.0
+    }
+   },
+   "subject_frames": 393,
+   "thumbnails": [
+    "validation_bundle/thumbnails/OWN02_selfpace__right_f0000000.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__right_f0000025.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__right_f0000078.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__right_f0000156.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__right_f0000235.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__right_f0000313.png",
+    "validation_bundle/thumbnails/OWN02_selfpace__right_f0000392.png"
+   ],
+   "gvhmr_prep": {
+    "n_chunks": 1,
+    "chunks": [
+     {
+      "chunk_id": 0,
+      "n_frames": 393,
+      "t_video_s": [
+       0.0,
+       13.066666666666666
+      ]
+     }
+    ],
+    "frame_step": 1,
+    "cut_scale": 1.0,
+    "crop": [
+     707,
+     63,
+     1296,
+     1217
+    ]
+   },
+   "gvhmr": {
+    "n_frames": 393,
+    "finite": true,
+    "visible_frames": 393,
+    "bridged_frames": 0,
+    "edge_truncated_frames": 11,
+    "pose_jumps_over_30deg": 1,
+    "n_chunks": 1
+   }
+  },
+  "OWN02_selfpace": {
+   "video": "OWN02_SP.mp4",
+   "video_id": "OWN02_SP",
+   "candidates": [
+    "OWN02_SP"
+   ],
+   "status": "WARN",
+   "flags": [],
+   "views": {
+    "left": "WARN",
+    "right": "WARN"
+   },
+   "sync_status": "WARN",
+   "sync_source": "pelvis_xcorr",
+   "offset_s": 0.8169861910128411,
+   "offset_frame": 25,
+   "sync_flags": [
+    "flash_disagrees (+0.616s)"
+   ],
+   "agreement": {
+    "flash_minus_xcorr_s": 0.6163471423204923,
+    "flash_minus_xcorr": false
+   },
+   "r_fine": 0.848742791737412,
+   "margin": 0.5620007553767428,
+   "selection_confidence": "high",
+   "lag_ambiguity": 0.0,
+   "lag_candidates": [
+    {
+     "offset_s": 0.8155090297745073,
+     "support": 11.547061386215416
+    }
+   ],
+   "walk_bouts": [
+    {
+     "t0": 0.0,
+     "t1": 11.979999542236328,
+     "covered_by": {
+      "left": 1.0,
+      "right": 1.0
+     },
+     "ok": true
+    }
+   ],
+   "n_walk_bouts_ok": 1,
+   "n_walk_bouts": 1
+  },
+  "OWN02_selfpace/reconcile": {
+   "status": "PASS",
+   "flags": [],
+   "pairs": {
+    "left|right": {
+     "flash_latency_diff_s": 0.0,
+     "view_offset_diff_s": -0.004744019789669096,
+     "view_offsets_s": {
+      "left": 0.8146657826017716,
+      "right": 0.8194098023914407
+     },
+     "hip_vertical": {
+      "label": "hip_vertical_2d",
+      "ok": true,
+      "overlap_s": 13.066666666666666,
+      "r_zero_lag": 0.8495245722658556,
+      "r_best": 0.8495245722658556,
+      "residual_lag_s": -0.00413302269620754
+     },
+     "pose": {
+      "ok": true,
+      "overlap_s": 13.066666666666666,
+      "n_samples": 392,
+      "legs_median_deg": 24.455132669793002,
+      "all_median_deg": 10.589183145042139,
+      "flexion_corr": {
+       "L_Knee": -0.3751133431229969,
+       "R_Knee": -0.3024319424088664,
+       "L_Hip": 0.433791663333602,
+       "R_Hip": 0.3408324025185552,
+       "L_Elbow": 0.6873808438516886,
+       "R_Elbow": 0.4406602041121366
+      },
+      "knee_residual_lag": {
+       "label": "knee_flexion_sum",
+       "ok": true,
+       "overlap_s": 13.03333333333333,
+       "r_zero_lag": 0.9464255698984816,
+       "r_best": 0.9464255698984816,
+       "residual_lag_s": -0.0002697698537534876
+      },
+      "per_frame_file": "pose_agreement_left_right.npz"
+     }
+    }
+   }
+  },
+  "OWN02_selfpace/merge": {
+   "status": "WARN",
+   "flags": [
+    "left is a mirror image of right (its legs fit 7.8 deg with the sides swapped vs 44.2 deg as lifted, 216 frames): reflected back before merging; check that camera's mirror setting",
+    "left: after alignment its pelvis position differs from right by 0.54 m (median on shared frames)"
+   ],
+   "views": [
+    "left",
+    "right"
+   ],
+   "reference_view": "right",
+   "n_frames": 393,
+   "export": {
+    "frac_of_lifted_frames": 1.0,
+    "n_frames": 393,
+    "n_runs": 1,
+    "min_run_frames": 15
+   },
+   "coverage_of_lifted_frames": {
+    "legs": 1.0,
+    "torso": 1.0,
+    "legs_and_torso": 1.0,
+    "arms": 1.0,
+    "all_joints": 1.0
+   },
+   "continuity": {
+    "body_step_p99_deg": 10.475552916459957,
+    "body_steps_over_20deg_frac": 0.0,
+    "root_step_p99_deg": 5.444220829187098,
+    "root_flips_over_90deg": 0,
+    "root_turns_over_90deg_in_quarter_s": 0,
+    "root_glitch_frames_repaired": {
+     "left": 0,
+     "right": 0
+    }
+   },
+   "weight": {
+    "mean_over_export": 0.9075057938334422,
+    "frac_cells_over_0_5": 0.9487459105779716,
+    "root_weight_mean": 0.9826687062244905,
+    "transl_weight_mean": 0.40901750853561425
+   },
+   "betas": {
+    "recording": [
+     0.26362496614456177,
+     0.39230436086654663,
+     0.9773831367492676,
+     -1.0279440879821777,
+     -0.43135011196136475,
+     -1.0716460943222046,
+     0.26338455080986023,
+     -0.20600548386573792,
+     -0.6814706921577454,
+     -0.13887745141983032
+    ],
+    "per_view": {
+     "left": [
+      0.26362496614456177,
+      0.39230436086654663,
+      0.9773831367492676,
+      -1.0279440879821777,
+      -0.43135011196136475,
+      -1.0716460943222046,
+      0.26338455080986023,
+      -0.20600548386573792,
+      -0.6814706921577454,
+      -0.13887745141983032
+     ],
+     "right": [
+      0.43806880712509155,
+      0.28749001026153564,
+      0.974764883518219,
+      -0.9799453020095825,
+      -0.391290545463562,
+      -1.0066322088241577,
+      0.002638399600982666,
+      -0.34979644417762756,
+      -0.5999831557273865,
+      -0.017056018114089966
+     ]
+    },
+    "n_frames_used": 775,
+    "view_difference_norm": 0.39962994191248075
+   },
+   "per_view": {
+    "left": {
+     "lifted_frames": 393,
+     "visible_frames": 392,
+     "mean_usable_fraction": 0.9974554707379135,
+     "legs_usable_frac": 0.9974554707379135,
+     "root_share_mean": 0.49990637295640733,
+     "alignment": {
+      "yaw_deg": -0.3953410327428344,
+      "offset_m": [
+       0.14581702534917085,
+       -0.6399166584014889,
+       -0.607063826813212
+      ],
+      "n_frames": 392,
+      "root_residual_deg": 7.835424387688772,
+      "transl_residual_m": 0.5400425988638049
+     }
+    },
+    "right": {
+     "lifted_frames": 393,
+     "visible_frames": 393,
+     "mean_usable_fraction": 0.9975766387980128,
+     "legs_usable_frac": 1.0,
+     "root_share_mean": 0.5000936270435926,
+     "alignment": {
+      "yaw_deg": 0.0,
+      "offset_m": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "n_frames": 393,
+      "root_residual_deg": 0.0,
+      "transl_residual_m": 0.0,
+      "reference": true
+     }
+    }
+   },
+   "files": [
+    "merged_smpl.npz",
+    "merge.json"
+   ]
+  }
+ },
+ "status": "WARN",
+ "flags": [],
+ "elapsed_s": 35.187402963638306,
+ "environment": {
+  "wgvp_version": "0.3.0",
+  "python": "3.12.13",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "machine": "arm64",
+  "numpy": "2.2.6",
+  "scipy": "1.16.3",
+  "cv2": "5.0.0",
+  "torch": "2.11.0",
+  "ultralytics": "8.4.45",
+  "imageio_ffmpeg": "0.6.0",
+  "cuda": false,
+  "gpu": null,
+  "ffmpeg": "ffmpeg-macos-aarch64-v7.1"
+ },
+ "privacy_check": {
+  "ok": true,
+  "n_files": 39,
+  "problems": []
+ }
+}
