@@ -62,6 +62,7 @@ def main(argv=None):
                                         "The pipeline runs it after every merge; use this to run it alone")
     p.add_argument("root"); p.add_argument("--session"); p.add_argument("--recording"); p.add_argument("--body-models", help="folder that holds smplx/SMPLX_NEUTRAL.npz (default: jointfit.body_models in the config, then the GVHMR checkout's)")
     p = sub.add_parser("dry-run", help="run the bundled sample and verify the known answers"); p.add_argument("--out"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python"); p.add_argument("--cpu-only", action="store_true")
+    p.add_argument("--lift-device", choices=["cuda", "cpu"], help="cpu: lift the sample without a GPU (slow)")
     p = sub.add_parser("check-gpu", help="what is missing for the GPU stage"); p.add_argument("--gvhmr-root"); p.add_argument("--gvhmr-python")
     p = sub.add_parser("init-config", help="write wgvp_config.json (matching rules) into the data folder"); p.add_argument("root"); p.add_argument("--overwrite", action="store_true")
     p = sub.add_parser("set-roi", help="draw the walkway polygon or the sync-light rectangle for a camera"); p.add_argument("root"); p.add_argument("--session", required=True); p.add_argument("--camera", required=True)
@@ -175,7 +176,7 @@ def main(argv=None):
         build_summary(Path(a.root), load_config(Path(a.root))); return 0
     if a.cmd == "dry-run":
         from .dryrun import dry_run
-        r = dry_run(a.out, a.gvhmr_root, a.gvhmr_python, a.cpu_only); return 0 if r["status"] == "PASS" else 1
+        r = dry_run(a.out, a.gvhmr_root, a.gvhmr_python, a.cpu_only, lift_device=a.lift_device); return 0 if r["status"] == "PASS" else 1
     if a.cmd == "check-gpu":
         from .check_gpu import check, format_rows, run_in_interpreter
         if a.gvhmr_python:

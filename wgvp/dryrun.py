@@ -80,7 +80,8 @@ def _check_target(out: Path, sid: str, rid: str, exp: dict, checks: list, log) -
            f"legs median {legs:.1f} deg over {int(keep.sum())} exported frames; fitted body height {t.get('body_height_m')} m", checks, log)
 
 
-def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_python: str | None = None, cpu_only: bool = False, log=print, keep: bool = True, progress=None, stop=None) -> dict:
+def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_python: str | None = None, cpu_only: bool = False, log=print, keep: bool = True, progress=None, stop=None,
+            lift_device: str | None = None) -> dict:
     exp = json.loads((SAMPLE_DIR / "expected.json").read_text(encoding="utf-8"))
     out = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="wgvp_dryrun_"))
     if out.exists() and any(out.iterdir()):
@@ -88,6 +89,8 @@ def dry_run(out_dir: str | None = None, gvhmr_root: str | None = None, gvhmr_pyt
     shutil.copytree(SAMPLE_DIR / "data", out, dirs_exist_ok=True)      # the default folder comes from mkdtemp and already exists
     log(f"dry run: sample copied to {out}")
     t0 = time.time(); cfg = load_config(out)
+    if lift_device:
+        cfg.setdefault("gvhmr", {})["device"] = lift_device                # cpu: the lift without a GPU
     summ = run_root(out, cfg, gvhmr_root=gvhmr_root, gvhmr_python=gvhmr_python, cpu_only=cpu_only, log=log, progress=progress, stop=stop)
     if summ.get("stopped"):
         log("dry run stopped by the user")

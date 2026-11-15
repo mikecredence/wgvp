@@ -1,0 +1,80 @@
+name: lift on the CPU
+
+# The dry run with the GPU stage, on a runner without a GPU: GVHMR installed from the pinned commit with the CPU
+# build of torch and a prebuilt pytorch3d, its public weights fetched from the mirror GVHMR's docs name, and the
+# stand-in body model in place of the licensed SMPL-X file (tools/standin_body_model.py). About an hour per system,
+# so it runs on request, not at every change.
+on:
+  workflow_dispatch:
+
+jobs:
+  lift:
+    name: dry run with the lift, no GPU (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python 3.10 for GVHMR
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: GVHMR environment (CPU build of torch, prebuilt pytorch3d)
+        run: |
+          python -m venv "$RUNNER_TEMP/gvhmr-env"
+          if [ "$RUNNER_OS" = "Windows" ]; then GPY="$RUNNER_TEMP/gvhmr-env/Scripts/python.exe"; else GPY="$RUNNER_TEMP/gvhmr-env/bin/python"; fi
+          echo "GPY=$GPY" >> "$GITHUB_ENV"
+          git clone https://github.com/zju3dv/GVHMR "$RUNNER_TEMP/GVHMR"
+          git -C "$RUNNER_TEMP/GVHMR" checkout 088caff492aa38c2d82cea363b78a3c65a83118f
+          "$GPY" -m pip install --upgrade pip
+          "$GPY" -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          "$GPY" -m pip install "pytorch3d==0.7.8+pt2.5.1cpu" --extra-index-url https://miropsota.github.io/torch_packages_builder
+          grep -v -E "^(torch|torchvision|pytorch3d|--extra-index-url|jupyter|ipdb|black|cython_bbox|chumpy)" "$RUNNER_TEMP/GVHMR/requirements.txt" > "$RUNNER_TEMP/gvhmr-requirements.txt"
+          "$GPY" -m pip install -r "$RUNNER_TEMP/gvhmr-requirements.txt"
+          "$GPY" -m pip install -e "$RUNNER_TEMP/GVHMR"
+          "$GPY" -m pip install ultralytics==8.3.80 smplx==0.1.28 timm==0.9.0 pytorch-lightning==2.4.0 hydra-core==1.3.2 einops "imageio[pyav]" ffmpeg-python==0.2.0
+          "$GPY" -m pip list 2>/dev/null | grep -i -E "^(torch|pytorch3d|numpy|pytorch-lightning|lightning|hydra|ultralytics|smplx|timm|pycolmap|wis3d) "
+      - name: Python 3.12 for the pipeline
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (CPU stages)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: The render guard in GVHMR's demo.py, and the stand-in body model
+        run: |
+          python tools/gvhmr_render_guard.py "$RUNNER_TEMP/GVHMR"
+          python tools/standin_body_model.py "$RUNNER_TEMP/GVHMR/inputs/checkpoints/body_models"
+      - name: GVHMR weights (5.4 GB from the mirror GVHMR's docs name)
+        run: |
+          cd "$RUNNER_TEMP/GVHMR/inputs/checkpoints"
+          mkdir -p gvhmr hmr2 vitpose
+          curl -sSL --retry 3 -o gvhmr/gvhmr_siga24_release.ckpt "https://huggingface.co/camenduru/GVHMR/resolve/main/gvhmr/gvhmr_siga24_release.ckpt"
+          curl -sSL --retry 3 -o "hmr2/epoch=10-step=25000.ckpt" "https://huggingface.co/camenduru/GVHMR/resolve/main/hmr2/epoch%3D10-step%3D25000.ckpt"
+          curl -sSL --retry 3 -o vitpose/vitpose-h-multi-coco.pth "https://huggingface.co/camenduru/GVHMR/resolve/main/vitpose/vitpose-h-multi-coco.pth"
+          ls -l gvhmr hmr2 vitpose
+      - name: Check GPU (NOT ready for the GPU, as it should be here; every module must be OK)
+        run: python -m wgvp check-gpu --gvhmr-root "$RUNNER_TEMP/GVHMR" --gvhmr-python "$GPY" || true
+      - name: Dry run with the lift on the CPU
+        run: python -m wgvp dry-run --out "$RUNNER_TEMP/wgvp_dryrun" --gvhmr-root "$RUNNER_TEMP/GVHMR" --gvhmr-python "$GPY" --lift-device cpu
+      - name: Keep the results and the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lift-cpu-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/QC_SUMMARY.html
+            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/qc_summary.json
+            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/logs/
+            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/HC900/deliver/session_summary.json
+            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/HC900/work/**/gvhmr_run.log
+            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/HC900/work/**/chunk_*.json
+          if-no-files-found: ignore

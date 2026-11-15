@@ -1,6 +1,7 @@
 """The window itself, driven the way a user drives it: scan a folder, check the GPU environment, start a run and stop it,
 ask for a demo video where nothing is lifted, run to the end, read the result, open the summary, run the one session
-again by itself.
+again by itself, hover a cut-off cell of the list, and (with the demo extras installed) render the demo video of the
+bundled lifted outputs with the stand-in body model.
 
 It needs a display and about a minute, so it runs only with WGVP_GUI_SMOKE=1 (the CI sets it on Windows, macOS
 and Linux). The data folder has a space and an accent in its name, as a folder on a real PC may."""
@@ -111,6 +112,32 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
             yield 200
         yield 400
         seen["one_status"] = status()
+        # a cell that its column cuts off shows whole under the mouse; one that fits does not
+        tree.item(own, open=True); rec = tree.get_children(own)[0]; tree.column("info", width=60); yield 200   # the CSV's name no longer fits
+        x, y, w, h = tree.bbox(rec, "info"); tree.event_generate("<Motion>", x=x + 5, y=y + 5, rootx=tree.winfo_rootx() + x + 5, rooty=tree.winfo_rooty() + y + 5)
+        yield 200
+        tips = [w_ for w_ in app.winfo_children() if w_.winfo_class() == "Toplevel"]
+        seen["tip"] = (tree.set(rec, "info"), [str(c.cget("text")) for t_ in tips for c in t_.winfo_children()])
+        tree.column("info", width=360); tree.event_generate("<Leave>"); yield 200
+        x, y, w, h = tree.bbox(own, "#0"); tree.event_generate("<Motion>", x=x + 5, y=y + 5, rootx=tree.winfo_rootx() + x + 5, rooty=tree.winfo_rooty() + y + 5)
+        yield 200
+        seen["tip_fits"] = [w_ for w_ in app.winfo_children() if w_.winfo_class() == "Toplevel"]
+        tree.event_generate("<Leave>")
+        # the demo video of a lifted session, through the window: the bundled lifted outputs stand in for a lift here,
+        # the stand-in body model for the licensed one (under a GVHMR folder named in the field)
+        shutil.copytree(REPO / "examples" / "bundled" / "wgvp_output" / "OWN01", root / "wgvp_output" / "OWN01", dirs_exist_ok=True)
+        sys.path.insert(0, str(REPO / "tools")); import standin_body_model
+        groot = tmp_path / "GVHMR"; standin_body_model.write(groot / "inputs" / "checkpoints" / "body_models")
+        app.setvar(str(entries[1].cget("textvariable")), str(groot))
+        from wgvp.demo import extras_missing
+        seen["extras_missing"] = extras_missing(); n_boxes = len(seen["boxes"])
+        _find(app, "TButton", "Demo video").invoke()
+        t0 = time.time()
+        while not (status().startswith("demo video ready") or len(seen["boxes"]) > n_boxes and status() == "idle"):
+            assert time.time() - t0 < 900, f"the demo did not end: {status()}"
+            yield 300
+        yield 400
+        seen["demo_status"] = status(); seen["demo_boxes"] = seen["boxes"][n_boxes:]
 
     def on_ready(app):
         gen = script(app)
@@ -136,7 +163,17 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
     assert seen["buttons"] == ("normal", "disabled", "normal"), seen["buttons"]
     assert len(seen["demo_box"]) == 1 and seen["demo_box"][0].startswith("no lifted recording under wgvp_output yet"), seen["demo_box"]
     assert seen["one_box"] == seen["demo_box"] + ["click a session in the list first (any of its rows), then Run selected session"], seen["one_box"]
-    assert seen["boxes"] == seen["one_box"], seen["boxes"]         # no other dialog came up
+    assert seen["boxes"][:len(seen["one_box"])] == seen["one_box"], seen["boxes"]     # no other dialog came up before the demo
+    cell, tip_texts = seen["tip"]
+    assert cell == "OWN01_selfpace.csv" and tip_texts == [cell], seen["tip"]       # the cut-off cell, whole, under the mouse
+    assert seen["tip_fits"] == [], seen["tip_fits"]                # nothing for a cell that fits
+    if os.environ.get("WGVP_DEMO") == "1":
+        assert not seen["extras_missing"], seen["extras_missing"]
+    if seen["extras_missing"]:
+        assert seen["demo_boxes"] and seen["demo_boxes"][0].startswith("the demo video needs the demo extras ("), seen["demo_boxes"]
+    else:
+        assert seen["demo_boxes"] == [] and seen["demo_status"].startswith("demo video ready: "), (seen["demo_boxes"], seen["demo_status"])
+        assert seen["opened"][-1].endswith("OWN01_selfpace_demo.mp4") and (root / "wgvp_output" / "OWN01" / "work" / "demo" / "OWN01_selfpace_demo.mp4").stat().st_size > 200_000, seen["opened"][-2:]
     assert seen["one_start"] == "running OWN01 ...", seen["one_start"]
     assert seen["one_status"].startswith(("finished: OWN01 PASS.", "finished: OWN01 WARN.")) and "of 1)" in seen["one_status"], seen["one_status"]
     # PASS on macOS and Windows; on Linux the same clip decodes a little differently and ends WARN (flash_disagrees)
@@ -145,5 +182,5 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
     bar = seen["bar"]
     assert bar == sorted(bar) and bar[-1] == gui.BAR, bar[-5:]     # the bar never goes back and ends full
     assert len(set(bar)) >= 8, sorted(set(bar))                    # and it moves through the run, not in one jump
-    assert seen["opened"] and seen["opened"][-1].endswith("QC_SUMMARY.html"), seen["opened"]
+    assert seen["opened"] and any(u.endswith("QC_SUMMARY.html") for u in seen["opened"]), seen["opened"]
     assert (root / "wgvp_output" / "QC_SUMMARY.html").exists()

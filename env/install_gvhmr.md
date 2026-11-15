@@ -24,22 +24,32 @@ Weights go under `GVHMR/inputs/checkpoints/` exactly as GVHMR's `docs/INSTALL.md
 | vitpose/vitpose-h-multi-coco.pth | ViTPose release |
 | hmr2/epoch=10-step=25000.ckpt | 4D-Humans (HMR2.0) release |
 | yolo/yolov8x.pt | ultralytics release |
-| body_models/smplx/SMPLX_NEUTRAL.npz, body_models/smpl/SMPL_NEUTRAL.pkl | smpl-x.is.tue.mpg.de / smpl.is.tue.mpg.de (registration; licence forbids redistribution, so they are NOT in this package or the Docker image) |
+| body_models/smplx/SMPLX_NEUTRAL.npz, body_models/smpl/SMPL_NEUTRAL.pkl | smpl-x.is.tue.mpg.de / smpl.is.tue.mpg.de (registration; licence forbids redistribution, so they are NOT in this package or the Docker image; the tests use a stand-in, `tools/standin_body_model.py`) |
 
-No NVIDIA GPU: the same install with the CPU build of torch (`pip install torch==2.5.1 torchvision==0.20.1
---index-url https://download.pytorch.org/whl/cpu`) and without pytorch3d, then `"device": "cpu"` under `gvhmr` in
-`wgvp_config.json` or `--lift-device cpu`. The poses match the GPU's; the time is about 35 s of lifting per second
-of video per view (README, "The lift without a GPU"). `check-gpu` reports the missing GPU as it should; the lift
-runs regardless.
+No NVIDIA GPU: the same install with the CPU build of torch and a prebuilt pytorch3d (GVHMR imports it even when
+nothing is rendered; building it needs nvcc, the wheels below do not), then `"device": "cpu"` under `gvhmr` in
+`wgvp_config.json` or `--lift-device cpu`:
+
+```
+pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+pip install "pytorch3d==0.7.8+pt2.5.1cpu" --extra-index-url https://miropsota.github.io/torch_packages_builder
+```
+
+The wheel index is a community build (MiroPsota/torch_packages_builder on GitHub), not Meta's. On Windows,
+GVHMR's `requirements.txt` cannot be installed as is (it pins Linux CUDA wheels); `.github/workflows/lift-cpu.yml`
+holds the install that runs there, line by line. The poses match the GPU's; the time is about 35 s of lifting per
+second of video per view (README, "The lift without a GPU"). `check-gpu` reports the missing GPU as it should; the
+lift runs regardless.
 
 Known pitfalls (each cost us a run):
 
 * The `ffmpeg` PyPI stub shadows `ffmpeg-python` and GVHMR dies with `module 'ffmpeg' has no attribute 'input'`.
   Fix inside the env: `rm -rf $(python -c 'import site;print(site.getsitepackages()[0])')/ffmpeg && pip install --force-reinstall --no-deps ffmpeg-python==0.2.0`.
   `wgvp check-gpu` tests for this.
-* GVHMR's demo renders two QC videos after inference (a third of the wall time). Our stage sets `GVHMR_RENDER=0`; the
-  guard is a two-line patch in `tools/demo/demo.py` (`if os.environ.get("GVHMR_RENDER", "1") == "1": render_incam(cfg); render_global(cfg); ...`).
-  Without the patch the stage still works (slower) and deletes the rendered videos afterwards.
+* GVHMR's demo renders two QC videos after inference (a third of the wall time on a GPU, far more on a CPU). Our stage
+  sets `GVHMR_RENDER=0`; the guard that honours it is three lines in `tools/demo/demo.py`, put there by
+  `python tools/gvhmr_render_guard.py <GVHMR checkout>` (once; running it again changes nothing). Without the guard
+  the stage still works (slower) and deletes the rendered videos afterwards.
 * ViTPose/feature extraction load the whole chunk into RAM at half resolution: with `max_chunk_frames` 3000 at 1280 px that is < 6 GB. Lower it on a small machine.
 * Throughput on a T4: about 0.5 s per frame of inference, i.e. a 50-s view at 30 fps takes 12-15 min; two views per recording.
 

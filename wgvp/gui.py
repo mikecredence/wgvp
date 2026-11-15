@@ -36,6 +36,7 @@ def launch(initial_root: str | None = None, on_ready=None):
     """Open the window. on_ready(app), if given, is called once before the event loop starts (the tests drive the window through it)."""
     import tkinter as tk
     from tkinter import filedialog, ttk, messagebox
+    from tkinter import font as tkfont
 
     app = tk.Tk(); app.title(f"WearGait video pipeline (wgvp {__version__})"); app.geometry("1220x760")
     q: queue.Queue = queue.Queue()
@@ -65,8 +66,35 @@ def launch(initial_root: str | None = None, on_ready=None):
     # --- middle: found items
     mid = ttk.Frame(app, padding=(8, 0)); mid.pack(fill="both", expand=True)
     tree = ttk.Treeview(mid, columns=("info", "status"), height=12); tree.heading("#0", text="session / recording / camera"); tree.heading("info", text="file"); tree.heading("status", text="status")
-    tree.column("#0", width=330); tree.column("info", width=430); tree.column("status", width=250)
-    tree.pack(fill="both", expand=True)
+    tree.column("#0", width=330, minwidth=160, stretch=False); tree.column("info", width=360, minwidth=160, stretch=False)
+    tree.column("status", width=480, minwidth=240, stretch=True)           # the verdicts and their reasons get the spare width
+    xs = ttk.Scrollbar(mid, orient="horizontal", command=tree.xview); tree.configure(xscrollcommand=xs.set)
+    tree.pack(fill="both", expand=True); xs.pack(fill="x")
+    tip = {"win": None, "cell": None}                                      # a cell cut off by its column shows whole under the mouse
+
+    def _hide_tip(e=None):
+        if tip["win"] is not None:
+            tip["win"].destroy(); tip["win"] = None
+        tip["cell"] = None
+
+    def _show_tip(e):
+        row, col = tree.identify_row(e.y), tree.identify_column(e.x)
+        cell = (row, col) if row and col else None
+        if cell == tip["cell"]:
+            return
+        _hide_tip(); tip["cell"] = cell
+        if not cell:
+            return
+        text = tree.item(row, "text") if col == "#0" else tree.set(row, col)
+        depth = 0; it = row
+        while tree.parent(it):
+            it = tree.parent(it); depth += 1
+        room = int(tree.column(col, "width")) - (20 * depth + 28 if col == "#0" else 8)
+        if text and tkfont.nametofont("TkDefaultFont").measure(text) > room:
+            win = tk.Toplevel(app); win.wm_overrideredirect(True); win.wm_geometry(f"+{e.x_root + 12}+{e.y_root + 16}")
+            tk.Label(win, text=text, justify="left", wraplength=720, relief="solid", borderwidth=1, background="#ffffe0", foreground="#000000", padx=5, pady=3).pack()
+            tip["win"] = win
+    tree.bind("<Motion>", _show_tip); tree.bind("<Leave>", _hide_tip); tree.bind("<ButtonPress>", _hide_tip)
     previews = {}
     def _open_preview(e):
         it = tree.focus()
@@ -279,6 +307,7 @@ def launch(initial_root: str | None = None, on_ready=None):
         if r is None or state["running"]:
             return
         sid = selected_session()
+        save_gvhmr_cfg(r)                                                  # the body model is looked for under the GVHMR folder named here
         begin("demo"); v_prog.set("demo video: looking for lifted recordings ...")
         worker(demo_job, r, sid)
 

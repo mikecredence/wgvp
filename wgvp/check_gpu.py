@@ -50,7 +50,7 @@ def check(gvhmr_root: str | None) -> list[tuple[str, bool, str]]:
         add("GVHMR root exists", root.exists(), str(root))
         add("tools/demo/demo.py present", (root / "tools/demo/demo.py").exists(), "git clone https://github.com/zju3dv/GVHMR")
         if (root / "tools/demo/demo.py").exists():
-            add("demo.py render guard (GVHMR_RENDER)", "GVHMR_RENDER" in (root / "tools/demo/demo.py").read_text(encoding="utf-8"), "optional: without it QC videos are rendered (slower) and deleted afterwards")
+            add("demo.py render guard (GVHMR_RENDER)", "GVHMR_RENDER" in (root / "tools/demo/demo.py").read_text(encoding="utf-8"), "optional: python tools/gvhmr_render_guard.py <root> adds it; without it QC videos are rendered (slower) and deleted afterwards")
         for w in WEIGHTS:
             p = root / w
             add(f"weight {w}", p.exists(), f"{p.stat().st_size / 2**20:.0f} MB" if p.exists() else "download per GVHMR docs/INSTALL.md (SMPL/SMPL-X need registration at smpl-x.is.tue.mpg.de)")

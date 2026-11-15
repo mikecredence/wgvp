@@ -191,7 +191,8 @@ next run reuses the finished tracking and lifts. **Check GPU** runs the install 
 environment named in the fields, in the background, and ends with READY or with what is missing and its fix.
 **Demo video** renders the demo of the selected session's lifted recordings (of every lifted session when no row
 is selected), frame by frame on the bar, and opens it; it needs the extras of step 6 and says so when they are
-missing. **Open QC summary** opens the cross-session page. The GUI needs tkinter, which the python.org installers
+missing. **Open QC summary** opens the cross-session page. In the list, a cell that its column cuts off shows whole
+under the mouse. The GUI needs tkinter, which the python.org installers
 include; on Debian/Ubuntu `sudo apt install python3-tk`, with a Homebrew Python on macOS
 `brew install python-tk@3.12` (match your Python version). Without tkinter `python -m wgvp` prints these fixes and
 the equivalent commands in place of the window.
@@ -598,7 +599,7 @@ python -m wgvp demo <root> [--session <id>] [--recording <id>] [--gt <sample>_gt
                                        the demo video of the training target, or of one estimate by name (demo extras;
                                        written under work/)
 python -m wgvp summary <root>          rebuild the QC summary
-python -m wgvp dry-run [--cpu-only] [--out DIR]
+python -m wgvp dry-run [--cpu-only | --gvhmr-root DIR --gvhmr-python PY [--lift-device cpu]] [--out DIR]
 python -m wgvp check-gpu --gvhmr-root <GVHMR> --gvhmr-python <python>
                                        what is missing for the GPU stage, checked inside that environment
 python -m wgvp set-roi <root> --session <id> --camera <view> --kind walkway|light
@@ -682,7 +683,8 @@ tools/           make_sample.py (how the samples were rendered), make_partner_la
                  room's straight edges), compare_jointfit.py (the merge and the joint two-view fit against the truth),
                  one_camera_speed.py (one view's walking speed: the lifter's path against a keypoint fit),
                  chalk_walk.py (a real walk between two ground marks a known distance apart: the truth from one side
-                 view, and every estimate against it)
+                 view, and every estimate against it), standin_body_model.py (a stand-in for the licensed SMPL-X
+                 file, for the tests), gvhmr_render_guard.py (the render guard in GVHMR's demo.py)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), results.md (the measured results behind the
                  README's tables), jointfit.json (the joint fit's comparison),
