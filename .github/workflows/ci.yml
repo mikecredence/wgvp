@@ -52,10 +52,11 @@ jobs:
         run: pip install -e ".[demo]"
       - name: Dry run
         run: python -m wgvp dry-run --cpu-only --out "$RUNNER_TEMP/wgvp_dryrun"
-      - name: Bundled offline example (real footage)
+      - name: Bundled offline example (real footage), run on a copy so the checkout keeps its lifted outputs
         run: |
-          python -m wgvp run examples/bundled --cpu-only
-          python examples/verify_examples.py --data examples/bundled
+          cp -r examples/bundled "$RUNNER_TEMP/bundled"
+          python -m wgvp run "$RUNNER_TEMP/bundled" --cpu-only
+          python examples/verify_examples.py --data "$RUNNER_TEMP/bundled"
       - name: A display for the GUI and a software OpenGL for the demo (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb tk libgl1 libglu1-mesa libgl1-mesa-dri libegl1

@@ -125,6 +125,8 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
         tree.event_generate("<Leave>")
         # the demo video of a lifted session, through the window: the bundled lifted outputs stand in for a lift here,
         # the stand-in body model for the licensed one (under a GVHMR folder named in the field)
+        assert (REPO / "examples/bundled/wgvp_output/OWN01/deliver/OWN01_selfpace/merged_smpl.npz").exists(), \
+            "examples/bundled has been run in place and lost its lifted outputs: git checkout -- examples/bundled"
         shutil.copytree(REPO / "examples" / "bundled" / "wgvp_output" / "OWN01", root / "wgvp_output" / "OWN01", dirs_exist_ok=True)
         sys.path.insert(0, str(REPO / "tools")); import standin_body_model
         groot = tmp_path / "GVHMR"; standin_body_model.write(groot / "inputs" / "checkpoints" / "body_models")

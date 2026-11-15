@@ -31,6 +31,8 @@ def test_the_demo_renders_with_the_standin_body(tmp_path):
     import standin_body_model
     bm = standin_body_model.write(tmp_path / "body_models").parents[1]
     root = tmp_path / "data root été"
+    assert (REPO / "examples/bundled/wgvp_output/OWN01/deliver/OWN01_selfpace/merged_smpl.npz").exists(), \
+        "examples/bundled has been run in place and lost its lifted outputs: git checkout -- examples/bundled"
     shutil.copytree(REPO / "examples" / "bundled", root)                  # the inputs and the lifted outputs of OWN01 / OWN02
     lines = []
     try:
