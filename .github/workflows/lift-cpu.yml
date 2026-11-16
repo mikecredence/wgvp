@@ -1,11 +1,18 @@
 name: lift on the CPU
 
-# The dry run with the GPU stage, on a runner without a GPU: GVHMR installed from the pinned commit with the CPU
-# build of torch and a prebuilt pytorch3d, its public weights fetched from the mirror GVHMR's docs name, and the
-# stand-in body model in place of the licensed SMPL-X file (tools/standin_body_model.py). About an hour per system,
-# so it runs on request, not at every change.
+# The GPU stage on a runner without a GPU: GVHMR installed from the pinned commit with the CPU build of torch and a
+# prebuilt pytorch3d, its public weights fetched from the mirror GVHMR's docs name, the stand-in body model in place
+# of the licensed SMPL-X file (tools/standin_body_model.py), and two seconds of the dry-run sample lifted through the
+# stage and checked against the rendered truth (tools/lift_short_chunk.py). The runners' CPUs are slow (ViTPose alone
+# took 90 s per batch of 16 frames on one thread), so the whole sample is an input, off by default. On request, not at
+# every change: the weights are 5.4 GB.
 on:
   workflow_dispatch:
+    inputs:
+      full:
+        description: "also the whole dry run with the lift (two 49-s views on the CPU: hours)"
+        type: boolean
+        default: false
 
 jobs:
   lift:
@@ -63,18 +70,27 @@ jobs:
           ls -l gvhmr hmr2 vitpose
       - name: Check GPU (NOT ready for the GPU, as it should be here; every module must be OK)
         run: python -m wgvp check-gpu --gvhmr-root "$RUNNER_TEMP/GVHMR" --gvhmr-python "$GPY" || true
-      - name: Dry run with the lift on the CPU
-        run: python -m wgvp dry-run --out "$RUNNER_TEMP/wgvp_dryrun" --gvhmr-root "$RUNNER_TEMP/GVHMR" --gvhmr-python "$GPY" --lift-device cpu
+      - name: The CPU stages of the dry run (they cut the lifter's chunks)
+        run: python -m wgvp dry-run --cpu-only --out "$RUNNER_TEMP/wgvp_dryrun"
+      - name: Two seconds of one view through GVHMR on the CPU, against the truth
+        run: |
+          python tools/lift_short_chunk.py prepare "$RUNNER_TEMP/wgvp_dryrun" "$RUNNER_TEMP/short" --frames 60
+          "$GPY" tools/lift_short_chunk.py lift "$RUNNER_TEMP/short" --gvhmr-root "$RUNNER_TEMP/GVHMR" --device cpu
+          python tools/lift_short_chunk.py check "$RUNNER_TEMP/short" --gt sample/HC900_gt.npz
+      - name: The whole dry run with the lift (on request)
+        if: ${{ inputs.full }}
+        run: python -m wgvp dry-run --out "$RUNNER_TEMP/wgvp_dryrun_full" --gvhmr-root "$RUNNER_TEMP/GVHMR" --gvhmr-python "$GPY" --lift-device cpu
       - name: Keep the results and the logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lift-cpu-${{ matrix.os }}
           path: |
-            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/QC_SUMMARY.html
-            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/qc_summary.json
-            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/logs/
-            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/HC900/deliver/session_summary.json
-            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/HC900/work/**/gvhmr_run.log
-            ${{ runner.temp }}/wgvp_dryrun/wgvp_output/HC900/work/**/chunk_*.json
+            ${{ runner.temp }}/short/wgvp_output/HC900/work/**/chunk_*.json
+            ${{ runner.temp }}/short/wgvp_output/HC900/work/**/gvhmr_run.log
+            ${{ runner.temp }}/short/wgvp_output/HC900/work/**/chunk_*_pose.npz
+            ${{ runner.temp }}/wgvp_dryrun_full/wgvp_output/QC_SUMMARY.html
+            ${{ runner.temp }}/wgvp_dryrun_full/wgvp_output/logs/
+            ${{ runner.temp }}/wgvp_dryrun_full/wgvp_output/HC900/work/**/gvhmr_run.log
+            ${{ runner.temp }}/wgvp_dryrun_full/wgvp_output/HC900/work/**/chunk_*.json
           if-no-files-found: ignore

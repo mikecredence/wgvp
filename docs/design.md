@@ -2346,20 +2346,31 @@ small window under the mouse (measured against the column's width with the list'
 The window test hovers the recording row's file cell after shrinking that column to 60 px and reads the popup, then
 hovers a cell that fits and finds none.
 
-**The lift without a GPU, in CI.** `lift-cpu.yml` runs on request (not at every change: an hour and 5.4 GB of
-weights per system): GVHMR at the pinned commit in a Python 3.10 environment with the CPU build of torch 2.5.1 and
-a prebuilt pytorch3d (0.7.8, from MiroPsota/torch_packages_builder; GVHMR imports pytorch3d at the top of its demo
-even when nothing is rendered, so the install notes' "without pytorch3d" was wrong and is corrected), the rest of
-GVHMR's requirements minus its Linux-only wheels, the render guard put in by `tools/gvhmr_render_guard.py` (the
-patch the notes described by hand), the stand-in body model, and the public weights from the mirror GVHMR's docs
-name (`camenduru/GVHMR` on Hugging Face: 2.7 GB HMR2, 2.5 GB ViTPose, 163 MB GVHMR; no YOLO, since the stage
-writes the boxes itself); then `dry-run --lift-device cpu`, a flag the dry run did not have. The first run found two
-defects before it lifted anything. GVHMR's HMR2 module imports `yacs`, which GVHMR's requirements do not list and
-the GPU box happened to have: the lift died at import on both systems in five seconds. And the dry run reported PASS
-regardless, because its GVHMR checks only ran when the stage had reported success; a failed lift left them skipped.
-The dry run now checks that a lift it asked for ran to the end and that the session's verdict is PASS or WARN, the
-GPU check imports the demo's whole module chain (which would have named `yacs`) and knows the package by name, and
-the lift stage prints the error line from GVHMR's log in its own log instead of pointing at the file.
+**The lift without a GPU, in CI.** `lift-cpu.yml` runs on request (not at every change: 5.4 GB of weights per
+system): GVHMR at the pinned commit in a Python 3.10 environment with the CPU build of torch 2.5.1 and a prebuilt
+pytorch3d (0.7.8, from MiroPsota/torch_packages_builder; GVHMR imports pytorch3d at the top of its demo even when
+nothing is rendered, so the install notes' "without pytorch3d" was wrong and is corrected), the rest of GVHMR's
+requirements minus its Linux-only wheels, the render guard put in by `tools/gvhmr_render_guard.py` (the patch the
+notes described by hand), the stand-in body model, and the public weights from the mirror GVHMR's docs name
+(`camenduru/GVHMR` on Hugging Face: 2.7 GB HMR2, 2.5 GB ViTPose, 163 MB GVHMR; no YOLO, since the stage writes the
+boxes itself). The first attempt, the whole dry run with the lift (`dry-run --lift-device cpu`, a flag the dry run
+did not have), found two defects before it lifted anything. GVHMR's HMR2 module imports `yacs`, which GVHMR's
+requirements do not list and the GPU box happened to have: the lift died at import on both systems in five seconds.
+And the dry run reported PASS regardless, because its GVHMR checks only ran when the stage had reported success; a
+failed lift left them skipped. The dry run now checks that a lift it asked for ran to the end and that the session's
+verdict is PASS or WARN, the GPU check imports the demo's whole module chain (which would have named `yacs`) and
+knows the package by name, and the lift stage prints the error line from GVHMR's log in its own log instead of
+pointing at the file.
+
+The second attempt lifted, and showed what the runners are: torch came up with one thread of the four, and ViTPose
+took 90 s per batch of 16 frames, so a 1,458-frame view did not finish its preprocessing inside the stage's two-hour
+chunk limit on either system. The CPU wrapper now sets torch's threads to the machine's cores, a CPU lift's chunk
+limit is at least six seconds per frame, and the check that runs on request is `tools/lift_short_chunk.py`: the
+first 60 frames of one view's chunk, cut into a session of their own, lifted through the stage's own `process_chunk`
+in the GVHMR interpreter, and compared joint by joint with the rendered truth (median leg-joint error under 20 deg,
+the dry run's own tolerance for the two views' agreement being 25). The whole dry run with the lift stays in the
+workflow as an input, off by default.
+LIFT_RESULT_SENTENCE
 
 **Tests.** 128 unit tests (the demo render, the video lookup), the window test with the demo and the hover tip; the
 CI runs the demo test and the window test on all three systems at every change, and the CPU lift on request.
