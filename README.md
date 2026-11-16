@@ -221,7 +221,8 @@ eight Xeon cores against 150 s on a T4, so roughly 35 s of lifting per second of
 recording is about 35 min; a session of several recordings is an afternoon. ViTPose and the HMR2 features take all
 of it; the GVHMR network itself runs in a second either way. The same route is exercised on GitHub's Ubuntu and
 Windows runners by `.github/workflows/lift-cpu.yml` (on request): two seconds of one view of the sample, lifted and
-compared with the truth, leg joints within 10 degrees median.
+compared with the truth, leg joints within 10 degrees median; and, as its opt-in input, the whole dry run with the
+lift, which passed all its checks on both runners (2 h 53 min on Windows, 3 h 39 min on Ubuntu, four cores each).
 
 **6. The demo video** of a lifted recording (the two views with the lifter's 2D input, the reconstruction, the
 export, an aerial view, a filmstrip and knee-flexion timelines; the figure further down is one frame of it) renders

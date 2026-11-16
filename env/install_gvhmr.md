@@ -39,7 +39,8 @@ The wheel index is a community build (MiroPsota/torch_packages_builder on GitHub
 GVHMR's `requirements.txt` cannot be installed as is (it pins Linux CUDA wheels); `.github/workflows/lift-cpu.yml`
 holds the install that runs on GitHub's Ubuntu and Windows runners, line by line, and lifts two seconds of the sample
 with it against the rendered truth. The poses match the GPU's; the time is about 35 s of lifting per second of
-video per view on four Xeon cores (README, "The lift without a GPU"), and several times that on a GitHub runner.
+video per view on four Xeon cores (README, "The lift without a GPU"), and 3.5 to 4.4 s per frame on a GitHub
+runner's four cores (the whole 49-s two-view sample in 2 h 53 min on Windows, 3 h 39 min on Ubuntu).
 `check-gpu` reports the missing GPU as it should; the lift runs regardless.
 
 Known pitfalls (each cost us a run):

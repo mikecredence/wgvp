@@ -2373,16 +2373,19 @@ workflow as an input, off by default.
 On GitHub's Ubuntu and Windows runners the environment installs, the GPU check reports the missing GPU and nothing
 else, and the 60 frames lift in 312 and 288 s (5.2 and 4.8 s per frame, the two 2.5 GB models' loading included)
 with leg joints 9.7 and 10.0 deg median from the truth (15.4 and 15.6 at the 90th percentile): 14 and 13 min per
-job, weights included. The whole dry run with the lift has still not run to its end on a machine without a GPU; on
-the runners it would take four cores most of a day.
+job, weights included. The whole dry run with the lift, left running as the second attempt with the thread fix,
+then finished too: 21 of 21 checks on both systems, in 2 h 53 min on the Windows runner (each 1,458-frame view
+5,064 and 5,125 s, 3.5 s per frame on four cores) and 3 h 39 min on the Ubuntu runner (6,436 s per view, 4.4 s per
+frame), with the two views' leg joints 8.2 deg apart in median, the merged target 9.7 deg and the joint fit 9.4 deg
+from the rendered truth, the root 10.6 deg: the numbers of the GPU box, from a machine with no GPU and no licensed
+body model.
 
 **Tests.** 130 unit tests (the demo render, the video lookup, the short chunk's cut and its check), the window test
 with the demo and the hover tip; the CI runs the demo test and the window test on all three systems at every change,
 and the two-second lift on Ubuntu and Windows on request.
 
-**What stays open.** The whole dry run with the lift on a machine without a GPU (hours anywhere, a day on the
-runners); the macOS runner's software OpenGL makes its window job 25 min; a real clinic recording is still the test
-that matters (section 3).
+**What stays open.** The macOS runner's software OpenGL makes its window job 25 min; a real clinic recording is
+still the test that matters (section 3).
 
 ## 3. What has not been tested on real clinic recordings
 
