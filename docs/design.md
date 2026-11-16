@@ -2310,6 +2310,63 @@ then `finished: OWN01 PASS.` or `WARN.` on Linux). 29 s on this Mac for the whol
 
 **What stays open.** The QC table's width; the demo on Windows and its extras' install there; the lift on Windows.
 
+### 2.24 Round seventeen: the open items (2026-11-15)
+
+Asked: complete the open items of 2.23, which were the QC table's width, the demo on Windows with its extras'
+install, and the lift on Windows. What stood in the way of the last two was the licensed SMPL-X file, which the
+public tests cannot carry, and the fact that the bundled example's lifted outputs had never been in the repository
+(`wgvp_output/` is ignored as a whole), so nothing in CI had a recording to render.
+
+**A stand-in body.** `tools/standin_body_model.py` writes `smplx/SMPLX_NEUTRAL.npz` with every array the `smplx`
+package, GVHMR's loaders and this pipeline read, under the real names and in the real shapes (10,475 vertices, 55
+joints, 400 shape and 486 pose directions), from synthetic content: capsules around the mean SMPL-X skeleton (the 22
+body joints at their rest positions, which `fusion.py` already carried; the hand and face joints placed from them
+by affine combinations of the capsule vertices, so the regressor reproduces them exactly), skin weights by limb with
+a short blend at each joint, no pose blend shapes, ten small shape directions, and filler vertices at the head so
+that the extra-joint vertex ids land somewhere. Posing it gives the same joint angles and translations as the real
+model; the skin is a capsule figure. 370 KB. It is not a substitute for the real file in any result, and the
+README's demo clips stay as they were, rendered with the licensed model.
+
+**The demo on every system.** `examples/bundled/wgvp_output/*/deliver/` is now tracked (63 files, 2 MB, lifted on
+the GPU box; no pixels, and the two machine paths they carried are gone), so the demo has a merged recording to
+render in a fresh checkout. The demo looked the recording's video up by the absolute path of the machine that ran
+the pipeline; it now resolves the summary's bare file name under the session's folder. `tests/test_demo_render.py`
+renders OWN01 with the stand-in at every fourth frame and checks the file decodes to the 99 frames it claims, at
+the claimed size, with ink in every sampled frame and motion between the first and the last. The window test now
+also presses Demo video on the bundled lifted outputs, with the stand-in under a GVHMR folder named in the field
+(the button saves that field first, which it did not), and waits for `demo video ready` and the opened file. The
+CI job installs the extras with the README's command (`pip install -e .[demo]`) on all three systems, Mesa3D on the
+Windows runner (ssciwr/setup-mesa-dist-win) for an OpenGL context without a GPU, and Mesa's libraries under Xvfb on
+Linux. The whole 393-frame demo through the window: 30 s to render on the Linux runner, 46 s on Windows, 176 s on
+macOS, whose software OpenGL is slow; the window jobs went from 6 / 11 / 12 min to 10 / 15 / 25 min.
+
+**The QC table.** The status column stretches and the first two do not, so the verdicts and their reasons get the
+window's spare width; a horizontal scrollbar for a narrow window; and a cell its column cuts off shows whole in a
+small window under the mouse (measured against the column's width with the list's font, minus the row's indent).
+The window test hovers the recording row's file cell after shrinking that column to 60 px and reads the popup, then
+hovers a cell that fits and finds none.
+
+**The lift without a GPU, in CI.** `lift-cpu.yml` runs on request (not at every change: an hour and 5.4 GB of
+weights per system): GVHMR at the pinned commit in a Python 3.10 environment with the CPU build of torch 2.5.1 and
+a prebuilt pytorch3d (0.7.8, from MiroPsota/torch_packages_builder; GVHMR imports pytorch3d at the top of its demo
+even when nothing is rendered, so the install notes' "without pytorch3d" was wrong and is corrected), the rest of
+GVHMR's requirements minus its Linux-only wheels, the render guard put in by `tools/gvhmr_render_guard.py` (the
+patch the notes described by hand), the stand-in body model, and the public weights from the mirror GVHMR's docs
+name (`camenduru/GVHMR` on Hugging Face: 2.7 GB HMR2, 2.5 GB ViTPose, 163 MB GVHMR; no YOLO, since the stage
+writes the boxes itself); then `dry-run --lift-device cpu`, a flag the dry run did not have. The first run found two
+defects before it lifted anything. GVHMR's HMR2 module imports `yacs`, which GVHMR's requirements do not list and
+the GPU box happened to have: the lift died at import on both systems in five seconds. And the dry run reported PASS
+regardless, because its GVHMR checks only ran when the stage had reported success; a failed lift left them skipped.
+The dry run now checks that a lift it asked for ran to the end and that the session's verdict is PASS or WARN, the
+GPU check imports the demo's whole module chain (which would have named `yacs`) and knows the package by name, and
+the lift stage prints the error line from GVHMR's log in its own log instead of pointing at the file.
+
+**Tests.** 128 unit tests (the demo render, the video lookup), the window test with the demo and the hover tip; the
+CI runs the demo test and the window test on all three systems at every change, and the CPU lift on request.
+
+**What stays open.** The macOS runner's software OpenGL makes its window job 25 min; a real clinic recording is
+still the test that matters (section 3).
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

@@ -13,8 +13,11 @@ import sys
 
 
 def patch_torch():
-    """Make every move-to-GPU a no-op and every checkpoint load land on the CPU."""
+    """Make every move-to-GPU a no-op and every checkpoint load land on the CPU, on every core of the machine."""
+    import os
     import torch
+    if torch.get_num_threads() < (os.cpu_count() or 1):                   # a runner's torch came up with one thread of four
+        torch.set_num_threads(os.cpu_count() or 1)
 
     def stay(self, *a, **k):
         return self

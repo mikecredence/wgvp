@@ -240,7 +240,7 @@ def main(argv=None):
     try:
         import torch
         if a.device == "cpu":
-            _log(f"no GPU asked for: lifting on the CPU with {torch.get_num_threads()} thread(s). This is slow: expect minutes per second of video")
+            _log(f"no GPU asked for: lifting on the CPU with {os.cpu_count()} core(s). This is slow: expect minutes per second of video")
         elif not torch.cuda.is_available():
             _log("FAIL: torch.cuda.is_available() is False in this environment (to lift on the CPU instead, slowly: --lift-device cpu)"); return 2
         else:
@@ -266,7 +266,8 @@ def main(argv=None):
         if meta.get("status") == "done":
             _log(f"skip {j.parent.parent.name}/{j.stem} (done)"); done_dirs.add(j.parent); continue
         _log(f"run  {j.parts[-4]}/{j.parts[-3]}/{j.stem} ({meta['n_frames']} frames)")
-        m = process_chunk(root, j, a.timeout, device=a.device)
+        timeout = a.timeout if a.device != "cpu" else max(a.timeout, 6 * int(meta["n_frames"]))   # a CPU lift of a long chunk outlasts the GPU's limit
+        m = process_chunk(root, j, timeout, device=a.device)
         _log(f"     -> {m['status']} {m.get('error', '')} ({m.get('gvhmr_run', {}).get('elapsed_s', 0):.0f}s)")
         failed += m["status"] != "done"; done_dirs.add(j.parent)
     for d in sorted(done_dirs):
