@@ -37,9 +37,10 @@ pip install "pytorch3d==0.7.8+pt2.5.1cpu" --extra-index-url https://miropsota.gi
 
 The wheel index is a community build (MiroPsota/torch_packages_builder on GitHub), not Meta's. On Windows,
 GVHMR's `requirements.txt` cannot be installed as is (it pins Linux CUDA wheels); `.github/workflows/lift-cpu.yml`
-holds the install that runs there, line by line. The poses match the GPU's; the time is about 35 s of lifting per
-second of video per view (README, "The lift without a GPU"). `check-gpu` reports the missing GPU as it should; the
-lift runs regardless.
+holds the install that runs on GitHub's Ubuntu and Windows runners, line by line, and lifts two seconds of the sample
+with it against the rendered truth. The poses match the GPU's; the time is about 35 s of lifting per second of
+video per view on four Xeon cores (README, "The lift without a GPU"), and several times that on a GitHub runner.
+`check-gpu` reports the missing GPU as it should; the lift runs regardless.
 
 Known pitfalls (each cost us a run):
 

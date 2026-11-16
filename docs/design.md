@@ -2370,13 +2370,19 @@ first 60 frames of one view's chunk, cut into a session of their own, lifted thr
 in the GVHMR interpreter, and compared joint by joint with the rendered truth (median leg-joint error under 20 deg,
 the dry run's own tolerance for the two views' agreement being 25). The whole dry run with the lift stays in the
 workflow as an input, off by default.
-LIFT_RESULT_SENTENCE
+On GitHub's Ubuntu and Windows runners the environment installs, the GPU check reports the missing GPU and nothing
+else, and the 60 frames lift in 312 and 288 s (5.2 and 4.8 s per frame, the two 2.5 GB models' loading included)
+with leg joints 9.7 and 10.0 deg median from the truth (15.4 and 15.6 at the 90th percentile): 14 and 13 min per
+job, weights included. The whole dry run with the lift has still not run to its end on a machine without a GPU; on
+the runners it would take four cores most of a day.
 
-**Tests.** 128 unit tests (the demo render, the video lookup), the window test with the demo and the hover tip; the
-CI runs the demo test and the window test on all three systems at every change, and the CPU lift on request.
+**Tests.** 130 unit tests (the demo render, the video lookup, the short chunk's cut and its check), the window test
+with the demo and the hover tip; the CI runs the demo test and the window test on all three systems at every change,
+and the two-second lift on Ubuntu and Windows on request.
 
-**What stays open.** The macOS runner's software OpenGL makes its window job 25 min; a real clinic recording is
-still the test that matters (section 3).
+**What stays open.** The whole dry run with the lift on a machine without a GPU (hours anywhere, a day on the
+runners); the macOS runner's software OpenGL makes its window job 25 min; a real clinic recording is still the test
+that matters (section 3).
 
 ## 3. What has not been tested on real clinic recordings
 

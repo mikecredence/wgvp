@@ -109,7 +109,8 @@ numbers.
 ## Quick start
 
 Python 3.10-3.12 on Windows, macOS or Linux. Everything below runs on the CPU. The repository's tests run the dry
-run, the bundled example, the demo video and the GUI on all three systems at every change.
+run, the bundled example, the demo video and the GUI on all three systems at every change, and on request two
+seconds of the sample through GVHMR on the CPU of an Ubuntu and a Windows runner, against the rendered truth.
 
 ```bash
 git clone https://github.com/mikecredence/wgvp.git
@@ -218,7 +219,9 @@ on one 13-s, 393-frame recording the CPU and the GPU lift agree to 0.08 deg at t
 angle (2.8 deg at the single worst frame) and to 3 cm in the walker's position. The time is the cost: 460 s on
 eight Xeon cores against 150 s on a T4, so roughly 35 s of lifting per second of video per view. A 30-s two-view
 recording is about 35 min; a session of several recordings is an afternoon. ViTPose and the HMR2 features take all
-of it; the GVHMR network itself runs in a second either way.
+of it; the GVHMR network itself runs in a second either way. The same route is exercised on GitHub's Ubuntu and
+Windows runners by `.github/workflows/lift-cpu.yml` (on request): two seconds of one view of the sample, lifted and
+compared with the truth, leg joints within 10 degrees median.
 
 **6. The demo video** of a lifted recording (the two views with the lifter's 2D input, the reconstruction, the
 export, an aerial view, a filmstrip and knee-flexion timelines; the figure further down is one frame of it) renders
