@@ -689,7 +689,8 @@ tools/           make_sample.py (how the samples were rendered), make_partner_la
                  one_camera_speed.py (one view's walking speed: the lifter's path against a keypoint fit),
                  chalk_walk.py (a real walk between two ground marks a known distance apart: the truth from one side
                  view, and every estimate against it), standin_body_model.py (a stand-in for the licensed SMPL-X
-                 file, for the tests), gvhmr_render_guard.py (the render guard in GVHMR's demo.py)
+                 file, for the tests), gvhmr_render_guard.py (the render guard in GVHMR's demo.py),
+                 lift_short_chunk.py (two seconds of the sample through GVHMR, against the truth; the CI's lift)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), results.md (the measured results behind the
                  README's tables), jointfit.json (the joint fit's comparison),

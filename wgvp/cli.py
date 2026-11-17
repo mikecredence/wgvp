@@ -178,10 +178,10 @@ def main(argv=None):
         from .dryrun import dry_run
         r = dry_run(a.out, a.gvhmr_root, a.gvhmr_python, a.cpu_only, lift_device=a.lift_device); return 0 if r["status"] == "PASS" else 1
     if a.cmd == "check-gpu":
-        from .check_gpu import check, format_rows, run_in_interpreter
+        from .check_gpu import check, format_rows, ready, run_in_interpreter
         if a.gvhmr_python:
             rc, out = run_in_interpreter(a.gvhmr_python, a.gvhmr_root); print(out); return rc
-        rows = check(a.gvhmr_root); print(format_rows(rows)); return 0 if all(r[1] for r in rows) else 1
+        rows = check(a.gvhmr_root); print(format_rows(rows)); return 0 if ready(rows) else 1
     if a.cmd == "init-config":
         from .config import write_default_config
         print(write_default_config(Path(a.root), overwrite=a.overwrite)); return 0

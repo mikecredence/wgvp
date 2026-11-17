@@ -17,4 +17,4 @@ Stages (CPU unless noted):
 
 Only pose-level derivatives and scalar QC leave the partner's site; see README.md ("Privacy").
 """
-__version__ = "0.3.0"
+__version__ = "0.4.0"

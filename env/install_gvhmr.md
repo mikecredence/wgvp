@@ -41,7 +41,8 @@ holds the install that runs on GitHub's Ubuntu and Windows runners, line by line
 with it against the rendered truth. The poses match the GPU's; the time is about 35 s of lifting per second of
 video per view on four Xeon cores (README, "The lift without a GPU"), and 3.5 to 4.4 s per frame on a GitHub
 runner's four cores (the whole 49-s two-view sample in 2 h 53 min on Windows, 3 h 39 min on Ubuntu).
-`check-gpu` reports the missing GPU as it should; the lift runs regardless.
+`check-gpu` then ends with "READY for the lift on the CPU": its rows are grouped by what they are needed for, and
+only the GPU's are missing.
 
 Known pitfalls (each cost us a run):
 

@@ -68,10 +68,11 @@ jobs:
           WGVP_DEMO: "1"
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a python -m pytest tests/test_demo_render.py -q -rs; else python -m pytest tests/test_demo_render.py -q -rs; fi
-      - name: The GUI, driven through a scan, a run, a GPU check and a demo
+      - name: The GUI, driven through a scan, a run, a GPU check and a demo (no demo on macOS, whose software OpenGL takes ten minutes over it)
         env:
           WGVP_GUI_SMOKE: "1"
           WGVP_DEMO: "1"
+          WGVP_GUI_DEMO: ${{ runner.os == 'macOS' && '0' || '1' }}
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a python -m pytest tests/test_gui_smoke.py -q -rs; else python -m pytest tests/test_gui_smoke.py -q -rs; fi
       - name: Keep the QC summary

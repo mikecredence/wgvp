@@ -4,7 +4,8 @@ again by itself, hover a cut-off cell of the list, and (with the demo extras ins
 bundled lifted outputs with the stand-in body model.
 
 It needs a display and about a minute, so it runs only with WGVP_GUI_SMOKE=1 (the CI sets it on Windows, macOS
-and Linux). The data folder has a space and an accent in its name, as a folder on a real PC may."""
+and Linux); WGVP_GUI_DEMO=0 leaves the demo out (the macOS runner's software OpenGL takes ten minutes over it).
+The data folder has a space and an accent in its name, as a folder on a real PC may."""
 import os
 import shutil
 import sys
@@ -133,6 +134,9 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
         app.setvar(str(entries[1].cget("textvariable")), str(groot))
         from wgvp.demo import extras_missing
         seen["extras_missing"] = extras_missing(); n_boxes = len(seen["boxes"])
+        if os.environ.get("WGVP_GUI_DEMO", "1") == "0":                 # a renderer too slow for this (the macOS runner's software OpenGL)
+            seen["demo_status"] = "skipped"; seen["demo_boxes"] = []
+            return
         _find(app, "TButton", "Demo video").invoke()
         t0 = time.time()
         while not (status().startswith("demo video ready") or len(seen["boxes"]) > n_boxes and status() == "idle"):
@@ -171,7 +175,9 @@ def test_scan_run_and_result_in_the_real_window(tmp_path, monkeypatch):
     assert seen["tip_fits"] == [], seen["tip_fits"]                # nothing for a cell that fits
     if os.environ.get("WGVP_DEMO") == "1":
         assert not seen["extras_missing"], seen["extras_missing"]
-    if seen["extras_missing"]:
+    if seen["demo_status"] == "skipped":
+        pass
+    elif seen["extras_missing"]:
         assert seen["demo_boxes"] and seen["demo_boxes"][0].startswith("the demo video needs the demo extras ("), seen["demo_boxes"]
     else:
         assert seen["demo_boxes"] == [] and seen["demo_status"].startswith("demo video ready: "), (seen["demo_boxes"], seen["demo_status"])
