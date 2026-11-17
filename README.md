@@ -200,8 +200,8 @@ the equivalent commands in place of the window.
 
 [![The GUI through a scan and a run](docs/demos/gui_preview.webp)](docs/demos/gui.png)
 
-*The window through a scan and a run of the three bundled sessions (CPU stages, two minutes shown in twenty
-seconds).*
+*The window through a scan and a run of the three bundled sessions (CPU stages, two minutes shown in half a
+minute).*
 
 **5. The GPU step** (GVHMR, NVIDIA GPU with 8 GB or more, CUDA 12) lives in its own Python environment:
 [env/install_gvhmr.md](env/install_gvhmr.md). Once it exists, `python -m wgvp check-gpu --gvhmr-root <GVHMR>
@@ -690,7 +690,8 @@ tools/           make_sample.py (how the samples were rendered), make_partner_la
                  chalk_walk.py (a real walk between two ground marks a known distance apart: the truth from one side
                  view, and every estimate against it), standin_body_model.py (a stand-in for the licensed SMPL-X
                  file, for the tests), gvhmr_render_guard.py (the render guard in GVHMR's demo.py),
-                 lift_short_chunk.py (two seconds of the sample through GVHMR, against the truth; the CI's lift)
+                 lift_short_chunk.py (two seconds of the sample through GVHMR, against the truth; the CI's lift),
+                 record_window_mac.py (the window clip above, recorded from inside the window's own process)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
 docs/            design.md (design, test results, open questions), results.md (the measured results behind the
                  README's tables), jointfit.json (the joint fit's comparison),

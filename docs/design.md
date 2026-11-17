@@ -2344,7 +2344,11 @@ macOS, whose software OpenGL is slow; the window jobs went from 6 / 11 / 12 min 
 window's spare width; a horizontal scrollbar for a narrow window; and a cell its column cuts off shows whole in a
 small window under the mouse (measured against the column's width with the list's font, minus the row's indent).
 The window test hovers the recording row's file cell after shrinking that column to 60 px and reads the popup, then
-hovers a cell that fits and finds none.
+hovers a cell that fits and finds none. The README's clip was recorded again after the change, with
+`tools/record_window_mac.py`: the window photographs itself through Quartz (its own buffer, found by process id and
+title), which needs no screen-recording permission; the three bundled sessions, PASS 1 and WARN 2, two minutes
+shown in 27 s. The GPU check's rows are now grouped by what they are needed for (the lift, the GPU, GVHMR's own
+renders, advice), and a CPU-only install reads "READY for the lift on the CPU" instead of "NOT ready: 6 items".
 
 **The lift without a GPU, in CI.** `lift-cpu.yml` runs on request (not at every change: 5.4 GB of weights per
 system): GVHMR at the pinned commit in a Python 3.10 environment with the CPU build of torch 2.5.1 and a prebuilt
