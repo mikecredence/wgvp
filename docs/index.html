@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>wgvp</title>
+<meta name="description" content="wgvp turns a two-camera gait-lab video and its inertial sensor recording into per-frame 3D body poses of the participant alone, on the data owner's own computer.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one 1080px column; the two demos are full-width panels with their controls above the drawing. */
+:root {
+  --bg: #f6f6f3; --surface: #ffffff; --fg: #17191c; --fg2: #5b5f67; --line: #dfe1dc; --line2: #eceee9;
+  --accent: #2a78d6; --accent-ink: #1c5cab; --left: #2a78d6; --right: #eb6834; --both: #1baf7a; --imu: #6f737a;
+  --good: #0ca30c; --warn: #b07a00; --code: #edefeb; --chip: #e9eef6;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131416; --surface: #1c1e21; --fg: #ecedef; --fg2: #a7abb3; --line: #2d3034; --line2: #24272b;
+    --accent: #3987e5; --accent-ink: #86b6ef; --left: #3987e5; --right: #e0683a; --both: #22b07c; --imu: #8f939b;
+    --good: #2ebd2e; --warn: #e3a82a; --code: #222529; --chip: #22303f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131416; --surface: #1c1e21; --fg: #ecedef; --fg2: #a7abb3; --line: #2d3034; --line2: #24272b;
+  --accent: #3987e5; --accent-ink: #86b6ef; --left: #3987e5; --right: #e0683a; --both: #22b07c; --imu: #8f939b;
+  --good: #2ebd2e; --warn: #e3a82a; --code: #222529; --chip: #22303f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+a:hover { border-bottom-color: var(--accent); }
+h1, h2, h3 { font-weight: 600; line-height: 1.15; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 5vw, 3.1rem); }
+h2 { font-size: clamp(1.4rem, 3vw, 1.85rem); }
+h3 { font-size: 1.1rem; }
+p { margin: 0; max-width: 68ch; }
+code, pre, .mono { font-family: var(--mono); font-size: 0.9em; }
+code { background: var(--code); padding: 0.1em 0.35em; border-radius: 4px; }
+pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 0; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.topbar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.topbar .wrap { display: flex; align-items: center; gap: 18px; min-height: 52px; flex-wrap: wrap; padding-block: 6px; }
+.brand { font-weight: 600; font-size: 1.05rem; border: 0; color: var(--fg); }
+.brand span { color: var(--fg2); font-weight: 400; }
+nav { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.92rem; }
+nav a { border: 0; color: var(--fg2); }
+nav a:hover { color: var(--fg); }
+.spacer { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 7px 13px; border-radius: 8px; font: inherit; font-size: 0.92rem; cursor: pointer; text-decoration: none; }
+.btn:hover { border-color: var(--fg2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn:focus-visible, input:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+section { padding-block: 56px; }
+section + section { border-top: 1px solid var(--line); }
+.eyebrow { font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg2); margin-bottom: 10px; }
+.lede { font-size: 1.12rem; color: var(--fg); }
+.muted { color: var(--fg2); }
+.stack { display: grid; gap: 18px; }
+.hero { padding-block: 64px 48px; }
+.hero .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 36px; align-items: center; }
+.hero .cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.hero figure { margin: 0; min-width: 0; }
+.hero img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); display: block; }
+figcaption { font-size: 0.85rem; color: var(--fg2); margin-top: 8px; }
+.stages { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; counter-reset: stage; margin-top: 26px; }
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 14px 16px; min-width: 0; display: grid; gap: 6px; align-content: start; }
+.stage b { display: block; font-weight: 600; font-size: 0.98rem; }
+.stage .n { font-family: var(--mono); font-size: 0.78rem; color: var(--fg2); }
+.stage p { font-size: 0.88rem; color: var(--fg2); max-width: none; }
+.stage a { font-size: 0.85rem; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-top: 22px; display: grid; gap: 16px; min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }
+.control { display: grid; gap: 4px; min-width: 0; }
+.control label { font-size: 0.82rem; color: var(--fg2); }
+.control .val { font-family: var(--mono); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+input[type=range] { width: 240px; max-width: 100%; accent-color: var(--accent); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); background: var(--chip); color: var(--fg); border-radius: 999px; padding: 4px 11px 4px 8px; font: inherit; font-size: 0.86rem; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--c); }
+.chip[aria-pressed="false"] { opacity: 0.45; }
+canvas.chart { width: 100%; height: auto; display: block; border-radius: 8px; background: var(--bg); border: 1px solid var(--line2); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
+.rtable { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.rtable th, .rtable td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+.rtable th { font-weight: 500; color: var(--fg2); font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.rtable td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.bar { height: 8px; background: var(--line2); border-radius: 4px; overflow: hidden; min-width: 120px; }
+.bar i { display: block; height: 100%; background: var(--c); width: 0; border-radius: 4px; transition: width 120ms linear; }
+.pill { display: inline-block; font-family: var(--mono); font-size: 0.78rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg2); }
+.pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); }
+.pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.viewer { position: relative; min-width: 0; }
+.videobox { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 1516 / 960; max-width: 100%; }
+.videobox video, .videobox canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.videobox video { object-fit: contain; }
+#three { width: 100%; aspect-ratio: 1516 / 960; border-radius: 8px; overflow: hidden; background: var(--bg); border: 1px solid var(--line2); position: relative; }
+#three canvas { display: block; width: 100% !important; height: 100% !important; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.85rem; color: var(--fg2); align-items: center; }
+.legend .sw { display: inline-block; width: 26px; height: 8px; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+.grad { background: linear-gradient(90deg, var(--right), var(--left)); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat { border: 1px solid var(--line2); border-radius: 10px; padding: 12px 14px; display: grid; gap: 2px; min-width: 0; }
+.stat .k { font-size: 0.8rem; color: var(--fg2); }
+.stat .v { font-family: var(--mono); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.stat .s { font-size: 0.82rem; color: var(--fg2); }
+dl.outputs { display: grid; grid-template-columns: max-content 1fr; gap: 10px 22px; margin: 0; }
+dl.outputs dt { font-family: var(--mono); font-size: 0.9rem; }
+dl.outputs dd { margin: 0; color: var(--fg2); min-width: 0; }
+table.measured { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+table.measured th, table.measured td { text-align: left; padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line2); vertical-align: top; }
+table.measured th { font-weight: 500; color: var(--fg2); font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+table.measured td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tablewrap { overflow-x: auto; }
+.chartbox { position: relative; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 0.82rem; font-family: var(--mono); white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+footer { padding-block: 36px 48px; border-top: 1px solid var(--line); color: var(--fg2); font-size: 0.9rem; }
+footer .wrap { display: grid; gap: 8px; }
+.note { font-size: 0.88rem; color: var(--fg2); }
+@media (max-width: 900px) { .stages { grid-template-columns: repeat(3, 1fr); } .hero .grid { grid-template-columns: 1fr; } .two { grid-template-columns: 1fr; } .stats { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .stages { grid-template-columns: 1fr 1fr; } .stats { grid-template-columns: 1fr; } dl.outputs { grid-template-columns: 1fr; gap: 2px 0; } dl.outputs dd { margin-bottom: 10px; } input[type=range] { width: 100%; } section { padding-block: 40px; } }
+@media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="wrap">
+  <a class="brand" href="#top">wgvp <span>video to pose</span></a>
+  <nav><a href="#how">How it works</a><a href="#walker">Find the walker</a><a href="#views">Two views, one body</a><a href="#outputs">Outputs</a><a href="#measured">Measured</a><a href="#run">Run it</a></nav>
+  <span class="spacer"></span>
+  <button class="btn" id="theme" type="button" aria-label="Switch between light and dark">Theme</button>
+  <a class="btn" href="https://github.com/mikecredence/wgvp">GitHub</a>
+</div></header>
+
+<main id="top">
+<section class="hero"><div class="wrap grid">
+  <div class="stack">
+    <div class="eyebrow">WearGait video-to-pose pipeline</div>
+    <h1>Two cameras, one sensor, the participant's 3D gait.</h1>
+    <p class="lede">Gait-lab video usually shows more than the participant: staff at a desk, a clinician alongside, people passing. The participant is the one wearing the inertial sensors. wgvp uses that fact to turn a two-camera session video plus its sensor recording into per-frame 3D body poses of the participant alone.</p>
+    <p class="muted">It runs on the data owner's own computer, needs no network, and ships only pose-level derivatives. No video frame leaves the site.</p>
+    <div class="cta"><a class="btn primary" href="#walker">See how it works</a><a class="btn" href="https://github.com/mikecredence/wgvp#quick-start">Quick start</a><a class="btn" href="https://github.com/mikecredence/wgvp/blob/main/docs/results.md">Measured results</a></div>
+  </div>
+  <figure><img src="demos/OWN03_preview.webp" alt="The demo video of a two-camera recording: both views with the lifter's input, the reconstructed body in each, and the timelines below" width="1120" height="1400"><figcaption>A real two-camera recording of one of us: the two views with what the lifter was given, the body each view produced, and the merged timeline. Rendered by the pipeline's own demo.</figcaption></figure>
+</div></section>
+
+<section id="how"><div class="wrap">
+  <div class="eyebrow">How it works</div>
+  <h2>Six stages, each one checked</h2>
+  <p class="muted" style="margin-top:10px">Everything but the lift runs on the CPU. Each stage writes a record of what it decided and why, and the session ends with a verdict: PASS, WARN or FAIL, with the reason.</p>
+  <ol class="stages" aria-label="pipeline stages">
+    <li class="stage"><span class="n">1</span><b>Scan</b><p>Match each subject folder's video and sensor CSV, and find the camera panels tiled into the frame.</p></li>
+    <li class="stage"><span class="n">2</span><b>Track everyone</b><p>A 2D pose tracker follows every person in every view. Nobody is chosen yet.</p></li>
+    <li class="stage"><span class="n">3</span><b>Find the walker</b><p>Each person's pelvis bob is correlated with the sensor's vertical motion. The participant is the one that matches.</p><a href="#walker">Try it</a></li>
+    <li class="stage"><span class="n">4</span><b>Set the clock</b><p>The same correlation places sensor time zero on the video, to within two frames. A light flash is the cross-check.</p></li>
+    <li class="stage"><span class="n">5</span><b>Lift each view</b><p>GVHMR turns the participant's crops into SMPL-X bodies, one view at a time, on a GPU or slowly on a CPU.</p></li>
+    <li class="stage"><span class="n">6</span><b>Merge and check</b><p>One body per frame from both views, each joint from the view that could vouch for it, with QC on every number.</p><a href="#views">Try it</a></li>
+  </ol>
+</div></section>
+
+<section id="walker"><div class="wrap">
+  <div class="eyebrow">Interactive, stage 3 and 4</div>
+  <h2>Find the walker</h2>
+  <p class="muted" style="margin-top:10px">This is the rendered test session the pipeline ships with: a walker on the mat, a second person walking with their own sensor file, an operator at a desk and a bystander, all tracked in the side camera. The sensor's vertical displacement is the grey trace. Slide the lag to shift it along the video; the correlation with each tracked person updates. The participant is the track that locks in, and the lag where it locks is sensor time zero on the video.</p>
+  <div class="panel">
+    <div class="controls">
+      <div class="control"><label for="lag">Lag of the sensor on the video</label><input type="range" id="lag" min="-8" max="12" step="0.02" value="0"><span class="val" id="lagv">0.00 s</span></div>
+      <button class="btn" id="findlag" type="button">Find the lag</button>
+      <div class="control"><label for="win">Window start</label><input type="range" id="win" min="0" max="40" step="0.5" value="26"><span class="val" id="winv">26 s</span></div>
+      <div class="chips" id="trackchips" role="group" aria-label="tracked people"></div>
+    </div>
+    <canvas class="chart" id="sig" width="1040" height="260" role="img" aria-label="sensor signal and the tracked people's pelvis signals over video time"></canvas>
+    <div class="two">
+      <div><canvas class="chart" id="lagchart" width="520" height="220" role="img" aria-label="correlation against the sensor as a function of the lag, per track"></canvas><div class="note" style="margin-top:8px">Correlation against the sensor at every lag. The dashed line is the true placement of the sensor in this rendered session.</div></div>
+      <div><table class="rtable" id="rtable" aria-live="polite"><thead><tr><th>Track</th><th>In view</th><th>r at this lag</th><th></th></tr></thead><tbody></tbody></table><div class="note" id="walkernote" style="margin-top:10px"></div></div>
+    </div>
+  </div>
+</div></section>
+
+<section id="views"><div class="wrap">
+  <div class="eyebrow">Interactive, stage 5 and 6</div>
+  <h2>Two views, one body</h2>
+  <p class="muted" style="margin-top:10px">A real two-camera recording of one of us, walking back and forth between two chalk marks a measured distance apart, in the layout the lab uses: a side camera on the left panel, a camera ahead on the right. The tracker's keypoints are drawn over the video. The body on the right is the recording's training target, one body fitted to both views' keypoints at once, which you can turn; each bone is coloured by how much each view vouched for that joint in that frame.</p>
+  <div class="panel">
+    <div class="controls">
+      <button class="btn" id="play" type="button">Play</button>
+      <div class="control"><label for="frame">Frame</label><input type="range" id="frame" min="0" max="929" step="1" value="120"><span class="val" id="framev"></span></div>
+      <div class="legend"><span><span class="sw" style="background:var(--left)"></span>left view keypoints</span><span><span class="sw" style="background:var(--right)"></span>right view keypoints</span><span><span class="sw grad"></span>target body: right view's share to left view's share</span></div>
+    </div>
+    <div class="two">
+      <div class="viewer"><div class="videobox"><video id="vid" src="site/OWN03_SP.mp4" muted playsinline preload="auto"></video><canvas id="ov" width="758" height="480"></canvas></div></div>
+      <div class="viewer"><div id="three" aria-label="the merged 3D body; drag to turn, scroll to zoom"></div></div>
+    </div>
+    <canvas class="chart" id="timeline" width="1040" height="90" role="img" aria-label="timeline: the exported frames and the walker's path"></canvas>
+    <div class="stats" id="stats"></div>
+  </div>
+</div></section>
+
+<section id="outputs"><div class="wrap">
+  <div class="eyebrow">What you get</div>
+  <h2>Pose-level files, and a verdict</h2>
+  <p class="muted" style="margin-top:10px">Only derivatives leave the site. Every lifted frame says what it was made from.</p>
+  <div class="panel">
+    <dl class="outputs">
+      <dt>target.json</dt><dd>Which file is the training target for the recording and why: the joint two-view fit where it applies and passes its checks, the merge everywhere else.</dd>
+      <dt>merged_smpl.npz</dt><dd>One SMPL-X pose per frame on the sensor timeline, each joint from the view(s) that could vouch for it, with per-joint weights, the heading-relative root, the walker's path and the export mask.</dd>
+      <dt>jointfit_smpl.npz</dt><dd>One body fitted to both views' keypoints at once, with the cameras calibrated from the lifts themselves.</dd>
+      <dt>smpl_global.npz, kp2d_vitpose.npz</dt><dd>Per view: the lifter's output, its 2D input without face points, boxes, visibility, and the frames bridged across short gaps.</dd>
+      <dt>selection.json, sync.json, reconcile.json</dt><dd>Who was chosen and with what margin; where sensor time zero sits on the video and how the cross-checks agreed; how the two views agree on the timeline and on the joints.</dd>
+      <dt>QC_SUMMARY.html</dt><dd>Every session's verdict with its reasons, skeleton-only thumbnails, and a privacy check that no pixels are in the deliverables.</dd>
+    </dl>
+  </div>
+</div></section>
+
+<section id="measured"><div class="wrap">
+  <div class="eyebrow">Measured</div>
+  <h2>What the numbers say</h2>
+  <p class="muted" style="margin-top:10px">Validated on rendered two-view sessions with a known answer, on public multi-person footage with a simulated sensor, and on recordings of our own. It has not yet run on real clinic video against a real sensor; that is the test that matters, and the one we are set up for.</p>
+  <div class="panel tablewrap">
+    <table class="measured">
+      <thead><tr><th>Quantity</th><th>Result</th><th>On what</th></tr></thead>
+      <tbody>
+        <tr><td>Sensor time zero on the video</td><td class="num">within 2 frames</td><td>rendered sessions with a known offset</td></tr>
+        <tr><td>Chosen track holds the participant</td><td class="num">100 % of frames</td><td>rendered sessions with a decoy walker, operator and bystander</td></tr>
+        <tr><td>Merged leg joints against the truth</td><td class="num">9.7 deg median</td><td>rendered sessions; the joint fit 9.4 deg</td></tr>
+        <tr><td>Merged root against the truth</td><td class="num">10.6 deg median</td><td>after one constant heading; no yaw left in the heading-relative root</td></tr>
+        <tr><td>Two views' leg joints apart</td><td class="num">8.2 deg median</td><td>rendered; 7.7 deg on the real recording above</td></tr>
+        <tr><td>Lift on a CPU against the GPU</td><td class="num">0.08 deg at the 99th pct.</td><td>same poses; about 35 s per second of video per view on four cores</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <div class="two">
+      <div><h3>Scale of the walk against the truth</h3><p class="note" style="margin:6px 0 10px">Estimated over true: the mean walking speed on the six rendered sessions, whose truth is exact, and the distance walked between the chalk marks on the real recording. 1.00 is the truth.</p><div class="chartbox"><canvas class="chart" id="c_scale" width="520" height="260" role="img" aria-label="estimated over true scale of the walk per session, merge and joint fit"></canvas><div class="tip" id="t_scale" hidden></div></div></div>
+      <div><h3>Leg joints against the truth</h3><p class="note" style="margin:6px 0 10px">Median three-axis error of the leg joints on the rendered sessions, where the truth is a known pose per frame. The real recording has no joint truth; its two views' own lifts agree to <span id="own03legs">…</span> deg median.</p><div class="chartbox"><canvas class="chart" id="c_legs" width="520" height="260" role="img" aria-label="median leg-joint error per rendered session, merge and joint fit"></canvas><div class="tip" id="t_legs" hidden></div></div></div>
+    </div>
+    <div class="legend"><span><span class="sw" style="background:var(--left)"></span>merge: each joint from the view that could vouch for it</span><span><span class="sw" style="background:var(--right)"></span>joint fit: one body fitted to both views at once</span><span class="muted">hover a bar for its value</span></div>
+  </div>
+  <p class="note" style="margin-top:14px">The full record, with every figure, is in <a href="https://github.com/mikecredence/wgvp/blob/main/docs/results.md">docs/results.md</a>; the design decisions in <a href="https://github.com/mikecredence/wgvp/blob/main/docs/design.md">docs/design.md</a>.</p>
+</div></section>
+
+<section id="run"><div class="wrap">
+  <div class="eyebrow">Run it</div>
+  <h2>Python 3.10 to 3.12 on Windows, macOS or Linux</h2>
+  <p class="muted" style="margin-top:10px">The CPU stages, the window and the demo video run anywhere. The lift needs GVHMR, on a GPU or slowly on a CPU; the repository's tests exercise all of it on all three systems.</p>
+  <div class="two" style="margin-top:22px">
+    <div class="stack">
+<pre><code>git clone https://github.com/mikecredence/wgvp.git
+cd wgvp
+python -m venv wgvp-env
+source wgvp-env/bin/activate     # Windows: wgvp-env\Scripts\activate
+pip install -r requirements.txt
+python -m wgvp dry-run --cpu-only    # the rendered sample, verified
+python -m wgvp                       # the window</code></pre>
+      <p class="note">The window scans a data folder, runs all sessions or one, stops, checks the GPU environment, renders the demo video and opens the QC summary. The README's quick start has the folder layout and the GVHMR install.</p>
+    </div>
+    <figure><a href="demos/gui.png" style="border:0"><img src="demos/gui_preview.webp" alt="The window through a scan and a run of the three bundled sessions" width="1220" height="792"></a><figcaption>The window through a scan and a run of the three bundled sessions, CPU stages, two minutes shown in half a minute.</figcaption></figure>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <div>wgvp is AGPL-3.0; the bundled YOLO pose weights are ultralytics' (AGPL-3.0); GVHMR, SMPL-X and their weights are downloaded by you under their own licences. The clips on this page are of the authors, by consent; the rendered session carries no person.</div>
+  <div><a href="https://github.com/mikecredence/wgvp">github.com/mikecredence/wgvp</a> · built for the <a href="https://doi.org/10.7303/syn52470130">WearGait-PD</a> session videos</div>
+</div></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ---------- theme
+const root = document.documentElement;
+function setTheme(t) { if (t) root.setAttribute("data-theme", t); else root.removeAttribute("data-theme"); try { if (t) localStorage.setItem("wgvp-theme", t); else localStorage.removeItem("wgvp-theme"); } catch (e) {} redrawAll(); }
+try { const t = localStorage.getItem("wgvp-theme"); if (t) root.setAttribute("data-theme", t); } catch (e) {}
+$("#theme").addEventListener("click", () => { const dark = root.getAttribute("data-theme") === "dark" || (!root.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches); setTheme(dark ? "light" : "dark"); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => redrawAll());
+
+// ---------- canvas helpers
+function prep(c) { const dpr = Math.min(2, window.devicePixelRatio || 1); const r = c.getBoundingClientRect(); const w = Math.max(200, Math.round(r.width)); const h = Math.round(w * c.getAttribute("height") / c.getAttribute("width")); c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return [ctx, w, h]; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function interp(xs, ys, x) { if (x <= xs[0]) return ys[0]; if (x >= xs[xs.length - 1]) return ys[ys.length - 1]; let lo = 0, hi = xs.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (xs[m] <= x) lo = m; else hi = m; } const t = (x - xs[lo]) / (xs[hi] - xs[lo]); const a = ys[lo], b = ys[hi]; if (a == null || b == null) return null; return lerp(a, b, t); }
+function mixHex(a, b, t) { const p = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; const A = p(a), B = p(b); return "#" + A.map((v, i) => Math.round(lerp(v, B[i], t)).toString(16).padStart(2, "0")).join(""); }
+
+// ---------- find the walker
+let W = null; const trackColors = ["--left", "--right", "--both"]; const walker = { lag: 0, win: 26, on: {} };
+function trackColor(i) { return css(trackColors[i % trackColors.length]); }
+function drawSignals() {
+  if (!W) return; const c = $("#sig"); const [ctx, w, h] = prep(c); const L = 44, R = 14, T = 14, B = 28; const t0 = walker.win, t1 = walker.win + 12;
+  const X = t => L + (t - t0) / (t1 - t0) * (w - L - R); const Y = v => T + (1 - (v + 3) / 6) * (h - T - B);
+  ctx.clearRect(0, 0, w, h); ctx.font = "12px " + css("--mono"); ctx.fillStyle = css("--fg2"); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  for (let s = Math.ceil(t0); s <= t1; s++) { ctx.beginPath(); ctx.moveTo(X(s), T); ctx.lineTo(X(s), h - B); ctx.stroke(); if (s < t1) ctx.fillText(String(s), X(s) + 3, h - 9); }
+  ctx.fillText("video time, s", w - R - 92, T + 12); ctx.save(); ctx.translate(12, h / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("pelvis up (normalised)", -70, 0); ctx.restore();
+  const line = (ts, xs, shift, color, width) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath(); let pen = false; for (let i = 0; i < ts.length; i++) { const t = ts[i] + shift, v = xs[i]; if (t < t0 - 0.5 || t > t1 + 0.5 || v == null) { pen = false; continue; } const x = X(t), y = Y(Math.max(-3, Math.min(3, v))); if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y); } ctx.stroke(); };
+  line(W.imu.t, W.imu.x, walker.lag, css("--imu"), 2.2);
+  W.tracks.forEach((tr, i) => { if (walker.on[tr.tid] === false) return; line(tr.t, tr.x, 0, trackColor(i), 1.6); });
+  ctx.fillStyle = css("--fg2"); ctx.fillText("sensor, shifted by the lag", L + 6, T + 12);
+}
+function drawLagChart() {
+  if (!W) return; const c = $("#lagchart"); const [ctx, w, h] = prep(c); const L = 40, R = 12, T = 12, B = 28; const l0 = -8, l1 = 12;
+  const X = l => L + (l - l0) / (l1 - l0) * (w - L - R); const Y = r => T + (1 - (r + 0.4) / 1.4) * (h - T - B);
+  ctx.clearRect(0, 0, w, h); ctx.font = "12px " + css("--mono"); ctx.strokeStyle = css("--line"); ctx.fillStyle = css("--fg2"); ctx.lineWidth = 1;
+  [0, 0.5, 1].forEach(r => { ctx.beginPath(); ctx.moveTo(L, Y(r)); ctx.lineTo(w - R, Y(r)); ctx.stroke(); ctx.fillText(r.toFixed(1), 8, Y(r) + 4); });
+  for (let l = -8; l < 12; l += 4) ctx.fillText(String(l), X(l) + 3, h - 9);
+  ctx.fillText("lag, s", w - R - 44, T + 12);
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = css("--fg2"); ctx.beginPath(); ctx.moveTo(X(W.true_offset_s), T); ctx.lineTo(X(W.true_offset_s), h - B); ctx.stroke(); ctx.setLineDash([]);
+  W.tracks.forEach((tr, i) => { if (walker.on[tr.tid] === false) return; ctx.strokeStyle = trackColor(i); ctx.lineWidth = 1.8; ctx.beginPath(); let pen = false; for (let k = 0; k < tr.lags.length; k++) { const r = tr.r[k]; if (r == null) { pen = false; continue; } const x = X(tr.lags[k]), y = Y(Math.max(-0.4, Math.min(1, r))); if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y); } ctx.stroke(); });
+  ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(walker.lag), T); ctx.lineTo(X(walker.lag), h - B); ctx.stroke();
+}
+function updateRtable() {
+  if (!W) return; const tb = $("#rtable tbody"); tb.innerHTML = ""; let best = null;
+  W.tracks.forEach((tr, i) => { const r = interp(tr.lags, tr.r, walker.lag); const tr_ = document.createElement("tr"); const color = trackColor(i); const rv = r == null ? "–" : r.toFixed(2); if (r != null && (best == null || r > best.r)) best = { r, tr };
+    tr_.innerHTML = `<td><span class="chip" style="--c:${color};pointer-events:none"><i></i>track ${tr.tid}</span></td><td class="num">${tr.duration_s} s</td><td class="num">${rv}</td><td><div class="bar"><i style="--c:${color};width:${Math.max(0, r || 0) * 100}%"></i></div></td>`; tb.appendChild(tr_); });
+  const chosen = W.tracks.find(t => t.chosen); const near = Math.abs(walker.lag - chosen.best_lag_s) < 0.15;
+  $("#walkernote").innerHTML = near ? `At ${chosen.best_lag_s.toFixed(2)} s track ${chosen.tid} correlates at r = ${chosen.r_best.toFixed(2)} and nothing else comes close: it is the participant, and sensor time zero sits at video ${chosen.best_lag_s.toFixed(2)} s. The session was rendered with the sensor at ${W.true_offset_s.toFixed(1)} s. The other two people each have a lag of their own where they correlate somewhat (the second walker wore a sensor too, just not this one), and that is why the pipeline asks for a clear margin, not only a peak.` : `Move the lag until one track locks in. The pipeline tries every lag at 100 Hz, in two passes: coarse on the activity envelope, fine on the stride band.`;
+}
+function setLag(v) { walker.lag = v; $("#lag").value = v; $("#lagv").textContent = v.toFixed(2) + " s"; drawSignals(); drawLagChart(); updateRtable(); }
+$("#lag").addEventListener("input", e => setLag(parseFloat(e.target.value)));
+$("#win").addEventListener("input", e => { walker.win = parseFloat(e.target.value); $("#winv").textContent = walker.win + " s"; drawSignals(); });
+$("#findlag").addEventListener("click", () => { const target = W.tracks.find(t => t.chosen).best_lag_s; if (reduced) return setLag(target); const start = walker.lag, t0 = performance.now(), dur = 900; const step = now => { const u = Math.min(1, (now - t0) / dur); setLag(lerp(start, target, 1 - Math.pow(1 - u, 3))); if (u < 1) requestAnimationFrame(step); }; requestAnimationFrame(step); });
+fetch("site/find_the_walker.json").then(r => r.json()).then(d => {
+  W = d; const chips = $("#trackchips");
+  d.tracks.forEach((tr, i) => { const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.style.setProperty("--c", trackColor(i)); b.setAttribute("aria-pressed", "true"); b.innerHTML = `<i></i>track ${tr.tid}`; b.addEventListener("click", () => { walker.on[tr.tid] = !(walker.on[tr.tid] !== false); b.setAttribute("aria-pressed", walker.on[tr.tid] === false ? "false" : "true"); drawSignals(); drawLagChart(); }); chips.appendChild(b); });
+  setLag(0);
+}).catch(() => { $("#walkernote").textContent = "The demo data did not load."; });
+
+// ---------- two views, one body
+let V = null, frame = 120, playing = false; const COCO = [[5, 6], [5, 7], [7, 9], [6, 8], [8, 10], [5, 11], [6, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16]];
+const vid = $("#vid"), ov = $("#ov"), slider = $("#frame");
+function drawOverlay() {
+  if (!V) return; const [ctx, w, h] = prep(ov); ctx.clearRect(0, 0, w, h); const sx = w / V.video.width, sy = h / V.video.height;
+  V.views.forEach((v, vi) => { const K = V.kp2d[v].xy, base = frame * 17 * 2; const color = css(vi === 0 ? "--left" : "--right"); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+    const P = k => { const x = K[base + k * 2], y = K[base + k * 2 + 1]; return x == null ? null : [x * sx, y * sy]; };
+    COCO.forEach(([a, b]) => { const A = P(a), B = P(b); if (!A || !B) return; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke(); });
+    for (let k = 5; k < 17; k++) { const p = P(k); if (!p) continue; ctx.beginPath(); ctx.arc(p[0], p[1], 3, 0, Math.PI * 2); ctx.fill(); }
+    const vb = V.kp2d[v].view_box; ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([5, 5]); ctx.strokeRect(vb[0] * sx + 1, vb[1] * sy + 1, (vb[2] - vb[0]) * sx - 2, (vb[3] - vb[1]) * sy - 2); ctx.setLineDash([]);
+    ctx.font = "12px " + css("--mono"); ctx.fillText(v + (V.mirrored[vi] ? " (mirrored)" : ""), vb[0] * sx + 8, vb[1] * sy + 16);
+  });
+}
+function drawTimeline() {
+  if (!V) return; const c = $("#timeline"); const [ctx, w, h] = prep(c); ctx.clearRect(0, 0, w, h); const n = V.n_frames; const L = 10, R = 190; const X = f => L + f / (n - 1) * (w - L - R);
+  ctx.fillStyle = css("--line2"); ctx.fillRect(L, 20, w - L - R, 14);
+  ctx.fillStyle = css("--both"); for (let f = 0; f < n; f++) if (V.export_ok[f]) ctx.fillRect(X(f), 20, Math.max(1, (w - L - R) / n + 0.5), 14);
+  ctx.fillStyle = css("--fg2"); ctx.font = "12px " + css("--mono"); ctx.fillText("exported frames (" + Math.round(V.merge.export_frac * 100) + " % of the lifted frames)", L, 14);
+  ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(X(frame), 16); ctx.lineTo(X(frame), 40); ctx.stroke();
+  ctx.fillStyle = css("--fg2"); ctx.fillText("0 s", L, h - 8); ctx.fillText(((n - 1) / V.fps).toFixed(1) + " s of video", w - R - 110, h - 8);
+  // the walker's path from above, in the reference view's world
+  const J = V.joints3d; const px = f => J[(f * 22) * 3], pz = f => J[(f * 22) * 3 + 2]; let xmin = 1e9, xmax = -1e9, zmin = 1e9, zmax = -1e9;
+  for (let f = 0; f < n; f++) { xmin = Math.min(xmin, px(f)); xmax = Math.max(xmax, px(f)); zmin = Math.min(zmin, pz(f)); zmax = Math.max(zmax, pz(f)); }
+  const bx = w - R + 16, by = 8, bw = R - 26, bh = h - 16; const s = Math.min(bw / Math.max(0.5, xmax - xmin), bh / Math.max(0.5, zmax - zmin));
+  const PX = x => bx + bw / 2 + (x - (xmin + xmax) / 2) * s, PZ = z => by + bh / 2 - (z - (zmin + zmax) / 2) * s;
+  ctx.strokeStyle = css("--line"); ctx.strokeRect(bx, by, bw, bh); ctx.strokeStyle = css("--fg2"); ctx.lineWidth = 1.5; ctx.beginPath(); for (let f = 0; f < n; f++) { const x = PX(px(f)), z = PZ(pz(f)); if (f === 0) ctx.moveTo(x, z); else ctx.lineTo(x, z); } ctx.stroke();
+  ctx.fillStyle = css("--accent"); ctx.beginPath(); ctx.arc(PX(px(frame)), PZ(pz(frame)), 4, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = css("--fg2"); ctx.fillText("path, from above", bx + 4, by + bh - 5);
+}
+// three.js body
+let scene, camera, renderer, controls, bones = [], joints = [], floorY = 0, three_ok = false;
+function initThree() {
+  if (typeof THREE === "undefined") { $("#three").innerHTML = '<p class="note" style="padding:14px">The 3D library did not load; the body is not shown.</p>'; return; }
+  const box = $("#three"); renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); box.appendChild(renderer.domElement);
+  scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(38, 1, 0.05, 50); camera.position.set(2.6, 1.2, 2.4);
+  controls = new THREE.OrbitControls(camera, renderer.domElement); controls.target.set(0, 0.1, 0); controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 1.2; controls.maxDistance = 8; controls.update();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 0.9)); const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(2, 4, 3); scene.add(sun);
+  const J = V.joints3d; let fy = 1e9; for (let f = 0; f < V.n_frames; f++) for (const k of [10, 11]) fy = Math.min(fy, J[(f * 22 + k) * 3 + 1] - J[(f * 22) * 3 + 1]); floorY = fy - 0.04;
+  const grid = new THREE.GridHelper(4, 16, 0x9aa0a8, 0xcfd3d8); grid.position.y = floorY; grid.material.transparent = true; grid.material.opacity = 0.6; scene.add(grid);
+  const sphere = new THREE.SphereGeometry(0.028, 14, 10);
+  for (let k = 0; k < 22; k++) { const m = new THREE.Mesh(sphere, new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.6 })); scene.add(m); joints.push(m); }
+  const cyl = new THREE.CylinderGeometry(0.02, 0.02, 1, 10, 1); cyl.translate(0, 0.5, 0);
+  for (let k = 1; k < 22; k++) { const m = new THREE.Mesh(cyl, new THREE.MeshStandardMaterial({ color: 0x3987e5, roughness: 0.55 })); scene.add(m); bones.push(m); }
+  three_ok = true; resizeThree(); window.addEventListener("resize", resizeThree);
+  const loop = () => { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); }; loop();
+}
+function resizeThree() { if (!three_ok) return; const box = $("#three"); const w = box.clientWidth, h = box.clientHeight || w; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+const up = new THREE.Vector3(0, 1, 0), tmp = new THREE.Vector3(), q = new THREE.Quaternion();
+function updateBody() {
+  if (!three_ok) return; const J = V.joints3d, b = frame * 22 * 3, P = [J[b], J[b + 1], J[b + 2]]; const pos = k => new THREE.Vector3(J[b + k * 3] - P[0], J[b + k * 3 + 1] - P[1], J[b + k * 3 + 2] - P[2]);
+  const left = css("--left"), right = css("--right");
+  for (let k = 0; k < 22; k++) joints[k].position.copy(pos(k));
+  for (let k = 1; k < 22; k++) { const a = pos(V.parents[k]), c = pos(k); const m = bones[k - 1]; tmp.subVectors(c, a); const len = tmp.length(); m.position.copy(a); m.scale.set(1, Math.max(0.01, len), 1); q.setFromUnitVectors(up, tmp.normalize()); m.quaternion.copy(q); const wgt = V.weight[frame * 21 + (k - 1)]; m.material.color.set(mixHex(right, left, wgt == null ? 0.5 : wgt)); }
+}
+function setFrame(f, fromVideo) {
+  if (!V) return; frame = Math.max(0, Math.min(V.n_frames - 1, f | 0)); slider.value = frame; $("#framev").textContent = `${frame} · video ${(frame / V.fps).toFixed(2)} s · sensor ${V.imu_t_s[frame] == null ? "–" : V.imu_t_s[frame].toFixed(2) + " s"}`;
+  if (!fromVideo && Math.abs(vid.currentTime - frame / V.fps) > 0.02) vid.currentTime = frame / V.fps;
+  drawOverlay(); drawTimeline(); updateBody();
+}
+slider.addEventListener("input", e => { if (playing) togglePlay(); setFrame(parseInt(e.target.value, 10)); });
+function togglePlay() { playing = !playing; $("#play").textContent = playing ? "Pause" : "Play"; if (playing) { if (vid.ended || frame >= V.n_frames - 1) { vid.currentTime = 0; } vid.play().catch(() => { playing = false; $("#play").textContent = "Play"; }); } else vid.pause(); }
+$("#play").addEventListener("click", togglePlay);
+vid.addEventListener("ended", () => { playing = false; $("#play").textContent = "Play"; });
+vid.addEventListener("loadedmetadata", () => { if (V) setFrame(frame); });
+vid.addEventListener("seeked", () => { if (V && !playing) drawOverlay(); });
+function tick() { if (V && playing && !vid.paused) { const f = Math.round(vid.currentTime * V.fps); if (f !== frame) setFrame(f, true); } requestAnimationFrame(tick); }
+function stats() {
+  const s = V.sync, r = V.reconcile; const box = $("#stats"); const pill = (st) => `<span class="pill ${st === "PASS" ? "good" : "warn"}">${st}</span>`;
+  box.innerHTML = `
+    <div class="stat"><span class="k">Sensor time zero on the video</span><span class="v">${s.offset_s.toFixed(3)} s</span><span class="s">pelvis correlation r = ${s.r_fine.toFixed(2)}; the light flash sat ${s.flash_minus_xcorr_s.toFixed(2)} s later, so the verdict is ${pill(s.status)} with the reason recorded</span></div>
+    <div class="stat"><span class="k">The two views on the timeline</span><span class="v">${Math.abs(r.view_offsets_s.left - r.view_offsets_s.right).toFixed(3)} s apart</span><span class="s">each view placed time zero on its own; knee flexion correlates at r = ${r.knee_r.toFixed(2)}</span></div>
+    <div class="stat"><span class="k">The two views on the joints</span><span class="v">${r.legs_median_deg.toFixed(1)} deg</span><span class="s">median leg-joint difference between the two views' own lifts; ${r.all_median_deg.toFixed(1)} deg over all joints</span></div>
+    <div class="stat"><span class="k">Against the chalk marks</span><span class="v" id="chalkv">…</span><span class="s" id="chalks">walked distance, the fit's estimate over the measured one</span></div>`;
+}
+fetch("site/two_views.json").then(r => r.json()).then(d => {
+  V = d; slider.max = d.n_frames - 1; stats(); if ($("#own03legs")) $("#own03legs").textContent = d.reconcile.legs_median_deg.toFixed(1); initThree(); setFrame(frame); tick();
+  const ro = new ResizeObserver(() => { drawOverlay(); drawTimeline(); resizeThree(); }); ro.observe($("#ov").parentElement); ro.observe($("#timeline"));
+}).catch(() => { $("#stats").innerHTML = '<p class="note">The demo data did not load.</p>'; });
+
+// ---------- results against the truth
+let RES = null; const charts = {};
+function groupedBars(id, rows, keys, opts) {
+  const c = $("#" + id), tip = $("#t_" + id.slice(2)); const [ctx, w, h] = prep(c); const L = 40, R = 10, T = 14, B = 44; const n = rows.length;
+  const colors = [css("--left"), css("--right")]; const y0 = opts.ymin, y1 = opts.ymax; const Y = v => T + (1 - (v - y0) / (y1 - y0)) * (h - T - B);
+  ctx.clearRect(0, 0, w, h); ctx.font = "12px " + css("--mono"); ctx.fillStyle = css("--fg2"); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  for (let v = y0; v <= y1 + 1e-9; v += opts.step) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(w - R, Y(v)); ctx.stroke(); ctx.fillText(opts.fmt(v), 6, Y(v) + 4); }
+  if (opts.ref != null) { ctx.setLineDash([4, 4]); ctx.strokeStyle = css("--fg2"); ctx.beginPath(); ctx.moveTo(L, Y(opts.ref)); ctx.lineTo(w - R, Y(opts.ref)); ctx.stroke(); ctx.setLineDash([]); }
+  const slot = (w - L - R) / n, bw = Math.min(26, (slot - 10) / keys.length - 2); const rects = [];
+  rows.forEach((r, i) => { const x0 = L + slot * i + (slot - keys.length * (bw + 2)) / 2;
+    keys.forEach((k, j) => { const v = r[k]; if (v == null) return; const x = x0 + j * (bw + 2); const base = Y(Math.max(y0, Math.min(opts.base, y1))), top = Y(Math.max(y0, Math.min(v, y1))); const yy = Math.min(base, top), hh = Math.max(2, Math.abs(base - top));
+      ctx.fillStyle = colors[j]; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, yy, bw, hh, 3) : ctx.rect(x, yy, bw, hh); ctx.fill(); rects.push({ x, y: yy, w: bw, h: hh, label: r.label, name: opts.names[j], v }); });
+    ctx.fillStyle = r.kind === "real" ? css("--fg") : css("--fg2"); ctx.textAlign = "center"; ctx.fillText(r.id, L + slot * (i + 0.5), h - 26); ctx.font = "11px " + css("--sans"); ctx.fillText(r.kind === "real" ? "real" : r.short, L + slot * (i + 0.5), h - 10); ctx.font = "12px " + css("--mono"); ctx.textAlign = "left"; });
+  charts[id] = rects;
+  if (!c.dataset.hover) { c.dataset.hover = "1"; c.addEventListener("mousemove", e => { const b = c.getBoundingClientRect(); const x = e.clientX - b.left, y = e.clientY - b.top; const hit = (charts[id] || []).find(r => x >= r.x - 2 && x <= r.x + r.w + 2 && y >= r.y - 6 && y <= r.y + r.h + 6); if (!hit) { tip.hidden = true; return; } tip.hidden = false; tip.textContent = `${hit.label} · ${hit.name} ${opts.fmt(hit.v)}`; tip.style.left = Math.min(x + 12, b.width - 200) + "px"; tip.style.top = Math.max(0, y - 34) + "px"; }); c.addEventListener("mouseleave", () => { tip.hidden = true; }); }
+}
+function drawResults() {
+  if (!RES) return; const rows = RES.sessions.map(r => ({ ...r, short: (r.label.split(" ").slice(1).join(" ")).replace("self-paced walk", "self-paced").replace("timed up and go", "TUG").replace("walk on the mat", "mat walk") }));
+  groupedBars("c_scale", rows, ["merge_speed_ratio", "fit_speed_ratio"], { ymin: 0.8, ymax: 1.2, step: 0.1, ref: 1.0, base: 1.0, fmt: v => v.toFixed(2), names: ["merge", "joint fit"] });
+  groupedBars("c_legs", rows.filter(r => r.kind === "rendered"), ["merge_rot_legs", "fit_rot_legs"], { ymin: 0, ymax: 20, step: 5, ref: null, base: 0, fmt: v => v.toFixed(1) + " deg", names: ["merge", "joint fit"] });
+}
+fetch("site/results.json").then(r => r.json()).then(d => { RES = d; drawResults(); const real = d.sessions.find(s => s.kind === "real"); if (real && $("#chalkv")) { $("#chalkv").textContent = "+" + Math.round((real.fit_speed_ratio - 1) * 100) + " %"; $("#chalks").textContent = `walked distance, the fit's estimate over the measured ${real.truth_m.toFixed(2)} m, ${real.passes} passes; the merge reads +${Math.round((real.merge_speed_ratio - 1) * 100)} %`; } }).catch(() => {});
+fetch("site/two_views.json").then(() => {}).catch(() => {});
+function redrawAll() { drawSignals(); drawLagChart(); updateRtable(); drawOverlay(); drawTimeline(); updateBody(); drawResults(); }
+window.addEventListener("resize", () => { drawSignals(); drawLagChart(); drawResults(); });
+})();
+</script>
+</body>
+</html>

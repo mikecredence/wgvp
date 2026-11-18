@@ -2,6 +2,8 @@
 
 [![tests](https://github.com/mikecredence/wgvp/actions/workflows/ci.yml/badge.svg)](https://github.com/mikecredence/wgvp/actions/workflows/ci.yml)
 
+**Site with an interactive walkthrough:** https://mikecredence.github.io/wgvp/
+
 Gait-laboratory video usually shows more than the participant: staff at a desk, a clinician walking alongside,
 people passing in the background. The participant is the one wearing the inertial sensors. wgvp uses that fact to
 turn a two-camera session video plus its sensor recording into per-frame 3D body poses of the participant alone.
