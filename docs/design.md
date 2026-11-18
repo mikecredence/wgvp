@@ -2391,6 +2391,33 @@ and the two-second lift on Ubuntu and Windows on request.
 **What stays open.** The macOS runner's software OpenGL makes its window job 25 min; a real clinic recording is
 still the test that matters (section 3).
 
+### 2.25 Round eighteen: polish, and a site (2026-11-17)
+
+**Polish.** The GPU check's rows carry what they are needed for (the lift, the GPU, GVHMR's own renders, advice),
+and a CPU-only install reads "READY for the lift on the CPU, slowly" instead of "NOT ready: 6 items"; version
+0.4.0; the on-request lift's job limit is 420 min (the Ubuntu full run took 246); the macOS window job leaves the
+demo out (25 to 10 min); the window clip is recorded again, by `tools/record_window_mac.py`.
+
+**The clips carried a location tag.** The two bundled clips (OWN01, OWN02) still had the phone's location in
+their container metadata, in the public repository since they were added. Both are now stripped by stream copy
+(every frame byte-identical, so the bundled outputs stand); the history still holds the tagged versions, and
+rewriting it is a decision for the owner. OWN03, the demo clips and the rendered samples carried nothing.
+
+**The site.** `docs/index.html`, served by GitHub Pages from `docs/`, introduces the pipeline and lets the reader
+work two of its stages on real outputs. Find the walker: the rendered sample's side view, every tracked person's
+pelvis signal against the sensor's vertical displacement, a lag slider, and each track's correlation at that lag
+(the pipeline's own `match_signals` curves); the participant locks in at 3.00 s and the other two people each
+have a lag of their own where they correlate somewhat, which is why the margin matters. Two views, one body: the
+two-camera recording OWN03 (the published half-size clip, lifted on the GPU box), the tracker's keypoints over the
+video in both panels, and the training target (the joint fit) as a 3D body to turn, each bone coloured by the
+merge's view weights, with the sync, reconcile, export and chalk-mark numbers beside it. A results panel charts
+the errors against the truth per session: the six rendered sessions' speed and leg-joint errors from
+`docs/jointfit.json` beside the real recording's walked distance from `docs/chalk_walk.json` (merge +7 %, joint
+fit +13 % of the measured 4.11 m). `tools/make_site_data.py` writes the site's data from a finished dry run and a
+finished run of the two-camera example: numbers only, no pixels, no machine paths. The page is one file with
+inline CSS and script, three.js from a CDN for the body, both themes, phone width; the clip seeks only on a server
+that honours byte ranges, which GitHub Pages does and python's `http.server` does not.
+
 ## 3. What has not been tested on real clinic recordings
 
 * The real seam / letterbox geometry was tested only on a video synthesised from one screenshot (static scene with

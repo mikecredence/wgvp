@@ -695,8 +695,9 @@ tools/           make_sample.py (how the samples were rendered), make_partner_la
                  lift_short_chunk.py (two seconds of the sample through GVHMR, against the truth; the CI's lift),
                  record_window_mac.py (the window clip above, recorded from inside the window's own process)
 env/             GVHMR environment notes; docker/ container recipe (untested build)
-docs/            design.md (design, test results, open questions), results.md (the measured results behind the
-                 README's tables), jointfit.json (the joint fit's comparison),
+docs/            index.html and site/ (the GitHub Pages site with the interactive walkthrough; its data comes from
+                 tools/make_site_data.py), design.md (design, test results, open questions), results.md (the
+                 measured results behind the README's tables), jointfit.json (the joint fit's comparison),
                  chalk_walk.json (one real two-camera recording against a chalk truth), figures/,
                  demos/ (the demo videos of the six rendered sessions and of the two-camera recording, with a looping excerpt each)
 ```
