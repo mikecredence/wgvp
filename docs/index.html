@@ -159,7 +159,7 @@ footer .wrap { display: grid; gap: 8px; }
 <section id="how"><div class="wrap">
   <div class="eyebrow">How it works</div>
   <h2>Six stages, each checked</h2>
-  <p class="muted" style="margin-top:10px">Everything but the lift runs on the CPU. Each stage writes a record of what it decided and why, and the session ends with a verdict: PASS, WARN or FAIL, with the reason.</p>
+  <p class="muted" style="margin-top:10px">Everything runs on the CPU; the lift, GVHMR, is the slow stage and wants a GPU. Each stage writes a record of what it decided and why, and the session ends with a verdict: PASS, WARN or FAIL, with the reason.</p>
   <ol class="stages" aria-label="pipeline stages">
     <li class="stage"><span class="n">1</span><b>Scan</b><p>Match each subject folder's video and sensor CSV, and find the camera panels tiled into the frame.</p></li>
     <li class="stage"><span class="n">2</span><b>Track everyone</b><p>A 2D pose tracker follows every person in every view. No one is chosen at this stage.</p></li>

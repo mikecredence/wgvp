@@ -110,7 +110,7 @@ numbers.
 
 ## Quick start
 
-Python 3.10-3.12 on Windows, macOS or Linux. Everything below runs on the CPU. The repository's tests run the dry
+Python 3.10-3.12 on Windows, macOS or Linux. Everything below runs on the CPU, the lift included, slowly. The repository's tests run the dry
 run, the bundled example, the demo video and the GUI on all three systems at every change, and on request two
 seconds of the sample through GVHMR on the CPU of an Ubuntu and a Windows runner, against the rendered truth.
 
