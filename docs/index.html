@@ -159,7 +159,7 @@ footer .wrap { display: grid; gap: 8px; }
 <section id="how"><div class="wrap">
   <div class="eyebrow">How it works</div>
   <h2>Six stages, each checked</h2>
-  <p class="muted" style="margin-top:10px">Everything can run on a CPU. The lift, GVHMR, takes advantage of a GPU: a T4 does it about three times faster than eight Xeon cores and about ten times faster than a GitHub runner. Each stage writes a record of what it decided and why, and the session ends with a verdict: PASS, WARN or FAIL, with the reason.</p>
+  <p class="muted" style="margin-top:10px">Everything can run on a CPU; a GPU makes the lift several times faster. Each stage writes a record of what it decided and why, and the session ends with a verdict: PASS, WARN or FAIL, with the reason.</p>
   <ol class="stages" aria-label="pipeline stages">
     <li class="stage"><span class="n">1</span><b>Scan</b><p>Match each subject folder's video and sensor CSV, and find the camera panels tiled into the frame.</p></li>
     <li class="stage"><span class="n">2</span><b>Track everyone</b><p>A 2D pose tracker follows every person in every view. No one is chosen at this stage.</p></li>
@@ -272,7 +272,7 @@ footer .wrap { display: grid; gap: 8px; }
 <section id="run"><div class="wrap">
   <div class="eyebrow">Run it</div>
   <h2>Python 3.10 to 3.12 on Windows, macOS or Linux</h2>
-  <p class="muted" style="margin-top:10px">Everything can run on a CPU; the lift is about three times faster on a T4 than on eight Xeon cores. The repository's tests exercise all of it on all three systems.</p>
+  <p class="muted" style="margin-top:10px">Everything can run on a CPU; a GPU makes the lift several times faster. The repository's tests exercise all of it on all three systems.</p>
   <div class="two" style="margin-top:22px">
     <div class="stack">
 <pre><code>git clone https://github.com/mikecredence/wgvp.git

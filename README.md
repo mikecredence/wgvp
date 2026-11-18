@@ -110,8 +110,8 @@ numbers.
 
 ## Quick start
 
-Python 3.10-3.12 on Windows, macOS or Linux. Everything can run on a CPU; the lift is about three times faster on a
-T4 GPU than on eight Xeon cores ("The lift without a GPU" below). The repository's tests run the dry
+Python 3.10-3.12 on Windows, macOS or Linux. Everything can run on a CPU; a GPU makes the lift several times
+faster ("The lift without a GPU" below has the numbers). The repository's tests run the dry
 run, the bundled example, the demo video and the GUI on all three systems at every change, and on request two
 seconds of the sample through GVHMR on the CPU of an Ubuntu and a Windows runner, against the rendered truth.
 
