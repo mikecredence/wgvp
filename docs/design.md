@@ -2399,9 +2399,13 @@ and a CPU-only install reads "READY for the lift on the CPU, slowly" instead of 
 demo out (25 to 10 min); the window clip is recorded again, by `tools/record_window_mac.py`.
 
 **The clips carried a location tag.** The two bundled clips (OWN01, OWN02) still had the phone's location in
-their container metadata, in the public repository since they were added. Both are now stripped by stream copy
-(every frame byte-identical, so the bundled outputs stand); the history still holds the tagged versions, and
-rewriting it is a decision for the owner. OWN03, the demo clips and the rendered samples carried nothing.
+their container metadata (a binary `loci` atom, which no string search finds; ffmpeg reports it as `location`),
+in the public repository since they were added. Both are stripped by stream copy, every frame byte-identical, so
+the bundled outputs stand; and the history was rewritten on the owner's say-so: the four historical versions of
+the two files were replaced by stripped twins of themselves in every commit of every branch (`git filter-branch`
+with an index filter), the old objects pruned, and both branches force-pushed. Clones made before that carry the
+old history and should be cloned again; GitHub keeps unreachable objects for a while unless support is asked to
+purge them. OWN03, the demo clips and the rendered samples carried nothing.
 
 **The site.** `docs/index.html`, served by GitHub Pages from `docs/`, introduces the pipeline and lets the reader
 work two of its stages on real outputs. Find the walker: the rendered sample's side view, every tracked person's
