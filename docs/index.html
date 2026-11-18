@@ -75,6 +75,9 @@ figcaption { font-size: 0.85rem; color: var(--fg2); margin-top: 8px; }
 .stage .n { font-family: var(--mono); font-size: 0.78rem; color: var(--fg2); }
 .stage p { font-size: 0.88rem; color: var(--fg2); max-width: none; }
 .stage a { font-size: 0.85rem; }
+.reasons { list-style: none; padding: 0; margin: 22px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; }
+.reasons li { border-top: 1px solid var(--line); padding-top: 12px; color: var(--fg2); font-size: 0.95rem; min-width: 0; }
+.reasons li b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 3px; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-top: 22px; display: grid; gap: 16px; min-width: 0; }
 .controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }
 .control { display: grid; gap: 4px; min-width: 0; }
@@ -87,6 +90,10 @@ input[type=range] { width: 240px; max-width: 100%; accent-color: var(--accent); 
 .chip[aria-pressed="false"] { opacity: 0.45; }
 canvas.chart { width: 100%; height: auto; display: block; border-radius: 8px; background: var(--bg); border: 1px solid var(--line2); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
+.two > *, .stack, .hero .grid > * { min-width: 0; }
+pre { max-width: 100%; }
+figure { min-width: 0; margin: 0; }
+figure img { max-width: 100%; height: auto; }
 .rtable { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .rtable th, .rtable td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line2); vertical-align: middle; }
 .rtable th { font-weight: 500; color: var(--fg2); font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -123,7 +130,7 @@ table.measured td.num { font-family: var(--mono); font-variant-numeric: tabular-
 footer { padding-block: 36px 48px; border-top: 1px solid var(--line); color: var(--fg2); font-size: 0.9rem; }
 footer .wrap { display: grid; gap: 8px; }
 .note { font-size: 0.88rem; color: var(--fg2); }
-@media (max-width: 900px) { .stages { grid-template-columns: repeat(3, 1fr); } .hero .grid { grid-template-columns: 1fr; } .two { grid-template-columns: 1fr; } .stats { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) { .stages { grid-template-columns: repeat(3, 1fr); } .reasons { grid-template-columns: 1fr; } .hero .grid { grid-template-columns: 1fr; } .two { grid-template-columns: 1fr; } .stats { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .stages { grid-template-columns: 1fr 1fr; } .stats { grid-template-columns: 1fr; } dl.outputs { grid-template-columns: 1fr; gap: 2px 0; } dl.outputs dd { margin-bottom: 10px; } input[type=range] { width: 100%; } section { padding-block: 40px; } }
 @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
 </style>
@@ -131,7 +138,7 @@ footer .wrap { display: grid; gap: 8px; }
 <body>
 <header class="topbar"><div class="wrap">
   <a class="brand" href="#top">wgvp <span>video to pose</span></a>
-  <nav><a href="#how">How it works</a><a href="#walker">Find the walker</a><a href="#views">Two views, one body</a><a href="#outputs">Outputs</a><a href="#measured">Measured</a><a href="#run">Run it</a></nav>
+  <nav><a href="#how">How it works</a><a href="#why">Why use it</a><a href="#walker">Find the walker</a><a href="#views">Two views, one body</a><a href="#outputs">Outputs</a><a href="#measured">Measured</a><a href="#run">Run it</a></nav>
   <span class="spacer"></span>
   <button class="btn" id="theme" type="button" aria-label="Switch between light and dark">Theme</button>
   <a class="btn" href="https://github.com/mikecredence/wgvp">GitHub</a>
@@ -151,22 +158,37 @@ footer .wrap { display: grid; gap: 8px; }
 
 <section id="how"><div class="wrap">
   <div class="eyebrow">How it works</div>
-  <h2>Six stages, each one checked</h2>
+  <h2>Six stages, each checked</h2>
   <p class="muted" style="margin-top:10px">Everything but the lift runs on the CPU. Each stage writes a record of what it decided and why, and the session ends with a verdict: PASS, WARN or FAIL, with the reason.</p>
   <ol class="stages" aria-label="pipeline stages">
     <li class="stage"><span class="n">1</span><b>Scan</b><p>Match each subject folder's video and sensor CSV, and find the camera panels tiled into the frame.</p></li>
-    <li class="stage"><span class="n">2</span><b>Track everyone</b><p>A 2D pose tracker follows every person in every view. Nobody is chosen yet.</p></li>
-    <li class="stage"><span class="n">3</span><b>Find the walker</b><p>Each person's pelvis bob is correlated with the sensor's vertical motion. The participant is the one that matches.</p><a href="#walker">Try it</a></li>
-    <li class="stage"><span class="n">4</span><b>Set the clock</b><p>The same correlation places sensor time zero on the video, to within two frames. A light flash is the cross-check.</p></li>
+    <li class="stage"><span class="n">2</span><b>Track everyone</b><p>A 2D pose tracker follows every person in every view. No one is chosen at this stage.</p></li>
+    <li class="stage"><span class="n">3</span><b>Find the walker</b><p>Each person's pelvis bob is correlated with the sensor's vertical motion. The participant is the person whose motion matches.</p><a href="#walker">Try it</a></li>
+    <li class="stage"><span class="n">4</span><b>Set the clock</b><p>The same correlation places sensor time zero on the video, to within two frames. A light flash, where the recording has one, is the cross-check.</p></li>
     <li class="stage"><span class="n">5</span><b>Lift each view</b><p>GVHMR turns the participant's crops into SMPL-X bodies, one view at a time, on a GPU or slowly on a CPU.</p></li>
     <li class="stage"><span class="n">6</span><b>Merge and check</b><p>One body per frame from both views, each joint from the view that could vouch for it, with QC on every number.</p><a href="#views">Try it</a></li>
   </ol>
 </div></section>
 
+<section id="why"><div class="wrap">
+  <div class="eyebrow">Why use it</div>
+  <h2>What it does for a two-camera lab recording</h2>
+  <ul class="reasons">
+    <li><b>It finds the participant.</b> Everyone in the frame is tracked, and the one whose pelvis motion matches the worn sensor is chosen; staff, a clinician alongside, a bystander and a second walker are left out. A clear margin over the next-best track is required, and the choice is recorded with its numbers.</li>
+    <li><b>It syncs video and sensor without a clap.</b> The same correlation places sensor time zero on the video to within two frames. A light flash or a labelled sheet, where the recording has one, is compared against it rather than relied on.</li>
+    <li><b>The two cameras need no shared clock and no calibration.</b> Each view is placed on the sensor's timeline on its own, and the joint fit calibrates the cameras from the lifted bodies. Recordings made with whatever cameras the lab had can be used as they are, panels tiled into one frame included.</li>
+    <li><b>One body from both views, joint by joint.</b> A joint is taken from the view that saw it, and from both where both did. What no view could vouch for is left out: a joint neither view saw is masked, and frames outside runs of at least fifteen usable frames are not exported. The export mask says which frames count.</li>
+    <li><b>Partial bodies are expected.</b> A near camera cuts the head off and a side camera loses the walker beyond the mat; the lifter is driven with the participant's own boxes, exits end a chunk and re-entries start one, and bridged frames are flagged rather than hidden.</li>
+    <li><b>Every stage leaves its reasons.</b> Selection, sync, the two views' agreement, the merge and the fit each write a record, and the session ends PASS, WARN or FAIL with the reason, so a result can be trusted or rejected without re-running anything.</li>
+    <li><b>No video leaves the site.</b> It runs on the data owner's computer with no network, and the deliverables are pose-level: body parameters, skeleton keypoints without face points, boxes, offsets and QC numbers. A privacy check confirms no pixels are among them.</li>
+    <li><b>It is tested.</b> Rendered two-view sessions with a known answer, a decoy walker, an operator and a bystander give an error budget per stage; the tests run on Windows, macOS and Linux at every change, the lift on a CPU on request.</li>
+  </ul>
+</div></section>
+
 <section id="walker"><div class="wrap">
   <div class="eyebrow">Interactive, stage 3 and 4</div>
   <h2>Find the walker</h2>
-  <p class="muted" style="margin-top:10px">This is the rendered test session the pipeline ships with: a walker on the mat, a second person walking with their own sensor file, an operator at a desk and a bystander, all tracked in the side camera. The sensor's vertical displacement is the grey trace. Slide the lag to shift it along the video; the correlation with each tracked person updates. The participant is the track that locks in, and the lag where it locks is sensor time zero on the video.</p>
+  <p class="muted" style="margin-top:10px">The rendered test session that ships with the pipeline has a walker on the mat, a second person walking with a sensor file of their own, an operator at a desk and a bystander, all tracked in the side camera. The sensor's vertical displacement is the grey trace. Slide the lag to shift it along the video, and the correlation with each tracked person updates. The participant is the track that locks in, and the lag where it locks is sensor time zero on the video.</p>
   <div class="panel">
     <div class="controls">
       <div class="control"><label for="lag">Lag of the sensor on the video</label><input type="range" id="lag" min="-8" max="12" step="0.02" value="0"><span class="val" id="lagv">0.00 s</span></div>
@@ -203,7 +225,7 @@ footer .wrap { display: grid; gap: 8px; }
 
 <section id="outputs"><div class="wrap">
   <div class="eyebrow">What you get</div>
-  <h2>Pose-level files, and a verdict</h2>
+  <h2>Pose-level files and a verdict</h2>
   <p class="muted" style="margin-top:10px">Only derivatives leave the site. Every lifted frame says what it was made from.</p>
   <div class="panel">
     <dl class="outputs">
@@ -219,25 +241,28 @@ footer .wrap { display: grid; gap: 8px; }
 
 <section id="measured"><div class="wrap">
   <div class="eyebrow">Measured</div>
-  <h2>What the numbers say</h2>
-  <p class="muted" style="margin-top:10px">Validated on rendered two-view sessions with a known answer, on public multi-person footage with a simulated sensor, and on recordings of our own. It has not yet run on real clinic video against a real sensor; that is the test that matters, and the one we are set up for.</p>
+  <h2>Results on rendered truth and one real recording</h2>
+  <p class="muted" style="margin-top:10px">Six two-view sessions were rendered from real walks with a known pose in every frame, a known sensor offset, a decoy walker, an operator and a bystander. The real recording is the chalk walk above, where the truth is the distance between the marks. Real clinic video against a real sensor has not been run yet; that is the next test.</p>
   <div class="panel tablewrap">
     <table class="measured">
-      <thead><tr><th>Quantity</th><th>Result</th><th>On what</th></tr></thead>
+      <thead><tr><th>Stage</th><th>Result</th><th>Measured on</th></tr></thead>
       <tbody>
-        <tr><td>Sensor time zero on the video</td><td class="num">within 2 frames</td><td>rendered sessions with a known offset</td></tr>
-        <tr><td>Chosen track holds the participant</td><td class="num">100 % of frames</td><td>rendered sessions with a decoy walker, operator and bystander</td></tr>
-        <tr><td>Merged leg joints against the truth</td><td class="num">9.7 deg median</td><td>rendered sessions; the joint fit 9.4 deg</td></tr>
-        <tr><td>Merged root against the truth</td><td class="num">10.6 deg median</td><td>after one constant heading; no yaw left in the heading-relative root</td></tr>
-        <tr><td>Two views' leg joints apart</td><td class="num">8.2 deg median</td><td>rendered; 7.7 deg on the real recording above</td></tr>
-        <tr><td>Lift on a CPU against the GPU</td><td class="num">0.08 deg at the 99th pct.</td><td>same poses; about 35 s per second of video per view on four cores</td></tr>
+        <tr><td>Sensor time zero on the video</td><td class="num">within 2 frames</td><td>the rendered sessions, against their known offset</td></tr>
+        <tr><td>The chosen track holds the participant</td><td class="num">100 % of frames</td><td>the rendered sessions, with a decoy walker, an operator and a bystander in view</td></tr>
+        <tr><td>The two views on the timeline</td><td class="num">within 1 frame</td><td>each view's own placement of time zero, rendered and real</td></tr>
+        <tr><td>Merged leg joints against the truth</td><td class="num">9.7 deg median</td><td>the rendered sessions; the joint fit 9.4 deg</td></tr>
+        <tr><td>Merged root against the truth</td><td class="num">10.6 deg median</td><td>after one constant heading per recording; no yaw left in the heading-relative root</td></tr>
+        <tr><td>The two views' own lifts, leg joints apart</td><td class="num">8.2 deg median</td><td>rendered; 7.7 deg on the real recording</td></tr>
+        <tr><td>Walked distance against the chalk marks</td><td class="num">+7 % merge, +13 % fit</td><td>the real recording, 4.11 m measured, four passes</td></tr>
+        <tr><td>Body height against the subject</td><td class="num">+5 to +8 %</td><td>the real recording, 1.65 m measured; the lifter's scale on a real person is not yet pinned down</td></tr>
+        <tr><td>Lift on a CPU against the same lift on a GPU</td><td class="num">0.08 deg at the 99th pct.</td><td>one recording, every joint angle; about 35 s per second of video per view on four cores</td></tr>
       </tbody>
     </table>
   </div>
   <div class="panel">
     <div class="two">
-      <div><h3>Scale of the walk against the truth</h3><p class="note" style="margin:6px 0 10px">Estimated over true: the mean walking speed on the six rendered sessions, whose truth is exact, and the distance walked between the chalk marks on the real recording. 1.00 is the truth.</p><div class="chartbox"><canvas class="chart" id="c_scale" width="520" height="260" role="img" aria-label="estimated over true scale of the walk per session, merge and joint fit"></canvas><div class="tip" id="t_scale" hidden></div></div></div>
-      <div><h3>Leg joints against the truth</h3><p class="note" style="margin:6px 0 10px">Median three-axis error of the leg joints on the rendered sessions, where the truth is a known pose per frame. The real recording has no joint truth; its two views' own lifts agree to <span id="own03legs">…</span> deg median.</p><div class="chartbox"><canvas class="chart" id="c_legs" width="520" height="260" role="img" aria-label="median leg-joint error per rendered session, merge and joint fit"></canvas><div class="tip" id="t_legs" hidden></div></div></div>
+      <div><h3>Scale of the walk, estimated over true</h3><p class="note" style="margin:6px 0 10px">Mean walking speed on the six rendered sessions, where the truth is exact, and the distance walked between the chalk marks on the real recording. 1.00 is the truth; the real recording's bars carry their values.</p><div class="chartbox"><canvas class="chart" id="c_scale" width="520" height="260" role="img" aria-label="estimated over true scale of the walk per session, merge and joint fit"></canvas><div class="tip" id="t_scale" hidden></div></div></div>
+      <div><h3>Leg joints against the truth</h3><p class="note" style="margin:6px 0 10px">Median three-axis error of the leg joints on the rendered sessions, where the truth is a pose per frame. The real recording has no joint truth; its two views' own lifts agree to <span id="own03legs">…</span> deg median.</p><div class="chartbox"><canvas class="chart" id="c_legs" width="520" height="260" role="img" aria-label="median leg-joint error per rendered session, merge and joint fit"></canvas><div class="tip" id="t_legs" hidden></div></div></div>
     </div>
     <div class="legend"><span><span class="sw" style="background:var(--left)"></span>merge: each joint from the view that could vouch for it</span><span><span class="sw" style="background:var(--right)"></span>joint fit: one body fitted to both views at once</span><span class="muted">hover a bar for its value</span></div>
   </div>
@@ -320,7 +345,7 @@ function updateRtable() {
   W.tracks.forEach((tr, i) => { const r = interp(tr.lags, tr.r, walker.lag); const tr_ = document.createElement("tr"); const color = trackColor(i); const rv = r == null ? "–" : r.toFixed(2); if (r != null && (best == null || r > best.r)) best = { r, tr };
     tr_.innerHTML = `<td><span class="chip" style="--c:${color};pointer-events:none"><i></i>track ${tr.tid}</span></td><td class="num">${tr.duration_s} s</td><td class="num">${rv}</td><td><div class="bar"><i style="--c:${color};width:${Math.max(0, r || 0) * 100}%"></i></div></td>`; tb.appendChild(tr_); });
   const chosen = W.tracks.find(t => t.chosen); const near = Math.abs(walker.lag - chosen.best_lag_s) < 0.15;
-  $("#walkernote").innerHTML = near ? `At ${chosen.best_lag_s.toFixed(2)} s track ${chosen.tid} correlates at r = ${chosen.r_best.toFixed(2)} and nothing else comes close: it is the participant, and sensor time zero sits at video ${chosen.best_lag_s.toFixed(2)} s. The session was rendered with the sensor at ${W.true_offset_s.toFixed(1)} s. The other two people each have a lag of their own where they correlate somewhat (the second walker wore a sensor too, just not this one), and that is why the pipeline asks for a clear margin, not only a peak.` : `Move the lag until one track locks in. The pipeline tries every lag at 100 Hz, in two passes: coarse on the activity envelope, fine on the stride band.`;
+  $("#walkernote").innerHTML = near ? `At ${chosen.best_lag_s.toFixed(2)} s track ${chosen.tid} correlates at r = ${chosen.r_best.toFixed(2)} while the others stay low. Track ${chosen.tid} is the participant, and sensor time zero sits at video ${chosen.best_lag_s.toFixed(2)} s; the session was rendered with the sensor at ${W.true_offset_s.toFixed(1)} s. The two other people each correlate somewhat at a lag of their own (the second walker wore a sensor too, just a different one), so the pipeline requires a clear margin over the next-best track as well as a peak.` : `Move the lag until one track locks in. The pipeline tries every lag at 100 Hz in two passes, a coarse one on the activity envelope and a fine one on the stride band.`;
 }
 function setLag(v) { walker.lag = v; $("#lag").value = v; $("#lagv").textContent = v.toFixed(2) + " s"; drawSignals(); drawLagChart(); updateRtable(); }
 $("#lag").addEventListener("input", e => setLag(parseFloat(e.target.value)));
@@ -401,7 +426,7 @@ function stats() {
   const s = V.sync, r = V.reconcile; const box = $("#stats"); const pill = (st) => `<span class="pill ${st === "PASS" ? "good" : "warn"}">${st}</span>`;
   box.innerHTML = `
     <div class="stat"><span class="k">Sensor time zero on the video</span><span class="v">${s.offset_s.toFixed(3)} s</span><span class="s">pelvis correlation r = ${s.r_fine.toFixed(2)}; the light flash sat ${s.flash_minus_xcorr_s.toFixed(2)} s later, so the verdict is ${pill(s.status)} with the reason recorded</span></div>
-    <div class="stat"><span class="k">The two views on the timeline</span><span class="v">${Math.abs(r.view_offsets_s.left - r.view_offsets_s.right).toFixed(3)} s apart</span><span class="s">each view placed time zero on its own; knee flexion correlates at r = ${r.knee_r.toFixed(2)}</span></div>
+    <div class="stat"><span class="k">The two views on the timeline</span><span class="v">${Math.abs(r.view_offsets_s.left - r.view_offsets_s.right).toFixed(3)} s apart</span><span class="s">where each view puts sensor time zero; their knee flexion correlates at r = ${r.knee_r.toFixed(2)}</span></div>
     <div class="stat"><span class="k">The two views on the joints</span><span class="v">${r.legs_median_deg.toFixed(1)} deg</span><span class="s">median leg-joint difference between the two views' own lifts; ${r.all_median_deg.toFixed(1)} deg over all joints</span></div>
     <div class="stat"><span class="k">Against the chalk marks</span><span class="v" id="chalkv">…</span><span class="s" id="chalks">walked distance, the fit's estimate over the measured one</span></div>`;
 }
@@ -421,7 +446,8 @@ function groupedBars(id, rows, keys, opts) {
   const slot = (w - L - R) / n, bw = Math.min(26, (slot - 10) / keys.length - 2); const rects = [];
   rows.forEach((r, i) => { const x0 = L + slot * i + (slot - keys.length * (bw + 2)) / 2;
     keys.forEach((k, j) => { const v = r[k]; if (v == null) return; const x = x0 + j * (bw + 2); const base = Y(Math.max(y0, Math.min(opts.base, y1))), top = Y(Math.max(y0, Math.min(v, y1))); const yy = Math.min(base, top), hh = Math.max(2, Math.abs(base - top));
-      ctx.fillStyle = colors[j]; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, yy, bw, hh, 3) : ctx.rect(x, yy, bw, hh); ctx.fill(); rects.push({ x, y: yy, w: bw, h: hh, label: r.label, name: opts.names[j], v }); });
+      ctx.fillStyle = colors[j]; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, yy, bw, hh, 3) : ctx.rect(x, yy, bw, hh); ctx.fill(); rects.push({ x, y: yy, w: bw, h: hh, label: r.label, name: opts.names[j], v });
+      if (r.kind === "real") { ctx.fillStyle = css("--fg"); ctx.textAlign = "center"; ctx.fillText(opts.fmt(v), x + bw / 2, (v >= opts.base ? top : base) - 5); ctx.textAlign = "left"; } });
     ctx.fillStyle = r.kind === "real" ? css("--fg") : css("--fg2"); ctx.textAlign = "center"; ctx.fillText(r.id, L + slot * (i + 0.5), h - 26); ctx.font = "11px " + css("--sans"); ctx.fillText(r.kind === "real" ? "real" : r.short, L + slot * (i + 0.5), h - 10); ctx.font = "12px " + css("--mono"); ctx.textAlign = "left"; });
   charts[id] = rects;
   if (!c.dataset.hover) { c.dataset.hover = "1"; c.addEventListener("mousemove", e => { const b = c.getBoundingClientRect(); const x = e.clientX - b.left, y = e.clientY - b.top; const hit = (charts[id] || []).find(r => x >= r.x - 2 && x <= r.x + r.w + 2 && y >= r.y - 6 && y <= r.y + r.h + 6); if (!hit) { tip.hidden = true; return; } tip.hidden = false; tip.textContent = `${hit.label} · ${hit.name} ${opts.fmt(hit.v)}`; tip.style.left = Math.min(x + 12, b.width - 200) + "px"; tip.style.top = Math.max(0, y - 34) + "px"; }); c.addEventListener("mouseleave", () => { tip.hidden = true; }); }
